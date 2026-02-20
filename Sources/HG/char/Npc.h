@@ -69,7 +69,7 @@ public:
 	char  m_cAction;
 	char  m_cTurn;
 
-	short m_sAppr2;
+	int  m_sAppr2;
 
 	DWORD m_dwTime;
 	DWORD m_dwActionTime;

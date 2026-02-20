@@ -29,7 +29,7 @@ public:
 	int   m_iEffectType;
 	int   m_iDeadApprColor; 
 	int   m_iEffectFrame, m_iEffectTotalFrame;
-	int   m_iApprColor; 
+	int   m_iApprColor ;
 	int   m_iDeadChatMsg;
 
 	WORD  m_wDeadObjectID;

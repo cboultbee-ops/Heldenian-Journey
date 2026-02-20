@@ -6,6 +6,9 @@
 #include <objbase.h>
 #include "..\game.h"
 #include "DXC_ddraw.h"
+#include "GPURenderer.h"
+
+// Note: No longer using GLFW - GPU rendering uses WGL on Win32 window directly
 
 extern HWND G_hEditWnd;
 extern HWND G_hWnd;
@@ -34,7 +37,15 @@ DXC_ddraw::DXC_ddraw()
 	m_lpBackB4flip	= NULL;
 	m_cPixelFormat	= 0;
 
-#ifdef WINDOWED_MODE	
+	// GPU renderer initialization
+	m_pGPURenderer  = NULL;
+	m_bUseGPU       = FALSE;
+	m_iRenderWidth  = 640;
+	m_iRenderHeight = 480;
+	m_fScaleX       = 1.0f;
+	m_fScaleY       = 1.0f;
+
+#ifdef WINDOWED_MODE
 	m_bFullMode		= FALSE;
 #else
 	m_bFullMode		= TRUE;
@@ -44,6 +55,7 @@ DXC_ddraw::DXC_ddraw()
 
 DXC_ddraw::~DXC_ddraw()
 {
+	ShutdownGPURenderer();
 	if (m_hFontInUse != NULL) DeleteObject(m_hFontInUse);
 	if (m_lpBackB4flip != NULL) m_lpBackB4flip->Release();
 	if (m_lpBackB4 != NULL) m_lpBackB4->Release();
@@ -66,54 +78,69 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 	ddVal = DirectDrawCreateEx(NULL, (VOID**)&m_lpDD4, IID_IDirectDraw7, NULL);
     if (ddVal != DD_OK) return FALSE;
 
-	if( m_bFullMode == TRUE )
-	{
-		DDSCAPS2       ddscaps;
-		ddVal = m_lpDD4->SetCooperativeLevel(hWnd, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
-		if (ddVal != DD_OK) return FALSE;
+	// Set normal cooperative level first (needed for off-screen surface creation)
+	ddVal = m_lpDD4->SetCooperativeLevel(hWnd, DDSCL_NORMAL);
+	if (ddVal != DD_OK) return FALSE;
 
-		ddVal = m_lpDD4->SetDisplayMode(640, 480, 16,0,0);
-		if (ddVal != DD_OK) return FALSE;
-		memset( (VOID *)&ddsd, 0, sizeof(ddsd) );
-		ddsd.dwSize = sizeof( ddsd );
-		ddsd.dwFlags = DDSD_CAPS | DDSD_BACKBUFFERCOUNT;
-		ddsd.dwBackBufferCount = 1;
-		ddsd.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE | DDSCAPS_FLIP | DDSCAPS_COMPLEX;
-		
-		ddVal = m_lpDD4->CreateSurface(&ddsd, &m_lpFrontB4, NULL);
-		if (ddVal != DD_OK) return FALSE;
-
-		ZeroMemory(&ddscaps, sizeof(ddscaps));
-		ddscaps.dwCaps = DDSCAPS_BACKBUFFER;
-		ddVal = m_lpFrontB4->GetAttachedSurface(&ddscaps, &m_lpBackB4flip);
-		if (ddVal != DD_OK) return FALSE;
-		SetRect(&m_rcFlipping, 0, 0, 640, 480); // our fictitious sprite bitmap is 
+	// Try GPU renderer first - if successful, skip DirectDraw display setup
+	m_bUseGPU = FALSE;
+	if (InitGPURenderer()) {
+		m_bUseGPU = TRUE;
+		OutputDebugString("GPU Renderer initialized - skipping DirectDraw display setup\n");
+		// No primary surface needed - GPU handles display via OpenGL
+		m_lpFrontB4 = NULL;
+		m_lpBackB4flip = NULL;
+		SetRect(&m_rcFlipping, 0, 0, 640, 480);
 	}
 	else
 	{
-		int cx = GetSystemMetrics(SM_CXFULLSCREEN);
-		int cy = GetSystemMetrics(SM_CYFULLSCREEN);
+		OutputDebugString("GPU Renderer failed, using DirectDraw fallback\n");
+		if( m_bFullMode == TRUE )
+		{
+			DDSCAPS2       ddscaps;
+			// Re-set cooperative level for exclusive fullscreen
+			ddVal = m_lpDD4->SetCooperativeLevel(hWnd, DDSCL_EXCLUSIVE | DDSCL_FULLSCREEN);
+			if (ddVal != DD_OK) return FALSE;
 
-		ddVal = m_lpDD4->SetCooperativeLevel(hWnd, DDSCL_NORMAL);
-		if (ddVal != DD_OK) return FALSE;
-		
-		cx = cx/2;
-		cy = cy/2;
-		if(cy>280) cy -= 40;
-		SetWindowPos( hWnd, HWND_TOP, cx-320, cy-240, 640, 480, SWP_SHOWWINDOW);
-		memset( (VOID *)&ddsd, 0, sizeof(ddsd) );
-		ddsd.dwSize = sizeof( ddsd );
-		ddsd.dwFlags = DDSD_CAPS;
-		//ddsd.dwBackBufferCount = 0;
-		ddsd.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE;
-		
-		ddVal = m_lpDD4->CreateSurface(&ddsd, &m_lpFrontB4, NULL);
-		if (ddVal != DD_OK) return FALSE;
+			ddVal = m_lpDD4->SetDisplayMode(640, 480, 16,0,0);
+			if (ddVal != DD_OK) return FALSE;
+			memset( (VOID *)&ddsd, 0, sizeof(ddsd) );
+			ddsd.dwSize = sizeof( ddsd );
+			ddsd.dwFlags = DDSD_CAPS | DDSD_BACKBUFFERCOUNT;
+			ddsd.dwBackBufferCount = 1;
+			ddsd.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE | DDSCAPS_FLIP | DDSCAPS_COMPLEX;
 
-		SetRect(&m_rcFlipping, cx-320, cy-240, cx+320, cy+240); // our fictitious sprite bitmap is 
+			ddVal = m_lpDD4->CreateSurface(&ddsd, &m_lpFrontB4, NULL);
+			if (ddVal != DD_OK) return FALSE;
+
+			ZeroMemory(&ddscaps, sizeof(ddscaps));
+			ddscaps.dwCaps = DDSCAPS_BACKBUFFER;
+			ddVal = m_lpFrontB4->GetAttachedSurface(&ddscaps, &m_lpBackB4flip);
+			if (ddVal != DD_OK) return FALSE;
+			SetRect(&m_rcFlipping, 0, 0, 640, 480);
+		}
+		else
+		{
+			int cx = GetSystemMetrics(SM_CXFULLSCREEN);
+			int cy = GetSystemMetrics(SM_CYFULLSCREEN);
+
+			cx = cx/2;
+			cy = cy/2;
+			if(cy>280) cy -= 40;
+			SetWindowPos( hWnd, HWND_TOP, cx-320, cy-240, 640, 480, SWP_SHOWWINDOW);
+			memset( (VOID *)&ddsd, 0, sizeof(ddsd) );
+			ddsd.dwSize = sizeof( ddsd );
+			ddsd.dwFlags = DDSD_CAPS;
+			ddsd.ddsCaps.dwCaps = DDSCAPS_PRIMARYSURFACE;
+
+			ddVal = m_lpDD4->CreateSurface(&ddsd, &m_lpFrontB4, NULL);
+			if (ddVal != DD_OK) return FALSE;
+
+			SetRect(&m_rcFlipping, cx-320, cy-240, cx+320, cy+240);
+		}
+
+		InitFlipToGDI(hWnd);
 	}
-
-	InitFlipToGDI(hWnd);
 	m_lpBackB4 = pCreateOffScreenSurface(640, 480);
 	if (m_lpBackB4 == NULL) return FALSE;
 
@@ -164,10 +191,15 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 		G_lTransG2[iD][iS]  = _CalcMaxValue(iS, iD, 'G', 2, 1.0f);
 	}
 
-	m_hFontInUse = NULL;	
+	m_hFontInUse = NULL;
 	m_hFontInUse = CreateFont(16,0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, VARIABLE_PITCH, "Trebuchet MS") ;
 	m_hDC = NULL;
-		
+
+	// Initialize font atlas for GPU text rendering
+	if (m_bUseGPU && m_pGPURenderer != NULL) {
+		m_pGPURenderer->InitFontAtlas(m_hFontInUse);
+	}
+
 	return TRUE;
 }
 
@@ -175,6 +207,14 @@ HRESULT DXC_ddraw::iFlip()
 {
 	HRESULT ddVal;
 
+	// GPU rendering path - flush and swap buffers
+	if (m_bUseGPU && m_pGPURenderer != NULL) {
+		EndGPUFrame();
+		G_pGame->m_iFrameCount++;
+		return DD_OK;
+	}
+
+	// DirectDraw fallback path
 	if( m_bFullMode )
 	{
 #ifdef USING_WIN_IME
@@ -224,6 +264,9 @@ HRESULT DXC_ddraw::iFlip()
 
 void DXC_ddraw::ChangeDisplayMode(HWND hWnd)
 {
+	// GPU mode handles display via OpenGL - no DirectDraw surfaces to toggle
+	if (m_bUseGPU) return;
+
 	HRESULT        ddVal;
 	DDSURFACEDESC2 ddsd;
 
@@ -394,6 +437,10 @@ DWORD DXC_ddraw::_dwColorMatch(IDirectDrawSurface7 * pdds4, WORD wColorKey)
 
 void DXC_ddraw::TextOut(int x, int y, char * cStr, COLORREF rgb)
 {
+	if (m_bUseGPU && m_pGPURenderer != NULL) {
+		m_pGPURenderer->RenderText(x, y, cStr, rgb);
+		return;
+	}
 	SetTextColor(m_hDC, rgb );
 	::TextOut(m_hDC, x, y, cStr, strlen(cStr));
 }
@@ -494,7 +541,15 @@ long DXC_ddraw::_CalcMinValue(int iS, int iD, char cMode)
 
 void DXC_ddraw::ClearBackB4()
 {
-	DDSURFACEDESC2 ddsd2;	
+	// GPU rendering path
+	if (m_bUseGPU && m_pGPURenderer != NULL) {
+		BeginGPUFrame();
+		m_pGPURenderer->Clear(0.0f, 0.0f, 0.0f, 1.0f);
+		return;
+	}
+
+	// DirectDraw fallback path
+	DDSURFACEDESC2 ddsd2;
 	ddsd2.dwSize = sizeof(ddsd2);
 	if (m_lpBackB4->Lock(NULL, &ddsd2, DDLOCK_WAIT, NULL) != DD_OK) return;
 	memset((char *)ddsd2.lpSurface, 0, ddsd2.lPitch * 480);
@@ -503,6 +558,9 @@ void DXC_ddraw::ClearBackB4()
 
 void DXC_ddraw::DrawShadowBox(short sX, short sY, short dX, short dY, int iType)
 {
+	// GPU mode: back buffer is 32-bit, direct 16-bit pixel ops would corrupt memory
+	if (m_bUseGPU) return;
+
 	WORD * pDst, wValue;
 	int ix, iy;
 
@@ -556,6 +614,9 @@ void DXC_ddraw::DrawShadowBox(short sX, short sY, short dX, short dY, int iType)
 
 void DXC_ddraw::PutPixel(short sX, short sY, WORD wR, WORD wG, WORD wB)
 {
+	// GPU mode: back buffer is 32-bit, direct 16-bit pixel ops would corrupt memory
+	if (m_bUseGPU) return;
+
  WORD * pDst;
 
 	if ((sX < 0) || (sY < 0) || (sX > 639) || (sY > 479)) return;
@@ -576,6 +637,7 @@ void DXC_ddraw::PutPixel(short sX, short sY, WORD wR, WORD wG, WORD wB)
 
 void DXC_ddraw::_GetBackBufferDC()
 {
+	if (m_bUseGPU) return;
 	m_lpBackB4->GetDC(&m_hDC);
 	SelectObject(m_hDC, m_hFontInUse);
 	SetBkMode(m_hDC, TRANSPARENT);
@@ -584,11 +646,16 @@ void DXC_ddraw::_GetBackBufferDC()
 
 void DXC_ddraw::_ReleaseBackBufferDC()
 {
+	if (m_bUseGPU) return;
 	m_lpBackB4->ReleaseDC(m_hDC);
 }
 
 void DXC_ddraw::DrawText(LPRECT pRect, char *pString, COLORREF rgb)
 {
+	if (m_bUseGPU && m_pGPURenderer != NULL) {
+		m_pGPURenderer->RenderTextRect(pRect, pString, rgb);
+		return;
+	}
 	SetTextColor(m_hDC, rgb);
 	::DrawText(m_hDC, pString, strlen(pString), pRect, DT_CENTER | DT_NOCLIP | DT_WORDBREAK | DT_NOPREFIX);//v2.15
 }
@@ -659,6 +726,96 @@ void DXC_ddraw::ColorTransferRGB(COLORREF fcolor, int * iR, int * iG, int * iB)
 		*iB = (int)wB;
 		break;
 	}
+}
+
+//---------------------------------------------------------------------------
+// GPU Renderer Methods
+//---------------------------------------------------------------------------
+
+bool DXC_ddraw::InitGPURenderer()
+{
+	// Use the Win32 window handle directly (no separate GLFW window)
+	if (G_hWnd == NULL) {
+		OutputDebugString("InitGPURenderer: No Win32 window available\n");
+		return false;
+	}
+
+	m_pGPURenderer = new CGPURenderer();
+	if (m_pGPURenderer == NULL) {
+		OutputDebugString("InitGPURenderer: Failed to allocate GPURenderer\n");
+		return false;
+	}
+
+	// Initialize GPU renderer on the Win32 window using WGL
+	if (!m_pGPURenderer->Init(G_hWnd, 640, 480)) {
+		delete m_pGPURenderer;
+		m_pGPURenderer = NULL;
+		return false;
+	}
+
+	m_iRenderWidth = 640;
+	m_iRenderHeight = 480;
+	m_fScaleX = 1.0f;
+	m_fScaleY = 1.0f;
+
+	return true;
+}
+
+void DXC_ddraw::ShutdownGPURenderer()
+{
+	if (m_pGPURenderer != NULL) {
+		m_pGPURenderer->Shutdown();
+		delete m_pGPURenderer;
+		m_pGPURenderer = NULL;
+	}
+	m_bUseGPU = FALSE;
+}
+
+void DXC_ddraw::BeginGPUFrame()
+{
+	if (m_pGPURenderer != NULL && m_bUseGPU) {
+		m_pGPURenderer->BeginFrame();
+	}
+}
+
+void DXC_ddraw::EndGPUFrame()
+{
+	if (m_pGPURenderer != NULL && m_bUseGPU) {
+		m_pGPURenderer->EndFrame();
+		// Use WGL SwapBuffers on Win32 window (no GLFW)
+		m_pGPURenderer->SwapBuffers();
+	}
+}
+
+void DXC_ddraw::UpdateGPUMapTexture()
+{
+	if (!m_bUseGPU || m_pGPURenderer == NULL || m_lpPDBGS == NULL) return;
+
+	DDSURFACEDESC2 ddsd;
+	ZeroMemory(&ddsd, sizeof(ddsd));
+	ddsd.dwSize = sizeof(ddsd);
+	ddsd.dwFlags = DDSD_PIXELFORMAT;
+	if (m_lpPDBGS->Lock(NULL, &ddsd, DDLOCK_WAIT | DDLOCK_READONLY, NULL) != DD_OK) return;
+
+	int bitDepth = ddsd.ddpfPixelFormat.dwRGBBitCount;
+
+	m_pGPURenderer->UpdateMapTexture(
+		(const uint8_t*)ddsd.lpSurface,
+		ddsd.lPitch,
+		ddsd.dwWidth,
+		ddsd.dwHeight,
+		bitDepth,
+		ddsd.ddpfPixelFormat.dwRBitMask,
+		ddsd.ddpfPixelFormat.dwGBitMask,
+		ddsd.ddpfPixelFormat.dwBBitMask);
+
+	m_lpPDBGS->Unlock(NULL);
+}
+
+void DXC_ddraw::RenderGPUMapBackground(int srcX, int srcY)
+{
+	if (!m_bUseGPU || m_pGPURenderer == NULL) return;
+	m_pGPURenderer->RenderMapQuad(srcX, srcY, 640, 480);
 }
 
 //---------------------------------------------------------------------------

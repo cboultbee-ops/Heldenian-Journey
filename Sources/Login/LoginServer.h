@@ -98,7 +98,7 @@ public:
 	BOOL GetMsgQuene(char * Data, DWORD * pMsgSize, int * pIndex, char * pKey);
 	BOOL PutMsgQuene(char * Data, DWORD dwMsgSize, int iIndex, char cKey);
 	void MsgProcess();
-	void RequestForceDisconnect(CClient *pClient, WORD count);
+	void RequestForceDisconnect(WORD clientIndex, WORD count);
 	uint64 GetLastInsertedItemID(MYSQL myConn);
 	void RequestCreateNewGuildHandler(char *Data, BYTE GSID, MYSQL myConn);
 	BOOL GuildExists(char *GuildName, DWORD *GuildID, MYSQL myConn);

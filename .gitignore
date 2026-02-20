@@ -1,0 +1,97 @@
+# Build outputs
+*.exe
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.o
+*.log
+*.suo
+*.user
+*.ncb
+*.sdf
+*.opensdf
+*.tlog
+*.map
+*.sarif
+*.aps
+
+# Visual Studio directories
+.vs/
+Debug/
+Release/
+x64/
+x86/
+ipch/
+*.VC.db
+*.VC.opendb
+Browse.VC.db
+
+# Build directories (if separate from source)
+**/Debug/
+**/Release/
+**/.vs/
+
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# MySQL data (don't track database files)
+*.frm
+*.ibd
+*.MYD
+*.MYI
+ibdata*
+ib_logfile*
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Task files from code bot sessions
+HELBREATH_TASKS*.md
+GIT_SETUP.md
+
+# Claude/Cursor/VSCode config (local editor settings)
+.claude/
+.cursor/
+.vscode/
+
+# Server logs
+Maps/*/Logs/
+Login/Logs/
+Login/Events.log
+
+# Old utility programs (large binaries)
+Usefull Programs/
+
+# Misc generated/temp files
+*.zip
+remap_skills.ps1
+clean_old.py
+extract_new.py
+asset_pipeline/
+
+# DLL files (runtime dependencies, not source)
+Client/*.dll
+Client/.vs/
+Maps/*/*.dll
+Sources/Client/*.dll
+Sources/Client/UI/*.dll
+
+# Sprite files (large binary assets - track separately if needed)
+Client/SPRITES/
+Client/SPRITES(original)/
+Client/shaders/
+
+# VS upgrade artifacts
+*.htm
+
+# Duplicate lib files
+Sources/Shared/lib/*(*).lib
+
+# Lib files are needed for building but are binary
+# Keep them tracked since they're required for compilation

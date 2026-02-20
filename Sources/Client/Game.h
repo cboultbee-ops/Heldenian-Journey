@@ -872,6 +872,7 @@ public:
 
 	int m_iIlusionOwnerH;
 	int m_iApprColor_IE;
+	int iApprColor;
 	int m_iInputX, m_iInputY;
 	int m_iPDBGSdivX, m_iPDBGSdivY;			   // Pre-Draw Background Surface
 	short m_sRecentShortCut;

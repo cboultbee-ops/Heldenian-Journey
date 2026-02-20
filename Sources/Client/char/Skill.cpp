@@ -19,5 +19,4 @@ CSkill::CSkill()
 
 CSkill::~CSkill()
 {
-
 }

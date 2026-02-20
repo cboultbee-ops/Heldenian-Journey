@@ -19,8 +19,14 @@ CMyDib::CMyDib(char *szFilename, unsigned long dwFilePointer)
 		wsprintf( PathName, "sprites\\%s.pak", szFilename );
 
 	hFileRead = CreateFile(PathName, GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL);
+	if (hFileRead == INVALID_HANDLE_VALUE) return;
 	SetFilePointer(hFileRead, dwFilePointer, NULL, FILE_BEGIN);
 	ReadFile(hFileRead, (char *)&fh, 14, &nCount, NULL);//sizeof(bmpHeader)==14
+	// Validate BMP signature — PAKs may contain PNGs which must not be parsed as BMP
+	if (fh.bfType != 0x4D42 || fh.bfSize <= 14) {
+		CloseHandle(hFileRead);
+		return;  // m_lpDib stays NULL
+	}
 	m_lpDib = (LPSTR)new char[fh.bfSize-14];
 	ReadFile(hFileRead, (char *)m_lpDib, fh.bfSize-14, &nCount, NULL);
 	CloseHandle(hFileRead);
@@ -30,6 +36,7 @@ CMyDib::CMyDib(char *szFilename, unsigned long dwFilePointer)
 	m_wWidthY = (WORD)(bmpInfoHeader->biHeight);
 	if (bmpInfoHeader->biClrUsed == 0)
 	{	if(bmpInfoHeader->biBitCount == 24) m_wColorNums = 0;
+		else if(bmpInfoHeader->biBitCount == 32) m_wColorNums = 0;
 		else if(bmpInfoHeader->biBitCount == 8) m_wColorNums = 256;
 		else if(bmpInfoHeader->biBitCount == 1) m_wColorNums = 2;
 		else if(bmpInfoHeader->biBitCount == 4) m_wColorNums = 16;
@@ -44,5 +51,19 @@ CMyDib::~CMyDib()
 void CMyDib::PaintImage(HDC hDC)
 {	if (m_lpDib == NULL) return;
 	SetDIBitsToDevice(hDC, 0, 0, m_wWidthX, m_wWidthY, 0, 0, 0, m_wWidthY, m_lpDib + *(LPDWORD)m_lpDib + 4*m_wColorNums, m_bmpInfo, DIB_RGB_COLORS);
+}
+
+LPSTR CMyDib::GetPixels() const
+{
+	if (m_lpDib == NULL) return NULL;
+	// Pixel data starts after the header and palette
+	return m_lpDib + *(LPDWORD)m_lpDib + 4*m_wColorNums;
+}
+
+WORD CMyDib::GetBitsPerPixel() const
+{
+	if (m_lpDib == NULL) return 0;
+	LPBITMAPINFOHEADER bmpHeader = (LPBITMAPINFOHEADER)m_lpDib;
+	return (WORD)bmpHeader->biBitCount;
 }
 

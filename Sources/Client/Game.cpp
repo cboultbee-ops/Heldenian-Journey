@@ -25,11 +25,11 @@ char _cDrawingOrder[]            = {0, 1, 0, 0, 0, 0, 0, 1, 1};
 char _cMantleDrawingOrder[]      = {0, 1, 1, 1, 0, 0, 0, 2, 2};
 char _cMantleDrawingOrderOnRun[] = {0, 1, 1, 1, 1, 1, 1, 1, 1};
 
-
 short _tmp_sOwnerType, _tmp_sAppr1, _tmp_sAppr2, _tmp_sAppr3, _tmp_sAppr4;
 int _tmp_iStatus;
 char  _tmp_cAction, _tmp_cDir, _tmp_cFrame, _tmp_cName[12];
 int   _tmp_iChatIndex, _tmp_dx, _tmp_dy, _tmp_iApprColor, _tmp_iEffectType, _tmp_iEffectFrame, _tmp_dX, _tmp_dY; // 21.171 2002-6-14
+int iApprColor = 0x00;
 WORD  _tmp_wObjectID;
 char cDynamicObjectData1, cDynamicObjectData2, cDynamicObjectData3, cDynamicObjectData4;
 WORD  wFocusObjectID;
@@ -37,7 +37,7 @@ short sFocus_dX, sFocus_dY;
 char  cFocusAction, cFocusFrame, cFocusDir, cFocusName[12];
 short sFocusX, sFocusY, sFocusOwnerType, sFocusAppr1, sFocusAppr2, sFocusAppr3, sFocusAppr4;
 int iFocuiStatus;
-int   iFocusApprColor;
+int iFocusApprColor;
 
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
@@ -2730,9 +2730,9 @@ void CGame::UpdateScreen_OnMainMenu()
 		
 		pMI = new class CMouseInterface; 
 
-		pMI->AddRect(112,150,247,191);
-		pMI->AddRect(73,192,281,230);
-		pMI->AddRect(120,231,239,262);
+		pMI->AddRect(385, 178, 546, 195);
+		pMI->AddRect(384, 214, 543, 233);
+		pMI->AddRect(386, 253, 546, 275);
 		m_DInput.m_sX = 400;
 		m_DInput.m_sY = 240;
 
@@ -2803,6 +2803,7 @@ void CGame::UpdateScreen_OnMainMenu()
 	DrawVersion();
 
 	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
+	{ char dbg[64]; wsprintf(dbg, "X:%d Y:%d", msX, msY); PutString2(300, 10, dbg, 255, 255, 0); }
 
 	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
 	
@@ -2966,10 +2967,10 @@ void CGame::UpdateScreen_OnLoading(bool bActive)
 			m_hPakFile = CreateFile("sprites\\LoginDialog.pak", GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL);
 			if( m_hPakFile != INVALID_HANDLE_VALUE ) {
 				m_pSprite[SPRID_INTERFACE_ND_LOGIN] = new class CSprite(m_hPakFile, &m_DDraw, "LoginDialog", 0, FALSE);
-////#ifdef MAKE_ACCOUNT
-////				m_pSprite[SPRID_INTERFACE_ND_NEWACCOUNT] = new class CSprite(m_hPakFile, &m_DDraw, "LoginDialog", 1, FALSE);
-////				m_pSprite[SPRID_INTERFACE_ND_AGREEMENT] = new class CSprite(m_hPakFile, &m_DDraw, "LoginDialog", 2, FALSE);
-////#endif
+#ifdef MAKE_ACCOUNT
+				m_pSprite[SPRID_INTERFACE_ND_NEWACCOUNT] = new class CSprite(m_hPakFile, &m_DDraw, "LoginDialog", 1, FALSE);
+				m_pSprite[SPRID_INTERFACE_ND_AGREEMENT] = new class CSprite(m_hPakFile, &m_DDraw, "LoginDialog", 2, FALSE);
+#endif
 				CloseHandle(m_hPakFile);
 			}
 
@@ -3029,7 +3030,7 @@ void CGame::UpdateScreen_OnLoading(bool bActive)
 		break;
 	case 4:
 		{	MakeTileSpr( "maptiles1", 0, 32, TRUE);
-			m_hPakFile = CreateFile("sprites\\structures1.pak", GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL); //¾È¾²´Â Å¸ÀÏ ·Îµù ¾ÈÇÑ´Ù.2002.09.06»óÇÏ
+			m_hPakFile = CreateFile("sprites\\structures1.pak", GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL); //ï¿½È¾ï¿½ï¿½ï¿½ Å¸ï¿½ï¿½ ï¿½Îµï¿½ ï¿½ï¿½ï¿½Ñ´ï¿½.2002.09.06ï¿½ï¿½ï¿½ï¿½
 			if( m_hPakFile != INVALID_HANDLE_VALUE ) {
 				m_pTileSpr[1 + 50] = new class CSprite(m_hPakFile, &m_DDraw, "structures1",  1, TRUE);
 				m_pTileSpr[5 + 50] = new class CSprite(m_hPakFile, &m_DDraw, "structures1",  5, TRUE);
@@ -3187,8 +3188,8 @@ void CGame::UpdateScreen_OnLoading(bool bActive)
 			MakeSprite( "Ant",		  SPRID_MOB   + 7*8*6, 40, TRUE);//  Giant-Ant (Type: 16)
 			MakeSprite( "Scp",		  SPRID_MOB   + 7*8*7, 40, TRUE);//  Scorpion (Type: 17)
 			MakeSprite( "Zom",		  SPRID_MOB   + 7*8*8, 40, TRUE);//  Zombie (Type: 18)
-			MakeSprite( "Gandlf",	  SPRID_MOB   + 7*8*9,  8, TRUE);// Gandalf ¸ (Type: 19)
-			MakeSprite( "Howard",	  SPRID_MOB   + 7*8*10, 8, TRUE);// Howard º¸°ü¼Ò ÁÖÀÎ (Type: 20)
+			MakeSprite( "Gandlf",	  SPRID_MOB   + 7*8*9,  8, TRUE);// Gandalf ï¿½ (Type: 19)
+			MakeSprite( "Howard",	  SPRID_MOB   + 7*8*10, 8, TRUE);// Howard ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (Type: 20)
 			MakeSprite( "Guard",	  SPRID_MOB   + 7*8*11, 40, TRUE);// Guard (Type: 21)
 			MakeSprite( "Amp",		  SPRID_MOB   + 7*8*12, 40, TRUE);// Amphis (Type: 22)
 			MakeSprite( "Cla",		  SPRID_MOB   + 7*8*13, 40, TRUE);// Clay-Golem (Type: 23)
@@ -3614,7 +3615,7 @@ void CGame::UpdateScreen_OnLoading(bool bActive)
 			MakeEffectSpr( "effect4", 19, 5, FALSE);
 			m_hPakFile = CreateFile("sprites\\effect5.pak", GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL);
 			if( m_hPakFile != INVALID_HANDLE_VALUE )
-			{	for (i = 0; i <= 6; i++) // Because effectn°0 is EnergySphere
+			{	for (i = 0; i <= 6; i++) // Because effectnï¿½0 is EnergySphere
 					m_pEffectSpr[i+ 24] = new class CSprite(m_hPakFile, &m_DDraw, "effect5", i+1, FALSE);
 				CloseHandle(m_hPakFile);
 			}
@@ -3865,7 +3866,7 @@ BOOL CGame::_bCheckDlgBoxClick(short msX, short msY)
 			case 40:
 				DlgBoxClick_Slates(msX, msY);
 				break;
-// Snoopy: Boite de dialogue de confirmation d'échange
+// Snoopy: Boite de dialogue de confirmation d'ï¿½change
 			case 41:
 				DlgBoxClick_ConfirmExchange(msX, msY);
 				break;
@@ -3936,9 +3937,6 @@ BOOL CGame::bDlgBoxPress_Inventory(short msX, short msY)
  char  cItemID;
  short sX, sY, x1, x2, y1, y2;
 
-#ifdef _DEBUG
- AddEventList("Press Inventory", 10);
-#endif
 
 	if (m_bIsDialogEnabled[2] == FALSE) return FALSE;
 	if (m_bIsDialogEnabled[17] == TRUE) return FALSE;
@@ -3959,8 +3957,12 @@ BOOL CGame::bDlgBoxPress_Inventory(short msX, short msY)
 			x2 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->m_rcBound.right;
 			y2 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->m_rcBound.bottom;
 			if ( (m_bIsItemDisabled[cItemID] == FALSE) && (m_bIsItemEquipped[cItemID] == FALSE) && (msX > x1) && (msX < x2) && (msY > y1) && (msY < y2) ) {
-
-				if (m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->_bCheckCollison(sX + 32 + m_pItemList[cItemID]->m_sX, sY + 44 + m_pItemList[cItemID]->m_sY, m_pItemList[cItemID]->m_sSpriteFrame, msX, msY) == TRUE) 
+				BOOL bHit;
+				if (m_DDraw.m_bUseGPU)
+					bHit = TRUE; // GPU mode: bounding box is sufficient (no DDraw surface for pixel test)
+				else
+					bHit = m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->_bCheckCollison(sX + 32 + m_pItemList[cItemID]->m_sX, sY + 44 + m_pItemList[cItemID]->m_sY, m_pItemList[cItemID]->m_sSpriteFrame, msX, msY);
+				if (bHit == TRUE)
 				{	_SetItemOrder(0, cItemID);
 					if (   (m_bIsGetPointingMode == TRUE) && (m_iPointCommandType < 100) && (m_iPointCommandType >= 0 )
 						&& (m_pItemList[m_iPointCommandType] != NULL)
@@ -4514,7 +4516,7 @@ void CGame::InitGameSettings()
 
 void CGame::_GetHairColorRGB(int iColorType, int * pR, int * pG, int * pB)
 {	switch (iColorType) {
-	case 0: // rouge foncé
+	case 0: // rouge foncï¿½
 		*pR = 14; *pG = -5; *pB = -5; break;
 	case 1: // Orange
 		*pR = 20; *pG = 0; *pB = 0; break;
@@ -4524,7 +4526,7 @@ void CGame::_GetHairColorRGB(int iColorType, int * pR, int * pG, int * pB)
 		*pR = 0; *pG = 10; *pB = 0; break;
 	case 4: // Bleu flashy
 		*pR = 0; *pG = 0; *pB = 22; break;
-	case 5: // Bleu foncé
+	case 5: // Bleu foncï¿½
 		*pR = -5; *pG = -5; *pB = 15; break;
 	case 6: //Mauve
 		*pR = 15; *pG = -5; *pB = 16; break;
@@ -5170,7 +5172,7 @@ void CGame::bAddNewEffect(short sType, int sX, int sY, int dX, int dY, char cSta
 			m_pEffectList[i]->m_dwFrameTime = 10;
 			break;
 
-		case 2:	// Flêche qui vole
+		case 2:	// Flï¿½che qui vole
 			m_pEffectList[i]->m_mX     = sX*32;
 			m_pEffectList[i]->m_mY     = sY*32 - _iAttackerHeight[iV1];
 			m_pEffectList[i]->m_iErr   = 0;
@@ -5753,7 +5755,7 @@ void CGame::bAddNewEffect(short sType, int sX, int sY, int dX, int dY, char cSta
 			m_pEffectList[i]->m_dwFrameTime = 40;
 			break;
 
-		case 80: // Snoopy: rajoué, implémenté en dernier ds la v351
+		case 80: // Snoopy: rajouï¿½, implï¿½mentï¿½ en dernier ds la v351
 			m_pEffectList[i]->m_mX     = sX;
 			m_pEffectList[i]->m_mY     = sY;
 			m_pEffectList[i]->m_iV1    = 20;
@@ -6069,7 +6071,7 @@ void CGame::bAddNewEffect(short sType, int sX, int sY, int dX, int dY, char cSta
 			PlaySound('E', 1, sDist, lPan);
 			break;
 
-		case 244: // Snoopy: déplacé pour nvx sorts: Aura du casteur de Mass MagicMissile
+		case 244: // Snoopy: dï¿½placï¿½ pour nvx sorts: Aura du casteur de Mass MagicMissile
 		//case 184: // effet sur le caster pour MassMM
 			m_pEffectList[i]->m_cMaxFrame   = 29;
 			m_pEffectList[i]->m_dwFrameTime = 80;
@@ -6655,7 +6657,7 @@ void CGame::DrawEffects()
 			if (cTempFrame < 0) break;
 			dX  = (m_pEffectList[i]->m_mX)  - m_sViewPointX;
 			dY  = (m_pEffectList[i]->m_mY)  - m_sViewPointY;
-			m_pEffectSpr[91]->PutSpriteFast(dX, dY, cTempFrame, dwTime); //Nbe d'arguments modifiés ds la 351....
+			m_pEffectSpr[91]->PutSpriteFast(dX, dY, cTempFrame, dwTime); //Nbe d'arguments modifiï¿½s ds la 351....
 			m_pEffectSpr[92]->PutTransSprite(dX, dY, cTempFrame, dwTime);
 			break;
 
@@ -6893,7 +6895,7 @@ void CGame::DrawEffects()
 			else m_pEffectSpr[94]->PutTransSpriteRGB(dX, dY + 40, m_pEffectList[i]->m_cFrame, iDvalue, iDvalue, iDvalue, dwTime);
 			break;
 
-		case 244: // Snoopy: déplacé pour nvx sorts: Aura du casteur de Mass MagicMissile
+		case 244: // Snoopy: dï¿½placï¿½ pour nvx sorts: Aura du casteur de Mass MagicMissile
 		//case 184: // Aura du casteur de Mass MagicMissile
 			cTempFrame = m_pEffectList[i]->m_cFrame;
 			if (cTempFrame < 0) break;
@@ -12808,7 +12810,8 @@ void CGame::_ReadMapData(short sPivotX, short sPivotY, char * Data)
  char  * cp, ucHeader, cDir, cName[12], cItemColor;
  short * sp, sTotal, sX, sY, sType, sAppr1, sAppr2, sAppr3, sAppr4, sItemSpr, sItemSprFrame, sDynamicObjectType;
  int iStatus;
- int   * ip, iApprColor;
+ int   * ip;
+ int iApprColor = 0x00;
  WORD    wObjectID;
  WORD  * wp, wDynamicObjectID;
 	cp = Data;
@@ -12953,7 +12956,8 @@ void CGame::LogEventHandler(char * Data)
  short * sp, sX, sY, sType, sAppr1, sAppr2, sAppr3, sAppr4;
  int iStatus;
  char  * cp, cDir, cName[12];
- int   * ip, iApprColor;
+ int   * ip;
+ int iApprColor = 0x00;
 	wp   = (WORD *)(Data + INDEX2_MSGTYPE);
 	wEventType = *wp;
 	cp = (char *)(Data + INDEX2_MSGTYPE + 2);
@@ -13952,29 +13956,46 @@ void CGame::DrawBackground(short sDivX, short sModX, short sDivY, short sModY)
 	short sSpr, sSprFrame;
 
  	if (sDivX < 0 || sDivY < 0) return ;
-	if ((m_bIsRedrawPDBGS == TRUE) || (m_iPDBGSdivX != sDivX) || (m_iPDBGSdivY != sDivY)) {
-		// Pre-Draw Background Surface
-		m_bIsRedrawPDBGS = FALSE;
-		m_iPDBGSdivX = sDivX;
-		m_iPDBGSdivY = sDivY;
-		SetRect(&m_DDraw.m_rcClipArea, 0,0, 640+32, 480+32);
-		indexY = sDivY+m_pMapData->m_sPivotY;
-		for (iy = -sModY; iy < 427+48 ; iy += 32)
-		{
-			indexX = sDivX+m_pMapData->m_sPivotX;
-			for (ix = -sModX; ix < 640+48 ; ix += 32)
-			{	sSpr      = m_pMapData->m_tile[indexX][indexY].m_sTileSprite;
+
+	if (m_DDraw.m_bUseGPU) {
+		// GPU path: queue each tile directly as a sprite
+		SetRect(&m_DDraw.m_rcClipArea, 0, 0, 640, 480);
+		indexY = sDivY + m_pMapData->m_sPivotY;
+		for (iy = -sModY; iy < 427 + 48; iy += 32) {
+			indexX = sDivX + m_pMapData->m_sPivotX;
+			for (ix = -sModX; ix < 640 + 48; ix += 32) {
+				sSpr      = m_pMapData->m_tile[indexX][indexY].m_sTileSprite;
 				sSprFrame = m_pMapData->m_tile[indexX][indexY].m_sTileSpriteFrame;
-				m_pTileSpr[sSpr]->PutSpriteFastNoColorKeyDst(m_DDraw.m_lpPDBGS, ix - 16 +sModX, iy - 16 +sModY, sSprFrame, m_dwCurTime);
+				m_pTileSpr[sSpr]->PutSpriteFastNoColorKey(ix - 16, iy - 16, sSprFrame, m_dwCurTime);
 				indexX++;
 			}
 			indexY++;
 		}
-		SetRect(&m_DDraw.m_rcClipArea, 0,0, 640, 480);
+	} else {
+		// DirectDraw path: pre-draw to background surface, then blit
+		if ((m_bIsRedrawPDBGS == TRUE) || (m_iPDBGSdivX != sDivX) || (m_iPDBGSdivY != sDivY)) {
+			m_bIsRedrawPDBGS = FALSE;
+			m_iPDBGSdivX = sDivX;
+			m_iPDBGSdivY = sDivY;
+			SetRect(&m_DDraw.m_rcClipArea, 0,0, 640+32, 480+32);
+			indexY = sDivY+m_pMapData->m_sPivotY;
+			for (iy = -sModY; iy < 427+48 ; iy += 32)
+			{
+				indexX = sDivX+m_pMapData->m_sPivotX;
+				for (ix = -sModX; ix < 640+48 ; ix += 32)
+				{	sSpr      = m_pMapData->m_tile[indexX][indexY].m_sTileSprite;
+					sSprFrame = m_pMapData->m_tile[indexX][indexY].m_sTileSpriteFrame;
+					m_pTileSpr[sSpr]->PutSpriteFastNoColorKeyDst(m_DDraw.m_lpPDBGS, ix - 16 +sModX, iy - 16 +sModY, sSprFrame, m_dwCurTime);
+					indexX++;
+				}
+				indexY++;
+			}
+			SetRect(&m_DDraw.m_rcClipArea, 0,0, 640, 480);
+		}
+		RECT rcRect;
+		SetRect(&rcRect, sModX, sModY, 640+sModX, 480+sModY);
+		m_DDraw.m_lpBackB4->BltFast( 0, 0, m_DDraw.m_lpPDBGS, &rcRect, DDBLTFAST_NOCOLORKEY | DDBLTFAST_WAIT);
 	}
-	RECT rcRect;
-	SetRect(&rcRect, sModX, sModY, 640+sModX, 480+sModY); // our fictitious sprite bitmap is
-	m_DDraw.m_lpBackB4->BltFast( 0, 0, m_DDraw.m_lpPDBGS, &rcRect, DDBLTFAST_NOCOLORKEY | DDBLTFAST_WAIT);
 
 	if (m_showGrid) 
 	{
@@ -14871,7 +14892,7 @@ BOOL CGame::bEffectFrameCounter()
 			case 195:
 			case 242: // Mage hero effect
 			case 243: // War hero effect
-			case 244: // Snoopy: déplacé pour nvx sorts: Aura du casteur de Mass MagicMissile
+			case 244: // Snoopy: dï¿½placï¿½ pour nvx sorts: Aura du casteur de Mass MagicMissile
 				if (m_pEffectList[i]->m_cFrame > m_pEffectList[i]->m_cMaxFrame)
 				{	delete m_pEffectList[i];
 					m_pEffectList[i] = NULL;
@@ -15809,6 +15830,8 @@ void CGame::InitItemList(char * Data)
 
 	
 }
+
+
 void CGame::InitSkillList(char * Data)
 {
 	char * cp;
@@ -16368,7 +16391,7 @@ void CGame::EnableDialogBox(int iBoxID, int cType, int sV1, int sV2, char * pStr
 		}
 		break;
 
-	case 17: // demande quantité
+	case 17: // demande quantitï¿½
 		if (m_bIsDialogEnabled[17] == FALSE)
 		{	m_stDialogBoxInfo[iBoxID].cMode = 1;
 			m_stDialogBoxInfo[17].sView	= cType;
@@ -19132,6 +19155,7 @@ void CGame::DrawChatMsgBox(short sX, short sY, int iChatIndex, BOOL bIsPreDC)
 	switch (m_pChatMsgList[iChatIndex]->m_cType) {
 	case 41:
 	case 42:
+		// GPU fix: use PutString2 for magic spell names
 		iSize2 = 0;
 		for (i = 0; i < 100; i++)
 		if (cMsg[i] != 0)
@@ -19140,31 +19164,37 @@ void CGame::DrawChatMsgBox(short sX, short sY, int iChatIndex, BOOL bIsPreDC)
 			i++;
 		}
 		else iSize2 += 4;
-		if( m_Misc.bCheckIMEString(cMsg) == FALSE )
-		{
-			PutString(sX - iSize2, sY - 65 - iLoc, cMsg, RGB(180, 30, 30));
-			PutString(sX - iSize2+1, sY - 65 - iLoc, cMsg, RGB(180, 30, 30));
-		}
-		else PutString_SprFont3(sX - iSize2, sY - 65 - iLoc, cMsg, m_wR[14]*4, m_wG[14]*4, m_wB[14]*4, FALSE, 0);
+		PutString2(sX - iSize2, sY - 65 - iLoc, cMsg, 255, 80, 80);
 		break;
 
 	case 21:
 	case 22:
 	case 23:
-		iFontSize = 23 - (int)m_pChatMsgList[iChatIndex]->m_cType;
-		switch (iLines) {
-		case 1:
-			PutString_SprFont3(sX - iSize, sY - 65 - iLoc, cMsgA, m_wR[13]*2, m_wG[13]*2, m_wB[13]*2, bIsTrans, iFontSize);
-			break;
-		case 2:
-			PutString_SprFont3(sX - iSize, sY - 81 - iLoc,  cMsgA, m_wR[13]*2, m_wG[13]*2, m_wB[13]*2, bIsTrans, iFontSize);
-			PutString_SprFont3(sX - iSize, sY - 65 - iLoc,  cMsgB, m_wR[13]*2, m_wG[13]*2, m_wB[13]*2, bIsTrans, iFontSize);
-			break;
-		case 3:
-			PutString_SprFont3(sX - iSize, sY - 97 - iLoc, cMsgA, m_wR[13]*2, m_wG[13]*2, m_wB[13]*2, bIsTrans, iFontSize);
-			PutString_SprFont3(sX - iSize, sY - 81 - iLoc, cMsgB, m_wR[13]*2, m_wG[13]*2, m_wB[13]*2, bIsTrans, iFontSize);
-			PutString_SprFont3(sX - iSize, sY - 65 - iLoc, cMsgC, m_wR[13]*2, m_wG[13]*2, m_wB[13]*2, bIsTrans, iFontSize);
-			break;
+		// GPU fix: use PutString2 (GPU text renderer) instead of sprite fonts
+		{
+			short sColorR, sColorG, sColorB;
+			// Scale color based on damage size (type 23=big=bright, 21=small=dim)
+			if (m_pChatMsgList[iChatIndex]->m_cType == 23) {
+				sColorR = 255; sColorG = 255; sColorB = 0;   // Bright yellow for big hits
+			} else if (m_pChatMsgList[iChatIndex]->m_cType == 22) {
+				sColorR = 255; sColorG = 200; sColorB = 0;   // Medium yellow
+			} else {
+				sColorR = 200; sColorG = 180; sColorB = 0;   // Dim yellow for small hits
+			}
+			switch (iLines) {
+			case 1:
+				PutString2(sX - iSize, sY - 65 - iLoc, cMsgA, sColorR, sColorG, sColorB);
+				break;
+			case 2:
+				PutString2(sX - iSize, sY - 81 - iLoc, cMsgA, sColorR, sColorG, sColorB);
+				PutString2(sX - iSize, sY - 65 - iLoc, cMsgB, sColorR, sColorG, sColorB);
+				break;
+			case 3:
+				PutString2(sX - iSize, sY - 97 - iLoc, cMsgA, sColorR, sColorG, sColorB);
+				PutString2(sX - iSize, sY - 81 - iLoc, cMsgB, sColorR, sColorG, sColorB);
+				PutString2(sX - iSize, sY - 65 - iLoc, cMsgC, sColorR, sColorG, sColorB);
+				break;
+			}
 		}
 		break;
 
@@ -20608,6 +20638,9 @@ void CGame::DlgBoxClick_ShutDownMsg(short msX, short msY)
 
 void CGame::DrawLine(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
 {
+	// GPU mode: back buffer is 32-bit, direct 16-bit pixel ops would corrupt memory
+	if (m_DDraw.m_bUseGPU) return;
+
  int dx, dy, x_inc, y_inc, error, index, dstR, dstG, dstB;
  int iResultX, iResultY;
  WORD * pDst;
@@ -20684,7 +20717,9 @@ void CGame::DrawLine(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
 
 
 void CGame::DrawLine2(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
-{int dx, dy, x_inc, y_inc, error, index, dstR, dstG, dstB;
+{
+	if (m_DDraw.m_bUseGPU) return;
+int dx, dy, x_inc, y_inc, error, index, dstR, dstG, dstB;
  int iResultX, iResultY;
  WORD * pDst;
 	if ((x0 == x1) && (y0 == y1)) return;
@@ -21038,34 +21073,33 @@ int CGame::_iGetWeaponSkillType()
 {
 	WORD wWeaponType = ((m_sPlayerAppr2 & 0x0FF0) >> 4);
 
-	////if (wWeaponType == 0)
-	////{	
-	////	return SKILL_HANDATTACK;
-	////}else if ((wWeaponType >= 1) && (wWeaponType < 3))
-	////{	
-	////	return SKILL_SHORTSWORD;
-	////}else if ((wWeaponType >= 3) && (wWeaponType < 20))
-	////{	
-	////	if ((wWeaponType == 7)||(wWeaponType == 18)) // Esterk or KlonessEsterk
-	////		 return SKILL_FENCING;
-	////	else return SKILL_LONGSWORD;
-	////}else if ((wWeaponType >= 20) && (wWeaponType < 29))
-	////{	
-	////	return SKILL_AXE;
-	////}else if ((wWeaponType >= 30) && (wWeaponType < 33))
-	////{	
-	////	return SKILL_HAMMER;
-	////}else if ((wWeaponType >= 34) && (wWeaponType < 41))
-	////{	
-	////	return SKILL_STAFF;
-	////}else if (wWeaponType >= 41)
-	////{	
-	////	return SKILL_ARCHERY;
-	////}else if ((wWeaponType == 29) || (wWeaponType == 33))
-	////{	
-	////	return SKILL_LONGSWORD;  // LS LightingBlade || BlackShadow
-	////}
-	////return SKILL_FISHING;
+	if (wWeaponType == 0)
+	{
+		return 5;  // Hand Attack
+	}else if ((wWeaponType >= 1) && (wWeaponType < 3))
+	{
+		return 7;  // Short Sword
+	}else if ((wWeaponType >= 3) && (wWeaponType < 20))
+	{
+		if ((wWeaponType == 7)||(wWeaponType == 18)) // Esterk or KlonessEsterk
+			 return 9;  // Fencing
+		else return 8;  // Long Sword
+	}else if ((wWeaponType >= 20) && (wWeaponType < 29))
+	{
+		return 10; // Axe
+	}else if ((wWeaponType >= 30) && (wWeaponType < 33))
+	{
+		return 14; // Hammer (matches switch case 14)
+	}else if ((wWeaponType >= 34) && (wWeaponType < 41))
+	{
+		return 21; // Wand/Staff (matches switch case 21)
+	}else if (wWeaponType >= 41)
+	{
+		return 6;  // Archery/Bow
+	}else if ((wWeaponType == 29) || (wWeaponType == 33))
+	{
+		return 8;  // Long Sword (LightingBlade || BlackShadow)
+	}
 	return 0;
 }
 
@@ -21133,7 +21167,7 @@ void CGame::bItemDrop_ExchangeDialog(short msX, short msY)
 		ZeroMemory(m_stDialogBoxInfo[17].cStr, sizeof(m_stDialogBoxInfo[17].cStr));
 		EnableDialogBox(17, cItemID, m_pItemList[cItemID]->m_dwCount, NULL);
 		return;
-	}else // hum? déjà on affiche? , bon je désactive, ca devrait plutôt s'afficher lors du retour du serveur.
+	}else // hum? dï¿½jï¿½ on affiche? , bon je dï¿½sactive, ca devrait plutï¿½t s'afficher lors du retour du serveur.
 	{	/*m_stDialogBoxInfo[27].sV1 = m_pItemList[cItemID]->m_sSprite;
 		m_stDialogBoxInfo[27].sV2 = m_pItemList[cItemID]->m_sSpriteFrame;
 		m_stDialogBoxInfo[27].sV3 = 1;
@@ -21163,8 +21197,8 @@ void CGame::DlgBoxClick_Exchange(short msX, short msY)
 		if ((msX >= sX + 220) && (msX <= sX + 220 + BTNSZX) && (msY >= sY + 310) && (msY <= sY + 310 + BTNSZY)) // Exchange
 		{	if ( (m_stDialogBoxExchangeInfo[0].sV1 != -1) && (m_stDialogBoxExchangeInfo[4].sV1 != -1))
 			{	/*bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_CONFIRMEXCHANGEITEM, NULL
-					, m_stDialogBoxExchangeInfo[0].sV1 // ItemID; inutilisé par serveur
-					, m_stDialogBoxExchangeInfo[0].sV3 // Amount; inutilisé par serveur
+					, m_stDialogBoxExchangeInfo[0].sV1 // ItemID; inutilisï¿½ par serveur
+					, m_stDialogBoxExchangeInfo[0].sV3 // Amount; inutilisï¿½ par serveur
 					, NULL, NULL);	*/
 				PlaySound('E', 14, 5);
 				m_stDialogBoxInfo[27].cMode = 2;
@@ -21210,8 +21244,8 @@ void CGame::DlgBoxClick_ConfirmExchange(short msX, short msY)
 		if ((msX >= sX + 30) && (msX <= sX + 30 + BTNSZX) && (msY >= sY + 55) && (msY <= sY + 55 + BTNSZY))
 		{	if ( (m_stDialogBoxExchangeInfo[0].sV1 != -1) && (m_stDialogBoxExchangeInfo[4].sV1 != -1))
 			{	bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_CONFIRMEXCHANGEITEM, NULL
-					, m_stDialogBoxExchangeInfo[0].sV1 // ItemID; inutilisé par serveur
-					, m_stDialogBoxExchangeInfo[0].sV3 // Amount; inutilisé par serveur
+					, m_stDialogBoxExchangeInfo[0].sV1 // ItemID; inutilisï¿½ par serveur
+					, m_stDialogBoxExchangeInfo[0].sV3 // Amount; inutilisï¿½ par serveur
 					, NULL, NULL);
 				PlaySound('E', 14, 5);
 				m_stDialogBoxInfo[27].cMode = 2;
@@ -23478,7 +23512,7 @@ void CGame::UpdateScreen_OnAgreement()
 		m_DInput.m_sZ = 0;
 	}
 	if (cLB != 0 && iTotalLines > 20) { 
-		// ½ºÅ©·Ñ ½½¶óÀÌµå 
+		// ï¿½ï¿½Å©ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ìµï¿½ 
 		if ((msX >= sX +345 -112) && (msX <= sX +380 -112) && (msY >= sY +50) && (msY <= sY +395)) {
 			d1 = (double)(msY - (sY + 37 +13));
 			d2 = (double)(iTotalLines - 17);
@@ -23500,7 +23534,7 @@ void CGame::UpdateScreen_OnAgreement()
 	else DrawNewDialogBox(SPRID_INTERFACE_ND_BUTTON, sX + 158 + 57 -23 +45 -105, sY + 265 +90, 14);
 
 	DrawVersion(); 
-	// ¸¶¿ì½º Ä¿¼­ ±×¸°´Ù.
+	// ï¿½ï¿½ï¿½ì½º Ä¿ï¿½ï¿½ ï¿½×¸ï¿½ï¿½ï¿½.
 	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
 
 //	if (m_cGameModeCount < 6) m_DDraw.DrawShadowBox(0,0,639,479);
@@ -23612,7 +23646,7 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 	}
 
 	m_DDraw.ClearBackB4();
-	DrawNewDialogBox(SPRID_INTERFACE_ND_NEWACCOUNT, 0,0,0, TRUE);
+	DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 0,0,0, TRUE);
 
 
 	if ((m_cCurFocus == 2) || (m_cCurFocus == 3))
@@ -25711,7 +25745,7 @@ void CGame::NotifyMsgHandler(char * Data)
 		m_bUsingSlate = FALSE;
 		break;
 
-	// MJ Stats Change - Diuuude: Erreur, ici il s'agit de sorts et skills, le serveur comme la v351 sont aussi bugués !
+	// MJ Stats Change - Diuuude: Erreur, ici il s'agit de sorts et skills, le serveur comme la v351 sont aussi buguï¿½s !
 	case NOTIFY_STATECHANGE_SUCCESS:	// 0x0BB5
 		cp = (char *)(Data	+ INDEX2_MSGTYPE + 2);
 		for (i = 0; i < MAXMAGICTYPE; i++)
@@ -27416,7 +27450,7 @@ void CGame::UpdateScreen_OnLogResMsg()
 
 	case 'I': //
 		PutString_SprFont(172 + 68, 165, "Not Enough Point!", 7,0,0);
-		PutAlignedString(198, 453, 210,  "ÂI¼Æ¨Ï¥Î´Á­­¤wµ²§ô, ½Ð¦ÜGD2S.gamania.com©µªø¨Ï¥Î´Á­­");
+		PutAlignedString(198, 453, 210,  "ï¿½Iï¿½Æ¨Ï¥Î´ï¿½ï¿½ï¿½ï¿½wï¿½ï¿½ï¿½ï¿½, ï¿½Ð¦ï¿½GD2S.gamania.comï¿½ï¿½ï¿½ï¿½ï¿½Ï¥Î´ï¿½ï¿½ï¿½");
 
 		break;
 
@@ -27799,6 +27833,34 @@ void CGame::DlbBoxDoubleClick_Character(short msX, short msY)
 	if ( (m_bIsDialogEnabled[11]==TRUE) && (m_bIsDialogEnabled[23] == FALSE) && (m_stDialogBoxInfo[39].sV3 == 24))
 		bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQ_REPAIRITEM, NULL, cItemID, m_stDialogBoxInfo[39].sV3, NULL, m_pItemList[cItemID]->m_cName, m_stDialogBoxInfo[39].sV4); 
 	else {
+		// Double-click on equipped item: unequip it (move to inventory)
+		if (m_bIsItemEquipped[cItemID] == TRUE) {
+			char cStr1[64], cStr2[64], cStr3[64];
+			GetItemName(m_pItemList[cItemID], cStr1, cStr2, cStr3);
+			ZeroMemory(G_cTxt, sizeof(G_cTxt));
+			wsprintf(G_cTxt, ITEM_EQUIPMENT_RELEASED, cStr1);
+			AddEventList(G_cTxt, 10);
+			if (memcmp(m_pItemList[cItemID]->m_cName, "AngelicPendant", 14) == 0) PlaySound('E', 53, 0);
+			else PlaySound('E', 29, 0);
+			if (   (m_pItemList[cItemID]->m_cEquipPos >= 11)
+				&& (m_pItemList[cItemID]->m_cItemType == 1))
+			{	char cID = cItemID;
+				if (memcmp(m_pItemList[cID]->m_cName, "AngelicPendant(STR)", 19) == 0)
+				{	m_angelStat[STAT_STR] = 0;
+				} else if (memcmp(m_pItemList[cID]->m_cName, "AngelicPendant(DEX)", 19) == 0)
+				{	m_angelStat[STAT_DEX] = 0;
+				} else if (memcmp(m_pItemList[cID]->m_cName, "AngelicPendant(INT)", 19) == 0)
+				{	m_angelStat[STAT_INT] = 0;
+				} else if (memcmp(m_pItemList[cID]->m_cName, "AngelicPendant(MAG)", 19) == 0)
+				{	m_angelStat[STAT_MAG] = 0;
+			}	}
+			bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_RELEASEITEM, NULL, cItemID, NULL, NULL, NULL);
+			m_bIsItemEquipped[cItemID] = FALSE;
+			m_sItemEquipmentStatus[m_pItemList[cItemID]->m_cEquipPos] = -1;
+			m_stMCursor.cSelectedObjectType = NULL;
+			m_stMCursor.sSelectedObjectID   = NULL;
+			return;
+		}
 		if (m_bIsItemEquipped[m_stMCursor.sSelectedObjectID] == TRUE) 
 		{	char cStr1[64], cStr2[64], cStr3[64];
 			GetItemName(m_pItemList[m_stMCursor.sSelectedObjectID], cStr1, cStr2, cStr3);
@@ -29260,7 +29322,6 @@ void CGame::ClearSkillUsingStatus()
 	m_bSkillUsingStatus = FALSE;
 }
 
-
 void CGame::NpcTalkHandler(char *Data)
 {
  char  * cp, cRewardName[21], cTargetName[21], cTemp[21], cTxt[250];
@@ -30125,7 +30186,7 @@ void CGame::UpdateScreen_OnGame()
 								break;
 
 							case 1000: // Trade stackable items
-								// hum, déjà affiché? , j'attends le retour et je désactive!
+								// hum, dï¿½jï¿½ affichï¿½? , j'attends le retour et je dï¿½sactive!
 								/*m_stDialogBoxInfo[27].sV1 = m_pItemList[m_stDialogBoxInfo[17].sV4]->m_sSprite;
 								m_stDialogBoxInfo[27].sV2 = m_pItemList[m_stDialogBoxInfo[17].sV4]->m_sSpriteFrame;
 								m_stDialogBoxInfo[27].sV3 = iAmount;
@@ -31069,7 +31130,7 @@ CP_SKIPMOUSEBUTTONSTATUS:;
 						m_cCommand = OBJECTATTACK;
 						m_sCommX = m_sMCX;
 						m_sCommY = m_sMCY;
-					}else // Pas au corp à corp
+					}else // Pas au corp ï¿½ corp
 					{	switch (_iGetWeaponSkillType()) {
 						case 6: // Bow
 							m_cCommand = OBJECTATTACK;
@@ -35488,13 +35549,12 @@ void CGame::DrawDialogBox_SellorRepairItem(short msX, short msY)
 	}
 }
 
-
 void CGame::DrawDialogBox_Skill(short msX, short msY, short msZ, char cLB)
 {
- short sX, sY;
- int  iTotalLines, iPointerLoc;
- char cTemp[255], cTemp2[255];
- double d1,d2,d3;
+	short sX, sY;
+	int  iTotalLines, iPointerLoc;
+	char cTemp[255], cTemp2[255];
+	double d1, d2, d3;
 
 	sX = m_stDialogBoxInfo[15].sX;
 	sY = m_stDialogBoxInfo[15].sY;
@@ -35504,692 +35564,738 @@ void CGame::DrawDialogBox_Skill(short msX, short msY, short msZ, char cLB)
 
 	switch (m_stDialogBoxInfo[15].cMode) {
 	case 0:
-		for (int line=0, skillIndex=0; line < 17;skillIndex++)
-		if (line < MAXSKILLTYPE && m_pSkillCfgList[skillIndex+m_stDialogBoxInfo[15].sView])
-		{	
-			ZeroMemory(cTemp, sizeof(cTemp));
-			wsprintf(cTemp, "%s", m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_cName);
-			m_Misc.ReplaceString(cTemp, '-', ' ');
-			ZeroMemory(cTemp2, sizeof(cTemp2));
-			wsprintf(cTemp2, "%3d%%", m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_iLevel);
+		for (int line = 0, skillIndex = 0; line < 17 && (skillIndex + m_stDialogBoxInfo[15].sView) < MAXSKILLTYPE; skillIndex++)
+			if (m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView])
+			{
+				ZeroMemory(cTemp, sizeof(cTemp));
+				wsprintf(cTemp, "%s", m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_cName);
+				m_Misc.ReplaceString(cTemp, '-', ' ');
+				ZeroMemory(cTemp2, sizeof(cTemp2));
+				wsprintf(cTemp2, "%3d%%", m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_iLevel);
 
-			COLORREF colour = RGB(5,5,5);
-			if ((msX >= sX + 25) && (msX <= sX + 166) && (msY >= sY + 45 + line*15) && (msY <= sY + 59 + line*15))
-				if(m_pSkillCfgList[ skillIndex+m_stDialogBoxInfo[15].sView ]->m_bIsUseable
-					&& m_pSkillCfgList[ skillIndex+m_stDialogBoxInfo[15].sView ]->m_iLevel != 0)
-				{
-					colour = RGB(255,255,255);
-				}
-			else
-				if(m_pSkillCfgList[ skillIndex+m_stDialogBoxInfo[15].sView ]->m_bIsUseable
-					&& m_pSkillCfgList[ skillIndex+m_stDialogBoxInfo[15].sView ]->m_iLevel != 0)
-				{
-					colour = RGB(34,30,120);
-				}
+				COLORREF colour = RGB(5, 5, 5);
+				if ((msX >= sX + 25) && (msX <= sX + 166) && (msY >= sY + 45 + line * 15) && (msY <= sY + 59 + line * 15))
+					if (m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_bIsUseable
+						&& m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_iLevel != 0)
+					{
+						colour = RGB(255, 255, 255);
+					}
+					else
+						if (m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_bIsUseable
+							&& m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_iLevel != 0)
+						{
+							colour = RGB(34, 30, 120);
+						}
 
-			PutString(sX + 30, sY + 45 + line*15, cTemp, colour);
-			PutString(sX + 183, sY + 45 + line*15, cTemp2, colour);
+				PutString(sX + 30, sY + 45 + line * 15, cTemp, colour);
+				PutString(sX + 183, sY + 45 + line * 15, cTemp2, colour);
 
-			if (m_iDownSkillIndex == (skillIndex + m_stDialogBoxInfo[15].sView))
-				 m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutTransSpriteRGB(sX + 215, sY + 47 + line*15, 21, 50,50,50, m_dwTime);
-			else m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + 215, sY + 47 + line*15, 20, m_dwTime);
-			line++;
-		}
+				if (m_iDownSkillIndex == (skillIndex + m_stDialogBoxInfo[15].sView))
+					m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutTransSpriteRGB(sX + 215, sY + 47 + line * 15, 21, 50, 50, 50, m_dwTime);
+				else m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + 215, sY + 47 + line * 15, 20, m_dwTime);
+				line++;
+			}
 
 		iTotalLines = 0;
 		for (int i = 0; i < MAXSKILLTYPE; i++)
-		if (m_pSkillCfgList[i] != NULL) iTotalLines++;
+			if (m_pSkillCfgList[i] != NULL) iTotalLines++;
 
 		if (iTotalLines > 17)
-		{	d1 = (double)m_stDialogBoxInfo[15].sView;
-			d2 = (double)(iTotalLines-17);
-			d3 = (274.0f * d1)/d2;
+		{
+			d1 = (double)m_stDialogBoxInfo[15].sView;
+			d2 = (double)(iTotalLines - 17);
+			d3 = (274.0f * d1) / d2;
 			iPointerLoc = (int)d3;
 		}
 		else iPointerLoc = 0;
-		if( iTotalLines > 17 )
-		{	DrawNewDialogBox(SPRID_INTERFACE_ND_GAME2, sX, sY, 1);
-			DrawNewDialogBox(SPRID_INTERFACE_ND_GAME2, sX+242, sY+iPointerLoc + 35, 7);
+		if (iTotalLines > 17)
+		{
+			DrawNewDialogBox(SPRID_INTERFACE_ND_GAME2, sX, sY, 1);
+			DrawNewDialogBox(SPRID_INTERFACE_ND_GAME2, sX + 242, sY + iPointerLoc + 35, 7);
 		}
+		if (cLB != 0) return;
 
 		if (cLB != 0 && iTotalLines > 17)
-		{	if ((iGetTopDialogBoxIndex() == 15))
-			{	if ((msX >= sX + 240) && (msX <= sX + 260) && (msY >= sY + 30) && (msY <= sY + 320))
-				{	d1 = (double)(msY -(sY+35));
-					d2 = (double)(iTotalLines-17);
-					d3 = (d1 * d2)/274.0f;
-					iPointerLoc = (int)(d3+0.5);
-					if (iPointerLoc > iTotalLines - 17) iPointerLoc = iTotalLines -17;
+
+		{
+			if ((iGetTopDialogBoxIndex() == 15))
+			{
+				if ((msX >= sX + 240) && (msX <= sX + 260) && (msY >= sY + 30) && (msY <= sY + 320))
+				{
+					d1 = (double)(msY - (sY + 35));
+					d2 = (double)(iTotalLines - 17);
+					d3 = (d1 * d2) / 274.0f;
+					iPointerLoc = (int)(d3 + 0.5);
+					if (iPointerLoc > iTotalLines - 17) iPointerLoc = iTotalLines - 17;
 					m_stDialogBoxInfo[15].sView = iPointerLoc;
-			}	}
-		}else m_stDialogBoxInfo[15].bIsScrollSelected = FALSE;
-		if( iGetTopDialogBoxIndex() == 15 && msZ != 0 )
-		{	if( msZ > 0 ) m_stDialogBoxInfo[15].sView--;
-			if( msZ < 0 ) m_stDialogBoxInfo[15].sView++;
+				}
+			}
+		}
+		else m_stDialogBoxInfo[15].bIsScrollSelected = FALSE;
+		if (iGetTopDialogBoxIndex() == 15 && msZ != 0)
+		{
+			if (msZ > 0) m_stDialogBoxInfo[15].sView--;
+			if (msZ < 0) m_stDialogBoxInfo[15].sView++;
 			m_DInput.m_sZ = 0;
 		}
-		if( m_stDialogBoxInfo[15].sView < 0 ) m_stDialogBoxInfo[15].sView = 0;
-		if( iTotalLines > 17 && m_stDialogBoxInfo[15].sView > iTotalLines-17 ) m_stDialogBoxInfo[15].sView = iTotalLines-17;
-	   	break;
+		if (m_stDialogBoxInfo[15].sView < 0) m_stDialogBoxInfo[15].sView = 0;
+		if (iTotalLines > 17 && m_stDialogBoxInfo[15].sView > iTotalLines - 17) m_stDialogBoxInfo[15].sView = iTotalLines - 17;
+		break;
 	}
 }
 
 void CGame::DrawDialogBox_SkillDlg(short msX, short msY, short msZ, char cLB)
-{
- int i, iLoc ,iAdjX, iAdjY;
- char cTemp[120], cTemp2[120];
- short sX, sY, szX;
- char cStr1[64], cStr2[64], cStr3[64];
- DWORD dwTime = m_dwCurTime;
+	{
+		int i, iLoc, iAdjX, iAdjY;
+		char cTemp[120], cTemp2[120];
+		short sX, sY, szX;
+		char cStr1[64], cStr2[64], cStr3[64];
+		DWORD dwTime = m_dwCurTime;
 
-	iAdjX = 5 ;
-	iAdjY = 8 ;
+		iAdjX = 5;
+		iAdjY = 8;
 
-	switch (m_stDialogBoxInfo[26].cMode) {
-	case 1: // Alchemy waiting incredients
-		if (m_stDialogBoxInfo[26].cStr[0] != 0)
-		{	sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-			sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-		}else
-		{	sX = m_stDialogBoxInfo[26].sX;
-			sY = m_stDialogBoxInfo[26].sY;
-		}
-
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX, sY, 1, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV1 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV2 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +45*1 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV3 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +45*2 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV4 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV5 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55+45*1 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV6 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55+45*2 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
-
-		if ((msX >= sX + iAdjX + 60) && (msX <= sX + iAdjX + 153) && (msY >= sY + iAdjY + 175) && (msY <= sY + iAdjY + 195))
-			 PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 16,16,30);
-		else PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 6, 6, 20);
-
-		break;
-
-	case 2: // Alchemy, creating a potion
-		if (m_stDialogBoxInfo[26].cStr[0] != 0) {
-			sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-			sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-		}else
-		{	sX = m_stDialogBoxInfo[26].sX;
-			sY = m_stDialogBoxInfo[26].sY;
-		}
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX, sY, 1, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV1 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV2 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +45*1 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV3 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +45*2 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV4 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV5 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55+45*1 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV6 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55+45*2 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
-
-		PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Creating...", 20,6,6);
-
-
-		if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 1000)
-		{	m_stDialogBoxInfo[26].dwT1 = dwTime;
-			m_stDialogBoxInfo[26].cStr[0]++;
-		}
-
-		if (m_stDialogBoxInfo[26].cStr[0] >= 4)
-		{	bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQ_CREATEPOTION, NULL, NULL, NULL, NULL, NULL);
-			DisableDialogBox(26);
-			PlaySound('E', 42, 0);
-		}
-		break;
-
-	case 3: // Manuf: Choose what you want to create
-		sX = m_stDialogBoxInfo[26].sX;
-		sY = m_stDialogBoxInfo[26].sY;
-		szX = m_stDialogBoxInfo[26].sSizeX;
-		DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
-		DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
-		PutString(sX + iAdjX + 44, sY + iAdjY + 38, "Name", RGB(0,0,0));
-		PutString(sX + iAdjX +171, sY + iAdjY + 38, "Max.Skill", RGB(0,0,0));
-
-		iLoc = 0;
-		for (i = 0; i < 13; i++)
-		if (m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView] != NULL) {
-
-			ZeroMemory(cTemp, sizeof(cTemp));
-			GetItemName( m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView]->m_cName, NULL, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			ZeroMemory(cTemp2, sizeof(cTemp2));
-			wsprintf(cTemp2, "%d%%", m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView]->m_iMaxSkill);
-
-			if ((msX >= sX + 30) && (msX <= sX + 180) && (msY >= sY + iAdjY + 55 + iLoc*15) && (msY <= sY + iAdjY + 69 + iLoc*15))
-			{	PutString(sX + 30, sY + iAdjY + 55 + iLoc*15, cTemp, RGB(255,255,255));
-				PutString(sX + 190, sY + iAdjY + 55 + iLoc*15, cTemp2, RGB(255,255,255));
-			}else
-			{	if (m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView]->m_bBuildEnabled == TRUE)
-				{	 PutString(sX + 30, sY + iAdjY + 55 + iLoc*15, cTemp, RGB(34,30,120));
-					 PutString(sX + 190, sY + iAdjY + 55 + iLoc*15, cTemp2, RGB(34,30,120));
-				}else
-				{	PutString(sX + 30, sY + iAdjY + 55 + iLoc*15, cTemp, RGB(45,25,25));
-					PutString(sX + 190, sY + iAdjY + 55 + iLoc*15, cTemp2, RGB(45,25,25));
-				}
-			}
-
-			iLoc++;
-		}
-		if ((m_stDialogBoxInfo[26].sView >= 1) && (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView - 1] != NULL))
-			 m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutSpriteFast(sX + iAdjX + 225, sY + iAdjY + 210, 23, dwTime);
-		else m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutTransSpriteRGB(sX + iAdjX + 225, sY + iAdjY + 210, 23, 5,5,5, dwTime);
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView+13] != NULL)
-			 m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutSpriteFast(sX + iAdjX + 225, sY + iAdjY + 230, 24, dwTime);
-		else m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutTransSpriteRGB(sX + iAdjX + 225, sY + iAdjY + 230, 24, 5,5,5, dwTime);
-
-		if ((cLB != 0) && (iGetTopDialogBoxIndex() == 26)) {
-			if ((msX >= sX + iAdjX + 225) && (msX <= sX + iAdjX + 245) && (msY >= sY + iAdjY + 210) && (msY <= sY + iAdjY + 230)) {
-				m_stDialogBoxInfo[26].sView--;
-			}
-
-			if ((msX >= sX + iAdjX + 225) && (msX <= sX + iAdjX + 245) && (msY >= sY + iAdjY + 230) && (msY <= sY + iAdjY + 250)) {
-				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView + 13] != NULL)
-					m_stDialogBoxInfo[26].sView++;
-			}
-		}
-		if (( msZ != 0) && (iGetTopDialogBoxIndex() == 26)) {
-			m_stDialogBoxInfo[26].sView = m_stDialogBoxInfo[26].sView - msZ/60;
-			m_DInput.m_sZ = 0;
-		}
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView + 12] == NULL)
-		{
-			while(1)
+		switch (m_stDialogBoxInfo[26].cMode) {
+		case 1: // Alchemy waiting incredients
+			if (m_stDialogBoxInfo[26].cStr[0] != 0)
 			{
-				m_stDialogBoxInfo[26].sView --;
-				if( m_stDialogBoxInfo[26].sView < 1 ) break;
-				if( m_pDispBuildItemList[m_stDialogBoxInfo[26].sView+12] != NULL ) break;
+				sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
+				sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
 			}
-		}
-		if (m_stDialogBoxInfo[26].sView < 0) m_stDialogBoxInfo[26].sView = 0;
+			else
+			{
+				sX = m_stDialogBoxInfo[26].sX;
+				sY = m_stDialogBoxInfo[26].sY;
+			}
 
-		PutAlignedString(sX, sX+m_stDialogBoxInfo[26].sSizeX, sY + 265, DRAW_DIALOGBOX_SKILLDLG2, 55,25,25);//" List of items which you can make with"
-		PutAlignedString(sX, sX+m_stDialogBoxInfo[26].sSizeX, sY + 280, DRAW_DIALOGBOX_SKILLDLG3, 55,25,25);//"your current skill. The items you can"
-		PutAlignedString(sX, sX+m_stDialogBoxInfo[26].sSizeX, sY + 295, DRAW_DIALOGBOX_SKILLDLG4, 55,25,25);//"make now with your current stuff will"
-		PutAlignedString(sX, sX+m_stDialogBoxInfo[26].sSizeX, sY + 310, DRAW_DIALOGBOX_SKILLDLG5, 55,25,25);//"be displayed in blue. "
-		PutAlignedString(sX, sX+m_stDialogBoxInfo[26].sSizeX, sY + 340, DRAW_DIALOGBOX_SKILLDLG6, 55,25,25);//"Select an item you want to manufacture."
-		break;
-
-	case 4: // Manuf: Waiting for incredients
-		sX = m_stDialogBoxInfo[26].sX;
-		sY = m_stDialogBoxInfo[26].sY;
-		szX = m_stDialogBoxInfo[26].sSizeX;
-		iAdjX = -1;
-		iAdjY = -7;
-		DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
-		DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
-		m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprH]->PutSpriteFast(sX + iAdjX + 62 + 5, sY + iAdjY + 84 + 17,
-		          m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprFrame, dwTime);
-
-		ZeroMemory(cTemp, sizeof(cTemp));
-		GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName, 0, cStr1, cStr2, cStr3 );
-		wsprintf(cTemp, "%s", cStr1);
-		PutString(sX + iAdjX + 44 +10 +60, sY + iAdjY + 55, cTemp, RGB(255,255,255));
-
-		wsprintf(cTemp,  DRAW_DIALOGBOX_SKILLDLG7 // "Skill level: %d/%d"
-			, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSkillLimit
-			, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iMaxSkill);
-		PutString(sX + iAdjX + 44 +10 +60, sY + iAdjY + 55 +2*15, cTemp, RGB(45,25,25));
-		PutString(sX + iAdjX + 44 +10 +60, sY + iAdjY + 55 +3*15 +5, DRAW_DIALOGBOX_SKILLDLG8, RGB(45,25,25));//"Ingredients Needed:"
-
-		iLoc = 4;
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[1] != 0) {
-			GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName1, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[1] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(150,150,150));
-			iLoc++;
-		}
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[2] != 0) {
-			GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName2, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[2] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(150,150,150));
-			iLoc++;
-		}
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[3] != 0) {
-			GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName3, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[3] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(150,150,150));
-			iLoc++;
-		}
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[4] != 0) {
-			GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName4, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[4] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(150,150,150));
-			iLoc++;
-		}
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[5] != 0) {
-			GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName5, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[5] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(150,150,150));
-			iLoc++;
-		}
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[6] != 0) {
-			GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName6, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[6] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(150,150,150));
-			iLoc++;
-		}
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bBuildEnabled == TRUE)
-		{	m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +13, sY + iAdjY +55 +180 , 2, dwTime);
-			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*1 +13, sY + iAdjY +55 +180, 2, dwTime);
-			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*2 +13, sY + iAdjY +55 +180, 2, dwTime);
-			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +13, sY + iAdjY +100 +180, 2, dwTime);
-			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*1 +13, sY + iAdjY +100 +180, 2, dwTime);
-			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*2 +13, sY + iAdjY +100 +180, 2, dwTime);
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX, sY, 1, dwTime);
 
 			if (m_stDialogBoxInfo[26].sV1 != -1)
 				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-				m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +30 +13, sY + iAdjY + 55 +180,
-				m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
+				m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
 
 			if (m_stDialogBoxInfo[26].sV2 != -1)
 				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-				m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +45*1 +30 +13, sY + iAdjY + 55 +180,
-				m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
+				m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
 
 			if (m_stDialogBoxInfo[26].sV3 != -1)
 				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-				m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +45*2 +30 +13, sY + iAdjY + 55 +180,
-				m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
+				m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
 
 			if (m_stDialogBoxInfo[26].sV4 != -1)
 				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-				m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +30 +13, sY + iAdjY + 100 +180,
-				m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
+				m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
 
 			if (m_stDialogBoxInfo[26].sV5 != -1)
 				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-				m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55+45*1 +30 +13, sY + iAdjY + 100 +180,
-				m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
+				m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
 
 			if (m_stDialogBoxInfo[26].sV6 != -1)
 				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-				m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55+45*2 +30 +13, sY + iAdjY + 100 +180,
-				m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
+				m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
 
-			PutAlignedString(sX, sX + szX, sY + iAdjY + 230 +75, DRAW_DIALOGBOX_SKILLDLG15, 55,25,25);//" Click MANUFACTURE button after"
-			PutAlignedString(sX, sX + szX, sY + iAdjY + 245 +75, DRAW_DIALOGBOX_SKILLDLG16, 55,25,25);//"dragging ingredients in the blanks"
-			PutAlignedString(sX, sX + szX, sY + iAdjY + 260 +75, DRAW_DIALOGBOX_SKILLDLG17, 55,25,25);//"to manufacture above item."
+			if ((msX >= sX + iAdjX + 60) && (msX <= sX + iAdjX + 153) && (msY >= sY + iAdjY + 175) && (msY <= sY + iAdjY + 195))
+				PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 16, 16, 30);
+			else PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 6, 6, 20);
 
-			if ((msX >= sX + iAdjX + 32) && (msX <= sX + iAdjX + 95) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372))
-				 PutString_SprFont(sX + iAdjX + 25,  sY + iAdjY + 330 +23, "Back", 6,6,20);
-			else PutString_SprFont(sX + iAdjX + 25,  sY + iAdjY + 330 +23, "Back", 0,0,7);
+			break;
 
-
-			if ((msX >= sX + iAdjX + 160) && (msX <= sX + iAdjX + 255) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372)) {
-				if (m_stDialogBoxInfo[26].cStr[4] == 1)
-					 PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 +23, "Manufacture", 6,6,20);
-				else PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 +23, "Manufacture", 10,10,10);
+		case 2: // Alchemy, creating a potion
+			if (m_stDialogBoxInfo[26].cStr[0] != 0) {
+				sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
+				sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
 			}
-			else {
-				if (m_stDialogBoxInfo[26].cStr[4] == 1)
-					 PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 +23, "Manufacture", 0, 0, 7);
-				else PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 +23, "Manufacture", 10,10,10);
+			else
+			{
+				sX = m_stDialogBoxInfo[26].sX;
+				sY = m_stDialogBoxInfo[26].sY;
 			}
-		}
-		else {
-			PutAlignedString(sX, sX + szX, sY + iAdjY + 200 +75, DRAW_DIALOGBOX_SKILLDLG18, 55,25,25);//"There are not enough ingredients to"
-			PutAlignedString(sX, sX + szX, sY + iAdjY + 215 +75, DRAW_DIALOGBOX_SKILLDLG19, 55,25,25);//"manufacture. Needed materials are"
-			PutAlignedString(sX, sX + szX, sY + iAdjY + 230 +75, DRAW_DIALOGBOX_SKILLDLG20, 55,25,25);//"displayed in grey."
-			if ((msX >= sX + iAdjX + 32) && (msX <= sX + iAdjX + 95) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372))
-				 PutString_SprFont(sX + iAdjX + 25,  sY + iAdjY + 330 +23, "Back", 6,6,20);
-			else PutString_SprFont(sX + iAdjX + 25,  sY + iAdjY + 330 +23, "Back", 0,0,7);
-		}
-		break;
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX, sY, 1, dwTime);
 
-	case 5: // Manuf: in progress
-		sX = m_stDialogBoxInfo[26].sX;
-		sY = m_stDialogBoxInfo[26].sY;
-		iAdjX = -1;
-		iAdjY = -7;
+			if (m_stDialogBoxInfo[26].sV1 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
 
-		DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
-		DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
-		m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprH]->PutSpriteFast(sX + iAdjX + 62 + 5, sY + iAdjY + 84 + 17,
-		          m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprFrame, dwTime);
+			if (m_stDialogBoxInfo[26].sV2 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
 
-		ZeroMemory(cTemp, sizeof(cTemp));
-		GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName, 0, cStr1, cStr2, cStr3 );
-		wsprintf(cTemp, "%s", cStr1);
-		PutString(sX + iAdjX + 44 +10 +60, sY + iAdjY + 55, cTemp, RGB(255,255,255));
+			if (m_stDialogBoxInfo[26].sV3 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
 
-		wsprintf(cTemp,  DRAW_DIALOGBOX_SKILLDLG7 // "Skill level: %d/%d"
-			, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSkillLimit, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iMaxSkill);
-		PutString(sX + iAdjX + 44 +10 +60, sY + iAdjY + 55 +2*15, cTemp, RGB(45,25,25));
-		PutString(sX + iAdjX + 44 +10 +60, sY + iAdjY + 55 +3*15 +5, DRAW_DIALOGBOX_SKILLDLG8, RGB(45,25,25));//"Ingredients Needed:"
+			if (m_stDialogBoxInfo[26].sV4 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
 
-		iLoc = 4;
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[1] != 0) 
-		{	GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName1, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[1] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(120,120,120));
-			iLoc++;
-		}
+			if (m_stDialogBoxInfo[26].sV5 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
 
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[2] != 0) 
-		{	GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName2, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[2] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(120,120,120));
-			iLoc++;
-		}
+			if (m_stDialogBoxInfo[26].sV6 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutTransSprite50(sX + iAdjX + 55 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
 
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[3] != 0) 
-		{	GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName3, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[3] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(120,120,120));
-			iLoc++;
-		}
+			PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Creating...", 20, 6, 6);
 
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[4] != 0) 
-		{	GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName4, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[4] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(120,120,120));
-			iLoc++;
-		}
 
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[5] != 0) 
-		{	GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName5, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[5] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(120,120,120));
-			iLoc++;
-		}
-
-		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[6] != 0) 
-		{	GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName6, 0, cStr1, cStr2, cStr3 );
-			wsprintf(cTemp, "%s", cStr1);
-			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[6] == TRUE)
-				 PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(45,25,25));
-			else PutString(sX + iAdjX + 44 +20 +60, sY + iAdjY + 55 +iLoc*15 +5, cTemp, RGB(120,120,120));
-			iLoc++;
-		}
-
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +13, sY + iAdjY +55 +180 , 2, dwTime);
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*1 +13, sY + iAdjY +55 +180, 2, dwTime);
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*2 +13, sY + iAdjY +55 +180, 2, dwTime);
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +13, sY + iAdjY +100 +180, 2, dwTime);
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*1 +13, sY + iAdjY +100 +180, 2, dwTime);
-		m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX +55 +30 +45*2 +13, sY + iAdjY +100 +180, 2, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV1 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +30 +13, sY + iAdjY + 55 +180,
-					  m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV2 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +45*1 +30 +13, sY + iAdjY + 55 +180,
-					  m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV3 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +45*2 +30 +13, sY + iAdjY + 55 +180,
-					  m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV4 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +30 +13, sY + iAdjY + 100 +180,
-					  m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV5 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55+45*1 +30 +13, sY + iAdjY + 100 +180,
-					  m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV6 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55+45*2 +30 +13, sY + iAdjY + 100 +180,
-					  m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
-
-		PutString(sX + iAdjX + 33, sY + iAdjY + 230 +75, DRAW_DIALOGBOX_SKILLDLG29, RGB(55,25,25));//" Manufacturing the items...."
-		PutString(sX + iAdjX + 33, sY + iAdjY + 245 +75, DRAW_DIALOGBOX_SKILLDLG30, RGB(55,25,25));//"Please wait until manufacture finishes."
-
-		if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 400) //if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 1000) 
-		{	m_stDialogBoxInfo[26].dwT1 = dwTime;
-			m_stDialogBoxInfo[26].cStr[1]++;
-			if (m_stDialogBoxInfo[26].cStr[1] >= 7) m_stDialogBoxInfo[26].cStr[1] = 7;
-		}
-
-		if (m_stDialogBoxInfo[26].cStr[1] == 4) 
-		{	bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_BUILDITEM, NULL, NULL, NULL, NULL, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName);
-			m_stDialogBoxInfo[26].cStr[1]++;
-		}
-		break;
-
-	case 6: // Manuf: Done
-		sX = m_stDialogBoxInfo[26].sX;
-		sY = m_stDialogBoxInfo[26].sY;
-		iAdjX = -1;
-		iAdjY = -7;
-
-		DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
-		DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
-		m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprH]->PutSpriteFast(sX + iAdjX + 62 + 5, sY + iAdjY + 84 + 17,
-		          m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprFrame, dwTime);
-
-		ZeroMemory(cTemp, sizeof(cTemp));
-		GetItemName( m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName, 0, cStr1, cStr2, cStr3 );
-
-		wsprintf(cTemp, "%s", cStr1);
-		PutString(sX + iAdjX + 44 +10 +60, sY + iAdjY + 55, cTemp, RGB(255,255,255));
-
-		if (m_stDialogBoxInfo[26].cStr[2] == 1) {
-			PutString(sX + iAdjX + 33 +11, sY + iAdjY + 200 -45, DRAW_DIALOGBOX_SKILLDLG31, RGB(55,25,25));//" Success in manufacture!"
-
-			if (m_stDialogBoxInfo[26].sV1 == ITEMTYPE_MATERIAL) {
-				wsprintf(G_cTxt, DRAW_DIALOGBOX_SKILLDLG32, m_stDialogBoxInfo[26].cStr[3]);//"The purity of product is %d%%."
-				PutString(sX + iAdjX + 33 +11, sY + iAdjY + 215 -45, G_cTxt, RGB(55,25,25));
+			if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 1000)
+			{
+				m_stDialogBoxInfo[26].dwT1 = dwTime;
+				m_stDialogBoxInfo[26].cStr[0]++;
 			}
-			else {
-				wsprintf(G_cTxt, DRAW_DIALOGBOX_SKILLDLG33, (int)m_stDialogBoxInfo[26].cStr[3] +100);//"The completion of product is %d%%."
-				PutString(sX + iAdjX + 33, sY + iAdjY + 215 -45, G_cTxt, RGB(55,25,25));
+
+			if (m_stDialogBoxInfo[26].cStr[0] >= 4)
+			{
+				bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQ_CREATEPOTION, NULL, NULL, NULL, NULL, NULL);
+				DisableDialogBox(26);
+				PlaySound('E', 42, 0);
 			}
-		}
-		else {
-			PutString(sX + iAdjX + 33+11, sY + iAdjY + 200, DRAW_DIALOGBOX_SKILLDLG34, RGB(55,25,25));//"Failed on manufacture."
-		}
+			break;
 
-		if ((msX >= sX + iAdjX + 32) && (msX <= sX + iAdjX + 95) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372))
-			 PutString_SprFont(sX + iAdjX + 35,  sY + iAdjY + 330 +23, "Back", 6,6,20);
-		else PutString_SprFont(sX + iAdjX + 35,  sY + iAdjY + 330 +23, "Back", 0,0,7);
-		break;
-
-
-	case 7: // Crafting, wait for incredients
-		if (m_stDialogBoxInfo[26].cStr[0] != 0)
-		{	sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-			sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-		}else
-		{	sX = m_stDialogBoxInfo[26].sX;
-			sY = m_stDialogBoxInfo[26].sY;		
-		}
-		m_pSprite[SPRID_INTERFACE_CRAFTING]->PutSpriteFast(sX, sY, 0, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV1 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV2 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 +45*1 +(1-(rand()%3)), sY + iAdjY + 40 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV3 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 +45*2 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV4 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV5 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65+45*1 +(1-(rand()%3)), sY + iAdjY + 115 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
-
-		if (m_stDialogBoxInfo[26].sV6 != -1)
-			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 75+45*2 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
-		if ((msX >= sX + iAdjX + 60) && (msX <= sX + iAdjX + 153) && (msY >= sY + iAdjY + 175) && (msY <= sY + iAdjY + 195))
-			 PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 16,16,30);
-		else PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 6, 6, 20);
-		break;
-
-	case 8: // Crafting in progress
-		if (m_stDialogBoxInfo[26].cStr[0] != 0) 
-		{	sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-			sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0]*2)));
-		}else
-		{	sX = m_stDialogBoxInfo[26].sX;
+		case 3: // Manuf: Choose what you want to create
+			sX = m_stDialogBoxInfo[26].sX;
 			sY = m_stDialogBoxInfo[26].sY;
-		}
-		m_pSprite[SPRID_INTERFACE_CRAFTING]->PutSpriteFast(sX, sY, 0, dwTime);
+			szX = m_stDialogBoxInfo[26].sSizeX;
+			DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
+			DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
+			PutString(sX + iAdjX + 44, sY + iAdjY + 38, "Name", RGB(0, 0, 0));
+			PutString(sX + iAdjX + 171, sY + iAdjY + 38, "Max.Skill", RGB(0, 0, 0));
 
-		if (m_stDialogBoxInfo[26].sV1 != -1)
-		{	m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 +(1-(rand()%3)) +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
-			if (   (m_pItemList[m_stDialogBoxInfo[26].sV1]->m_cItemType == ITEMTYPE_EQUIP)
-				&& (m_pItemList[m_stDialogBoxInfo[26].sV1]->m_cEquipPos == EQUIPPOS_NECK))
-				m_iContributionPrice = 10;
-		}
-		if (m_stDialogBoxInfo[26].sV2 != -1)
-		{	m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 +45*1 +(1-(rand()%3)), sY + iAdjY + 40 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
-			if (   (m_pItemList[m_stDialogBoxInfo[26].sV2]->m_cItemType == ITEMTYPE_EQUIP)
-				&& (m_pItemList[m_stDialogBoxInfo[26].sV2]->m_cEquipPos == EQUIPPOS_NECK))
-				m_iContributionPrice = 10;
-		}
-		if (m_stDialogBoxInfo[26].sV3 != -1)
-		{	m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 +45*2 +(1-(rand()%3)), sY + iAdjY + 55 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
-			if (   (m_pItemList[m_stDialogBoxInfo[26].sV3]->m_cItemType == ITEMTYPE_EQUIP)
-				&& (m_pItemList[m_stDialogBoxInfo[26].sV3]->m_cEquipPos == EQUIPPOS_NECK))
-				m_iContributionPrice = 10;
-		}
-		if (m_stDialogBoxInfo[26].sV4 != -1)
-		{	m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
-			if (   (m_pItemList[m_stDialogBoxInfo[26].sV4]->m_cItemType == ITEMTYPE_EQUIP)
-				&& (m_pItemList[m_stDialogBoxInfo[26].sV4]->m_cEquipPos == EQUIPPOS_NECK))
-				m_iContributionPrice = 10;
-		}
-		if (m_stDialogBoxInfo[26].sV5 != -1)
-		{	m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65+45*1 +(1-(rand()%3)), sY + iAdjY + 115 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
-			if (   (m_pItemList[m_stDialogBoxInfo[26].sV5]->m_cItemType == ITEMTYPE_EQUIP)
-				&& (m_pItemList[m_stDialogBoxInfo[26].sV5]->m_cEquipPos == EQUIPPOS_NECK))
-				m_iContributionPrice = 10;
-		}
-		if (m_stDialogBoxInfo[26].sV6 != -1)
-		{	m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
-			          m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 75+45*2 +(1-(rand()%3)), sY + iAdjY + 100 +(1-(rand()%3)),
-					  m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
-			if (   (m_pItemList[m_stDialogBoxInfo[26].sV6]->m_cItemType == ITEMTYPE_EQUIP)
-				&& (m_pItemList[m_stDialogBoxInfo[26].sV6]->m_cEquipPos == EQUIPPOS_NECK))
-				m_iContributionPrice = 10;
-		}
-		PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Creating...", 20,6,6);
+			iLoc = 0;
+			for (i = 0; i < 13; i++)
+				if (m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView] != NULL) {
 
-		if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 1000)
-		{	m_stDialogBoxInfo[26].dwT1 = dwTime;
-			m_stDialogBoxInfo[26].cStr[1]++;
+					ZeroMemory(cTemp, sizeof(cTemp));
+					GetItemName(m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView]->m_cName, NULL, cStr1, cStr2, cStr3);
+					wsprintf(cTemp, "%s", cStr1);
+					ZeroMemory(cTemp2, sizeof(cTemp2));
+					wsprintf(cTemp2, "%d%%", m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView]->m_iMaxSkill);
+
+					if ((msX >= sX + 30) && (msX <= sX + 180) && (msY >= sY + iAdjY + 55 + iLoc * 15) && (msY <= sY + iAdjY + 69 + iLoc * 15))
+					{
+						PutString(sX + 30, sY + iAdjY + 55 + iLoc * 15, cTemp, RGB(255, 255, 255));
+						PutString(sX + 190, sY + iAdjY + 55 + iLoc * 15, cTemp2, RGB(255, 255, 255));
+					}
+					else
+					{
+						if (m_pDispBuildItemList[i + m_stDialogBoxInfo[26].sView]->m_bBuildEnabled == TRUE)
+						{
+							PutString(sX + 30, sY + iAdjY + 55 + iLoc * 15, cTemp, RGB(34, 30, 120));
+							PutString(sX + 190, sY + iAdjY + 55 + iLoc * 15, cTemp2, RGB(34, 30, 120));
+						}
+						else
+						{
+							PutString(sX + 30, sY + iAdjY + 55 + iLoc * 15, cTemp, RGB(45, 25, 25));
+							PutString(sX + 190, sY + iAdjY + 55 + iLoc * 15, cTemp2, RGB(45, 25, 25));
+						}
+					}
+
+					iLoc++;
+				}
+			if ((m_stDialogBoxInfo[26].sView >= 1) && (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView - 1] != NULL))
+				m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutSpriteFast(sX + iAdjX + 225, sY + iAdjY + 210, 23, dwTime);
+			else m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutTransSpriteRGB(sX + iAdjX + 225, sY + iAdjY + 210, 23, 5, 5, 5, dwTime);
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView + 13] != NULL)
+				m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutSpriteFast(sX + iAdjX + 225, sY + iAdjY + 230, 24, dwTime);
+			else m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutTransSpriteRGB(sX + iAdjX + 225, sY + iAdjY + 230, 24, 5, 5, 5, dwTime);
+
+			if ((cLB != 0) && (iGetTopDialogBoxIndex() == 26)) {
+				if ((msX >= sX + iAdjX + 225) && (msX <= sX + iAdjX + 245) && (msY >= sY + iAdjY + 210) && (msY <= sY + iAdjY + 230)) {
+					m_stDialogBoxInfo[26].sView--;
+				}
+
+				if ((msX >= sX + iAdjX + 225) && (msX <= sX + iAdjX + 245) && (msY >= sY + iAdjY + 230) && (msY <= sY + iAdjY + 250)) {
+					if (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView + 13] != NULL)
+						m_stDialogBoxInfo[26].sView++;
+				}
+			}
+			if ((msZ != 0) && (iGetTopDialogBoxIndex() == 26)) {
+				m_stDialogBoxInfo[26].sView = m_stDialogBoxInfo[26].sView - msZ / 60;
+				m_DInput.m_sZ = 0;
+			}
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView + 12] == NULL)
+			{
+				while (1)
+				{
+					m_stDialogBoxInfo[26].sView--;
+					if (m_stDialogBoxInfo[26].sView < 1) break;
+					if (m_pDispBuildItemList[m_stDialogBoxInfo[26].sView + 12] != NULL) break;
+				}
+			}
+			if (m_stDialogBoxInfo[26].sView < 0) m_stDialogBoxInfo[26].sView = 0;
+
+			PutAlignedString(sX, sX + m_stDialogBoxInfo[26].sSizeX, sY + 265, DRAW_DIALOGBOX_SKILLDLG2, 55, 25, 25);//" List of items which you can make with"
+			PutAlignedString(sX, sX + m_stDialogBoxInfo[26].sSizeX, sY + 280, DRAW_DIALOGBOX_SKILLDLG3, 55, 25, 25);//"your current skill. The items you can"
+			PutAlignedString(sX, sX + m_stDialogBoxInfo[26].sSizeX, sY + 295, DRAW_DIALOGBOX_SKILLDLG4, 55, 25, 25);//"make now with your current stuff will"
+			PutAlignedString(sX, sX + m_stDialogBoxInfo[26].sSizeX, sY + 310, DRAW_DIALOGBOX_SKILLDLG5, 55, 25, 25);//"be displayed in blue. "
+			PutAlignedString(sX, sX + m_stDialogBoxInfo[26].sSizeX, sY + 340, DRAW_DIALOGBOX_SKILLDLG6, 55, 25, 25);//"Select an item you want to manufacture."
+			break;
+
+		case 4: // Manuf: Waiting for incredients
+			sX = m_stDialogBoxInfo[26].sX;
+			sY = m_stDialogBoxInfo[26].sY;
+			szX = m_stDialogBoxInfo[26].sSizeX;
+			iAdjX = -1;
+			iAdjY = -7;
+			DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
+			DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
+			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprH]->PutSpriteFast(sX + iAdjX + 62 + 5, sY + iAdjY + 84 + 17,
+				m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprFrame, dwTime);
+
+			ZeroMemory(cTemp, sizeof(cTemp));
+			GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName, 0, cStr1, cStr2, cStr3);
+			wsprintf(cTemp, "%s", cStr1);
+			PutString(sX + iAdjX + 44 + 10 + 60, sY + iAdjY + 55, cTemp, RGB(255, 255, 255));
+
+			wsprintf(cTemp, DRAW_DIALOGBOX_SKILLDLG7 // "Skill level: %d/%d"
+				, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSkillLimit
+				, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iMaxSkill);
+			PutString(sX + iAdjX + 44 + 10 + 60, sY + iAdjY + 55 + 2 * 15, cTemp, RGB(45, 25, 25));
+			PutString(sX + iAdjX + 44 + 10 + 60, sY + iAdjY + 55 + 3 * 15 + 5, DRAW_DIALOGBOX_SKILLDLG8, RGB(45, 25, 25));//"Ingredients Needed:"
+
+			iLoc = 4;
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[1] != 0) {
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName1, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[1] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(150, 150, 150));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[2] != 0) {
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName2, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[2] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(150, 150, 150));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[3] != 0) {
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName3, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[3] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(150, 150, 150));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[4] != 0) {
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName4, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[4] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(150, 150, 150));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[5] != 0) {
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName5, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[5] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(150, 150, 150));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[6] != 0) {
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName6, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[6] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(150, 150, 150));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bBuildEnabled == TRUE)
+			{
+				m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 55 + 180, 2, dwTime);
+				m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 1 + 13, sY + iAdjY + 55 + 180, 2, dwTime);
+				m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 2 + 13, sY + iAdjY + 55 + 180, 2, dwTime);
+				m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 100 + 180, 2, dwTime);
+				m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 1 + 13, sY + iAdjY + 100 + 180, 2, dwTime);
+				m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 2 + 13, sY + iAdjY + 100 + 180, 2, dwTime);
+
+				if (m_stDialogBoxInfo[26].sV1 != -1)
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 55 + 180,
+						m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
+
+				if (m_stDialogBoxInfo[26].sV2 != -1)
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 1 + 30 + 13, sY + iAdjY + 55 + 180,
+						m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
+
+				if (m_stDialogBoxInfo[26].sV3 != -1)
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 2 + 30 + 13, sY + iAdjY + 55 + 180,
+						m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
+
+				if (m_stDialogBoxInfo[26].sV4 != -1)
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 100 + 180,
+						m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
+
+				if (m_stDialogBoxInfo[26].sV5 != -1)
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 1 + 30 + 13, sY + iAdjY + 100 + 180,
+						m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
+
+				if (m_stDialogBoxInfo[26].sV6 != -1)
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 2 + 30 + 13, sY + iAdjY + 100 + 180,
+						m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
+
+				PutAlignedString(sX, sX + szX, sY + iAdjY + 230 + 75, DRAW_DIALOGBOX_SKILLDLG15, 55, 25, 25);//" Click MANUFACTURE button after"
+				PutAlignedString(sX, sX + szX, sY + iAdjY + 245 + 75, DRAW_DIALOGBOX_SKILLDLG16, 55, 25, 25);//"dragging ingredients in the blanks"
+				PutAlignedString(sX, sX + szX, sY + iAdjY + 260 + 75, DRAW_DIALOGBOX_SKILLDLG17, 55, 25, 25);//"to manufacture above item."
+
+				if ((msX >= sX + iAdjX + 32) && (msX <= sX + iAdjX + 95) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372))
+					PutString_SprFont(sX + iAdjX + 25, sY + iAdjY + 330 + 23, "Back", 6, 6, 20);
+				else PutString_SprFont(sX + iAdjX + 25, sY + iAdjY + 330 + 23, "Back", 0, 0, 7);
+
+
+				if ((msX >= sX + iAdjX + 160) && (msX <= sX + iAdjX + 255) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372)) {
+					if (m_stDialogBoxInfo[26].cStr[4] == 1)
+						PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 + 23, "Manufacture", 6, 6, 20);
+					else PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 + 23, "Manufacture", 10, 10, 10);
+				}
+				else {
+					if (m_stDialogBoxInfo[26].cStr[4] == 1)
+						PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 + 23, "Manufacture", 0, 0, 7);
+					else PutString_SprFont(sX + iAdjX + 153, sY + iAdjY + 330 + 23, "Manufacture", 10, 10, 10);
+				}
+			}
+			else {
+				PutAlignedString(sX, sX + szX, sY + iAdjY + 200 + 75, DRAW_DIALOGBOX_SKILLDLG18, 55, 25, 25);//"There are not enough ingredients to"
+				PutAlignedString(sX, sX + szX, sY + iAdjY + 215 + 75, DRAW_DIALOGBOX_SKILLDLG19, 55, 25, 25);//"manufacture. Needed materials are"
+				PutAlignedString(sX, sX + szX, sY + iAdjY + 230 + 75, DRAW_DIALOGBOX_SKILLDLG20, 55, 25, 25);//"displayed in grey."
+				if ((msX >= sX + iAdjX + 32) && (msX <= sX + iAdjX + 95) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372))
+					PutString_SprFont(sX + iAdjX + 25, sY + iAdjY + 330 + 23, "Back", 6, 6, 20);
+				else PutString_SprFont(sX + iAdjX + 25, sY + iAdjY + 330 + 23, "Back", 0, 0, 7);
+			}
+			break;
+
+		case 5: // Manuf: in progress
+			sX = m_stDialogBoxInfo[26].sX;
+			sY = m_stDialogBoxInfo[26].sY;
+			iAdjX = -1;
+			iAdjY = -7;
+
+			DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
+			DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
+			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprH]->PutSpriteFast(sX + iAdjX + 62 + 5, sY + iAdjY + 84 + 17,
+				m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprFrame, dwTime);
+
+			ZeroMemory(cTemp, sizeof(cTemp));
+			GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName, 0, cStr1, cStr2, cStr3);
+			wsprintf(cTemp, "%s", cStr1);
+			PutString(sX + iAdjX + 44 + 10 + 60, sY + iAdjY + 55, cTemp, RGB(255, 255, 255));
+
+			wsprintf(cTemp, DRAW_DIALOGBOX_SKILLDLG7 // "Skill level: %d/%d"
+				, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSkillLimit, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iMaxSkill);
+			PutString(sX + iAdjX + 44 + 10 + 60, sY + iAdjY + 55 + 2 * 15, cTemp, RGB(45, 25, 25));
+			PutString(sX + iAdjX + 44 + 10 + 60, sY + iAdjY + 55 + 3 * 15 + 5, DRAW_DIALOGBOX_SKILLDLG8, RGB(45, 25, 25));//"Ingredients Needed:"
+
+			iLoc = 4;
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[1] != 0)
+			{
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName1, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[1] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(120, 120, 120));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[2] != 0)
+			{
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName2, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[2] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(120, 120, 120));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[3] != 0)
+			{
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName3, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[3] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(120, 120, 120));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[4] != 0)
+			{
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName4, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[4] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(120, 120, 120));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[5] != 0)
+			{
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName5, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[5] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(120, 120, 120));
+				iLoc++;
+			}
+
+			if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iElementCount[6] != 0)
+			{
+				GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cElementName6, 0, cStr1, cStr2, cStr3);
+				wsprintf(cTemp, "%s", cStr1);
+				if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bElementFlag[6] == TRUE)
+					PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(45, 25, 25));
+				else PutString(sX + iAdjX + 44 + 20 + 60, sY + iAdjY + 55 + iLoc * 15 + 5, cTemp, RGB(120, 120, 120));
+				iLoc++;
+			}
+
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 55 + 180, 2, dwTime);
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 1 + 13, sY + iAdjY + 55 + 180, 2, dwTime);
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 2 + 13, sY + iAdjY + 55 + 180, 2, dwTime);
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 100 + 180, 2, dwTime);
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 1 + 13, sY + iAdjY + 100 + 180, 2, dwTime);
+			m_pSprite[SPRID_INTERFACE_ADDINTERFACE]->PutSpriteFast(sX + iAdjX + 55 + 30 + 45 * 2 + 13, sY + iAdjY + 100 + 180, 2, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV1 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 55 + 180,
+					m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV2 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 1 + 30 + 13, sY + iAdjY + 55 + 180,
+					m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV3 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 2 + 30 + 13, sY + iAdjY + 55 + 180,
+					m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV4 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 30 + 13, sY + iAdjY + 100 + 180,
+					m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV5 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 1 + 30 + 13, sY + iAdjY + 100 + 180,
+					m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV6 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + 45 * 2 + 30 + 13, sY + iAdjY + 100 + 180,
+					m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
+
+			PutString(sX + iAdjX + 33, sY + iAdjY + 230 + 75, DRAW_DIALOGBOX_SKILLDLG29, RGB(55, 25, 25));//" Manufacturing the items...."
+			PutString(sX + iAdjX + 33, sY + iAdjY + 245 + 75, DRAW_DIALOGBOX_SKILLDLG30, RGB(55, 25, 25));//"Please wait until manufacture finishes."
+
+			if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 400) //if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 1000) 
+			{
+				m_stDialogBoxInfo[26].dwT1 = dwTime;
+				m_stDialogBoxInfo[26].cStr[1]++;
+				if (m_stDialogBoxInfo[26].cStr[1] >= 7) m_stDialogBoxInfo[26].cStr[1] = 7;
+			}
+
+			if (m_stDialogBoxInfo[26].cStr[1] == 4)
+			{
+				bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_BUILDITEM, NULL, NULL, NULL, NULL, m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName);
+				m_stDialogBoxInfo[26].cStr[1]++;
+			}
+			break;
+
+		case 6: // Manuf: Done
+			sX = m_stDialogBoxInfo[26].sX;
+			sY = m_stDialogBoxInfo[26].sY;
+			iAdjX = -1;
+			iAdjY = -7;
+
+			DrawNewDialogBox(SPRID_INTERFACE_ND_GAME3, sX, sY, 0);
+			DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, sX, sY, 8);
+			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprH]->PutSpriteFast(sX + iAdjX + 62 + 5, sY + iAdjY + 84 + 17,
+				m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_iSprFrame, dwTime);
+
+			ZeroMemory(cTemp, sizeof(cTemp));
+			GetItemName(m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_cName, 0, cStr1, cStr2, cStr3);
+
+			wsprintf(cTemp, "%s", cStr1);
+			PutString(sX + iAdjX + 44 + 10 + 60, sY + iAdjY + 55, cTemp, RGB(255, 255, 255));
+
+			if (m_stDialogBoxInfo[26].cStr[2] == 1) {
+				PutString(sX + iAdjX + 33 + 11, sY + iAdjY + 200 - 45, DRAW_DIALOGBOX_SKILLDLG31, RGB(55, 25, 25));//" Success in manufacture!"
+
+				if (m_stDialogBoxInfo[26].sV1 == ITEMTYPE_MATERIAL) {
+					wsprintf(G_cTxt, DRAW_DIALOGBOX_SKILLDLG32, m_stDialogBoxInfo[26].cStr[3]);//"The purity of product is %d%%."
+					PutString(sX + iAdjX + 33 + 11, sY + iAdjY + 215 - 45, G_cTxt, RGB(55, 25, 25));
+				}
+				else {
+					wsprintf(G_cTxt, DRAW_DIALOGBOX_SKILLDLG33, (int)m_stDialogBoxInfo[26].cStr[3] + 100);//"The completion of product is %d%%."
+					PutString(sX + iAdjX + 33, sY + iAdjY + 215 - 45, G_cTxt, RGB(55, 25, 25));
+				}
+			}
+			else {
+				PutString(sX + iAdjX + 33 + 11, sY + iAdjY + 200, DRAW_DIALOGBOX_SKILLDLG34, RGB(55, 25, 25));//"Failed on manufacture."
+			}
+
+			if ((msX >= sX + iAdjX + 32) && (msX <= sX + iAdjX + 95) && (msY >= sY + iAdjY + 353) && (msY <= sY + iAdjY + 372))
+				PutString_SprFont(sX + iAdjX + 35, sY + iAdjY + 330 + 23, "Back", 6, 6, 20);
+			else PutString_SprFont(sX + iAdjX + 35, sY + iAdjY + 330 + 23, "Back", 0, 0, 7);
+			break;
+
+
+		case 7: // Crafting, wait for incredients
+			if (m_stDialogBoxInfo[26].cStr[0] != 0)
+			{
+				sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
+				sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
+			}
+			else
+			{
+				sX = m_stDialogBoxInfo[26].sX;
+				sY = m_stDialogBoxInfo[26].sY;
+			}
+			m_pSprite[SPRID_INTERFACE_CRAFTING]->PutSpriteFast(sX, sY, 0, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV1 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV2 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 40 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV3 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV4 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV5 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 115 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV6 != -1)
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+				m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 75 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+					m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
+			if ((msX >= sX + iAdjX + 60) && (msX <= sX + iAdjX + 153) && (msY >= sY + iAdjY + 175) && (msY <= sY + iAdjY + 195))
+				PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 16, 16, 30);
+			else PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Try Now!", 6, 6, 20);
+			break;
+
+		case 8: // Crafting in progress
+			if (m_stDialogBoxInfo[26].cStr[0] != 0)
+			{
+				sX = m_stDialogBoxInfo[26].sX + iAdjX + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
+				sY = m_stDialogBoxInfo[26].sY + iAdjY + (m_stDialogBoxInfo[26].cStr[0] - (rand() % (m_stDialogBoxInfo[26].cStr[0] * 2)));
+			}
+			else
+			{
+				sX = m_stDialogBoxInfo[26].sX;
+				sY = m_stDialogBoxInfo[26].sY;
+			}
+			m_pSprite[SPRID_INTERFACE_CRAFTING]->PutSpriteFast(sX, sY, 0, dwTime);
+
+			if (m_stDialogBoxInfo[26].sV1 != -1)
+			{
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSprite]->PutSpriteFast(sX + iAdjX + 55 + (1 - (rand() % 3)) + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+						m_pItemList[m_stDialogBoxInfo[26].sV1]->m_sSpriteFrame, dwTime);
+				if ((m_pItemList[m_stDialogBoxInfo[26].sV1]->m_cItemType == ITEMTYPE_EQUIP)
+					&& (m_pItemList[m_stDialogBoxInfo[26].sV1]->m_cEquipPos == EQUIPPOS_NECK))
+					m_iContributionPrice = 10;
+			}
+			if (m_stDialogBoxInfo[26].sV2 != -1)
+			{
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 40 + (1 - (rand() % 3)),
+						m_pItemList[m_stDialogBoxInfo[26].sV2]->m_sSpriteFrame, dwTime);
+				if ((m_pItemList[m_stDialogBoxInfo[26].sV2]->m_cItemType == ITEMTYPE_EQUIP)
+					&& (m_pItemList[m_stDialogBoxInfo[26].sV2]->m_cEquipPos == EQUIPPOS_NECK))
+					m_iContributionPrice = 10;
+			}
+			if (m_stDialogBoxInfo[26].sV3 != -1)
+			{
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 55 + (1 - (rand() % 3)),
+						m_pItemList[m_stDialogBoxInfo[26].sV3]->m_sSpriteFrame, dwTime);
+				if ((m_pItemList[m_stDialogBoxInfo[26].sV3]->m_cItemType == ITEMTYPE_EQUIP)
+					&& (m_pItemList[m_stDialogBoxInfo[26].sV3]->m_cEquipPos == EQUIPPOS_NECK))
+					m_iContributionPrice = 10;
+			}
+			if (m_stDialogBoxInfo[26].sV4 != -1)
+			{
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+						m_pItemList[m_stDialogBoxInfo[26].sV4]->m_sSpriteFrame, dwTime);
+				if ((m_pItemList[m_stDialogBoxInfo[26].sV4]->m_cItemType == ITEMTYPE_EQUIP)
+					&& (m_pItemList[m_stDialogBoxInfo[26].sV4]->m_cEquipPos == EQUIPPOS_NECK))
+					m_iContributionPrice = 10;
+			}
+			if (m_stDialogBoxInfo[26].sV5 != -1)
+			{
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSprite]->PutSpriteFast(sX + iAdjX + 65 + 45 * 1 + (1 - (rand() % 3)), sY + iAdjY + 115 + (1 - (rand() % 3)),
+						m_pItemList[m_stDialogBoxInfo[26].sV5]->m_sSpriteFrame, dwTime);
+				if ((m_pItemList[m_stDialogBoxInfo[26].sV5]->m_cItemType == ITEMTYPE_EQUIP)
+					&& (m_pItemList[m_stDialogBoxInfo[26].sV5]->m_cEquipPos == EQUIPPOS_NECK))
+					m_iContributionPrice = 10;
+			}
+			if (m_stDialogBoxInfo[26].sV6 != -1)
+			{
+				m_pSprite[SPRID_ITEMPACK_PIVOTPOINT +
+					m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSprite]->PutSpriteFast(sX + iAdjX + 75 + 45 * 2 + (1 - (rand() % 3)), sY + iAdjY + 100 + (1 - (rand() % 3)),
+						m_pItemList[m_stDialogBoxInfo[26].sV6]->m_sSpriteFrame, dwTime);
+				if ((m_pItemList[m_stDialogBoxInfo[26].sV6]->m_cItemType == ITEMTYPE_EQUIP)
+					&& (m_pItemList[m_stDialogBoxInfo[26].sV6]->m_cEquipPos == EQUIPPOS_NECK))
+					m_iContributionPrice = 10;
+			}
+			PutString_SprFont(sX + iAdjX + 60, sY + iAdjY + 175, "Creating...", 20, 6, 6);
+
+			if ((dwTime - m_stDialogBoxInfo[26].dwT1) > 1000)
+			{
+				m_stDialogBoxInfo[26].dwT1 = dwTime;
+				m_stDialogBoxInfo[26].cStr[1]++;
+			}
+			if (m_stDialogBoxInfo[26].cStr[1] >= 5)//m_pDispCraftItemList
+			{
+				bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_CRAFTITEM, NULL, NULL, NULL, NULL, NULL);
+				DisableDialogBox(26);
+				PlaySound('E', 42, 0);
+			}
+			break;
 		}
-		if (m_stDialogBoxInfo[26].cStr[1] >= 5)//m_pDispCraftItemList
-		{	bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_CRAFTITEM, NULL, NULL, NULL, NULL, NULL);
-			DisableDialogBox(26);
-			PlaySound('E', 42, 0);
-		}	
-		break;
 	}
-}
 
 void CGame::DrawDialogBox_SysMenu(short msX, short msY, char cLB)
 {short sX, sY;
@@ -36374,8 +36480,8 @@ void CGame::DrawDialogBox_SysMenu(short msX, short msY, char cLB)
 			 DrawNewDialogBox(SPRID_INTERFACE_ND_BUTTON, sX + RBTNPOSX, sY +225, 37);
 		else DrawNewDialogBox(SPRID_INTERFACE_ND_BUTTON, sX + RBTNPOSX, sY +225, 36);
 	}else if (m_cRestartCount == -1)	{
-		PutString(sX + 115, sY + 227, "www.helbreathlegion.net", RGB(10,0,0));
-		PutString(sX + 114, sY + 226, "www.helbreathlegion.net", RGB(45,25,25));
+		PutString(sX + 115, sY + 227, "www.dbhb.net", RGB(10,0,0));
+		PutString(sX + 114, sY + 226, "www.dbhb.net", RGB(45,25,25));
 	}
 }
 
@@ -36567,6 +36673,7 @@ void CGame::bItemDrop_Bank(short msX, short msY)
 		else bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_GIVEITEMTOCHAR, m_stDialogBoxInfo[39].sV1, 1, m_stDialogBoxInfo[39].sV5, m_stDialogBoxInfo[39].sV6, m_pItemList[m_stDialogBoxInfo[39].sV1]->m_cName, m_stDialogBoxInfo[39].sV4); //v1.4
 	}
 }
+
 
 void CGame::bItemDrop_SkillDialog()
 {
@@ -37247,59 +37354,62 @@ void CGame::DlgBoxClick_Shop(short msX, short msY)
 
 void CGame::DlgBoxClick_Skill(short msX, short msY)
 {
-	short sX = m_stDialogBoxInfo[15].sX;
-	short sY = m_stDialogBoxInfo[15].sY;
-
-	if(m_stDialogBoxInfo[15].cMode == 0) 
-	{
-		for(int line=0, skillIndex=0; line < 17; skillIndex++)
-		{
-			if ((line < MAXSKILLTYPE) && (m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView] != NULL))
-			{	
-				if ((msX >= sX + 30) && (msX <= sX + 135 + 44) && (msY >= sY + 45 + line*15) && (msY <= sY + 59 + line*15))
-				{	
-					if (m_pSkillCfgList[ skillIndex+m_stDialogBoxInfo[15].sView ]->m_bIsUseable
-						&& m_pSkillCfgList[ skillIndex+m_stDialogBoxInfo[15].sView ]->m_iLevel != 0)
-					{	
-						if (m_bSkillUsingStatus)
-						{	
+	int i;
+	short sX, sY;
+	sX = m_stDialogBoxInfo[15].sX;
+	sY = m_stDialogBoxInfo[15].sY;
+	switch (m_stDialogBoxInfo[15].cMode) {
+	case -1:
+		break;
+	case 0:
+		for (i = 0; i < 17; i++)
+			if (((i + m_stDialogBoxInfo[15].sView) < MAXSKILLTYPE) && (m_pSkillCfgList[i + m_stDialogBoxInfo[15].sView] != NULL))
+			{
+				if ((msX >= sX + 44) && (msX <= sX + 135 + 44) && (msY >= sY + 45 + i * 15) && (msY <= sY + 59 + i * 15))
+				{
+					if ((m_pSkillCfgList[i + m_stDialogBoxInfo[15].sView]->m_bIsUseable == TRUE)
+						&& (m_pSkillCfgList[i + m_stDialogBoxInfo[15].sView]->m_iLevel != 0))
+					{
+						if (m_bSkillUsingStatus == TRUE)
+						{
 							AddEventList(DLGBOX_CLICK_SKILL1, 10); // "You are already using other skill."
 							return;
 						}
 						if ((m_bCommandAvailable == FALSE) || (m_iHP <= 0))
-						{	
+						{
 							AddEventList(DLGBOX_CLICK_SKILL2, 10); // "You can't use a skill while you are moving."
 							return;
 						}
-						if (m_bIsGetPointingMode)
-							return;
-
-						switch (m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_cUseMethod) 
+						if (m_bIsGetPointingMode == TRUE)
 						{
+							return;
+						}
+						switch (m_pSkillCfgList[i + m_stDialogBoxInfo[15].sView]->m_cUseMethod) {
 						case 0:
 						case 2:
-							bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQ_USESKILL, NULL, (skillIndex + m_stDialogBoxInfo[15].sView), NULL, NULL, NULL);
+							bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQ_USESKILL, NULL, (i + m_stDialogBoxInfo[15].sView), NULL, NULL, NULL);
 							m_bSkillUsingStatus = TRUE;
 							DisableDialogBox(15);
 							PlaySound('E', 14, 5);
 							break;
 						}
 					}
-				}else if ((msX >= sX + 215) && (msX <= sX + 240) && (msY >= sY + 45 + line*15) && (msY <= sY + 59 + line*15))
-				{	
+				}
+				else if ((msX >= sX + 215) && (msX <= sX + 240) && (msY >= sY + 45 + i * 15) && (msY <= sY + 59 + i * 15))
+				{
 					if (m_stDialogBoxInfo[15].bFlag == FALSE)
-					{	
-						bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQ_SETDOWNSKILLINDEX, NULL, skillIndex + m_stDialogBoxInfo[15].sView, NULL, NULL, NULL);
+					{
+						bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQ_SETDOWNSKILLINDEX, NULL, i + m_stDialogBoxInfo[15].sView, NULL, NULL, NULL);
 						PlaySound('E', 14, 5);
 						m_stDialogBoxInfo[15].bFlag = TRUE;
-
-					}	
+					}
 				}
-				line++;
 			}
-		}
+		break;
 	}
 }
+
+
 
 void CGame::DlgBoxClick_SkillDlg(short msX, short msY)
 {
@@ -37314,7 +37424,7 @@ void CGame::DlgBoxClick_SkillDlg(short msX, short msY)
 
 
 	switch (m_stDialogBoxInfo[26].cMode) {
-	case SKILL_ALCHEMY:
+	case 7: // Alchemy dialog
 		if ((msX >= sX + iAdjX + 60) && (msX <= sX + iAdjX + 153) && (msY >= sY + iAdjY + 175) && (msY <= sY + iAdjY + 195))
 		{	m_stDialogBoxInfo[26].cMode = 2;
 			m_stDialogBoxInfo[26].cStr[0] = 1;
@@ -37325,7 +37435,7 @@ void CGame::DlgBoxClick_SkillDlg(short msX, short msY)
 		}
 		break;
 	// Crafting
-	case SKILL_CRAFTING:
+	case 8: // Crafting dialog
 		if ((msX >= sX + iAdjX + 60) && (msX <= sX + iAdjX + 153) && (msY >= sY + iAdjY + 175) && (msY <= sY + iAdjY + 195))
 		{	DebugLog("Tag1 DlgBoxClick_SkillDlg");
 			if (m_stDialogBoxInfo[26].sV1 == -1)
@@ -37400,7 +37510,7 @@ void CGame::DlgBoxClick_SkillDlg(short msX, short msY)
 		}	}
 		break;
 
-	case SKILL_MANUFACTURING:
+	case 4: // Manufacturing confirmation dialog
 		iAdjX = -1 ;
 		iAdjY = -7 ;
 		if (m_pDispBuildItemList[m_stDialogBoxInfo[26].cStr[0]]->m_bBuildEnabled == TRUE)
@@ -39227,7 +39337,7 @@ void CGame::NotifyMsg_QuestReward(char *Data)
 		m_pMsgTextList2[iIndex] = new class CMsg(NULL, "  ", NULL);
 		iIndex++;
 		ZeroMemory(cTxt, sizeof(cTxt));
-		if (memcmp(cRewardName, "°æÇèÄ¡", 6) == 0)
+		if (memcmp(cRewardName, "ï¿½ï¿½ï¿½ï¿½Ä¡", 6) == 0)
 		{	if (iAmount > 0) wsprintf(cTxt, NOTIFYMSG_QUEST_REWARD1, iAmount);
 		}else
 		{	wsprintf(cTxt, NOTIFYMSG_QUEST_REWARD2, iAmount, cRewardName);
@@ -40093,14 +40203,16 @@ void CGame::InitDataResponseHandler(char * Data)
 	LoadMuteList();
 }
 
-void CGame::MotionEventHandler(char * Data)
-{WORD  * wp, wEventType, wObjectID;
- short * sp, sX, sY, sType, sAppr1, sAppr2, sAppr3, sAppr4, sV1, sV2, sV3, sPrevAppr2;
- int iStatus;
- char  * cp, cDir, cName[12];
- int   * ip, iApprColor, iLoc;
- char    cTxt[300];
- int i;
+void CGame::MotionEventHandler(char* Data) {
+	WORD* wp, wEventType, wObjectID;
+	short* sp, sX = 0, sY = 0, sType = 0, sV1 = 0, sV2 = 0, sV3 = 0, sPrevAppr2 = 0;
+	short sAppr1 = 0, sAppr2 = 0, sAppr3 =0, sAppr4 = 0;
+	int iStatus = 0;
+	char* cp, cDir, cName[12];
+	int* ip, iLoc = 0;
+	int iApprColor = 0x00; 
+	char cTxt[300];
+	int i;
 	ZeroMemory(cName, sizeof(cName));
 	sV1 = sV2 = sV3 = NULL;
 	wp   = (WORD *)(Data + INDEX2_MSGTYPE);
@@ -40218,9 +40330,11 @@ void CGame::MotionEventHandler(char * Data)
 			cp++;
 			break;
 	}	}
-
+	
 	if ((wEventType == OBJECTNULLACTION) && (memcmp(cName, m_cPlayerName, 10) == 0))
-	{	m_sPlayerType   = sType;
+	
+	{	
+		m_sPlayerType   = sType;
 		m_sPlayerAppr1  = sAppr1;
 		sPrevAppr2      = m_sPlayerAppr2;
 		m_sPlayerAppr2  = sAppr2;
@@ -40346,6 +40460,7 @@ void CGame::MotionEventHandler(char * Data)
 				else if ((sV1 >= 12) && (sV1 < 40)) iFontType = 22;
 				else if ((sV1 >= 40) || (sV1 < 0))	iFontType = 23;
 
+				
 				_RemoveChatMsgListByObjectID(wObjectID - 30000);
 				m_pChatMsgList[i] = new class CMsg(iFontType, cTxt, m_dwCurTime);
 			}else

@@ -529,43 +529,8 @@ void CClient::ValidateSkills(bool logInvalidSkills)
 			}
 			break;
 
-		case SKILL_PRAYER:
-case SKILL_CRAFTING:
-			case SKILL_PRETENDCORPSE:
-			case SKILL_AGILITY:
-				case SKILL_FISHING:
-			if (m_cSkillMastery[skillIndex] > (m_iLevel * 2)) 
-			{	
-				invalidSkills += m_cSkillMastery[skillIndex] - (m_iLevel * 2);
-				m_cSkillMastery[skillIndex] = m_iLevel * 2;
-				m_iSkillSSN[skillIndex] = 0;
-				Notify(NULL, NOTIFY_SKILL, skillIndex, m_cSkillMastery[skillIndex], NULL, NULL);
-			}
-			break;
-
-		////case SKILL_MAGIC:
-		////case SKILL_STAFF:
-		////	if (m_cSkillMastery[skillIndex] > (GetMag() * 2))
-		////	{ 	
-		////		invalidSkills += m_cSkillMastery[skillIndex] - (GetMag() * 2);
-		////		m_cSkillMastery[skillIndex] = GetMag() * 2;
-		////		m_iSkillSSN[skillIndex] = 0;
-		////		Notify(NULL, NOTIFY_SKILL, skillIndex, m_cSkillMastery[skillIndex], NULL, NULL);
-		////	}
-		////	break;
-
-	/*	case SKILL_FISHING:
-			if (m_cSkillMastery[skillIndex] > (GetDex() * 2)) 
-			{	
-				invalidSkills += m_cSkillMastery[skillIndex] - (GetDex() * 2);
-				m_cSkillMastery[skillIndex] = GetDex() * 2;
-				m_iSkillSSN[skillIndex] = 0;
-				Notify(NULL, NOTIFY_SKILL, skillIndex, m_cSkillMastery[skillIndex], NULL, NULL);
-			}
-			break;*/
-
 		case SKILL_ALCHEMY:
-		case SKILL_FARMING:
+		case SKILL_MAGIC:
 		
 			if (m_cSkillMastery[skillIndex] > (GetInt() * 2)) 
 			{	

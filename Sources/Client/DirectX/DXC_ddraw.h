@@ -18,6 +18,9 @@
 #include "ddraw.h"
 #include "..\Misc.h"
 #include "..\GlobalDef.h"
+
+// Forward declaration for GPU renderer
+class CGPURenderer;
 class DXC_ddraw  
 {
 public:	
@@ -72,6 +75,20 @@ public:
 	char   m_cPixelFormat;
 	HDC m_hDC;
 	HFONT m_hFontInUse;
+
+	// GPU Renderer support
+	CGPURenderer* m_pGPURenderer;
+	bool m_bUseGPU;
+	int m_iRenderWidth, m_iRenderHeight;
+	float m_fScaleX, m_fScaleY;
+
+	// GPU renderer methods
+	bool InitGPURenderer();
+	void ShutdownGPURenderer();
+	void BeginGPUFrame();
+	void EndGPUFrame();
+	void UpdateGPUMapTexture();
+	void RenderGPUMapBackground(int srcX, int srcY);
 };
 
 #endif // !defined(AFX_DXC_DDRAW_H__C52EBA83_6D9E_11D2_A8E6_00001C7030A6__INCLUDED_)

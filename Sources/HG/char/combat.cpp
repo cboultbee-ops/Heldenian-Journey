@@ -152,17 +152,9 @@ void CalculateSSN_SkillIndex(int iClientH, short sSkillIndex, int iValue)
 	if (g_clientList[iClientH]->m_cSkillMastery[sSkillIndex] == 0) return;
 
 	switch (sSkillIndex) {
-			
-	case SKILL_AGILITY:			
-	case SKILL_PRAYER:			
-	case SKILL_PRETENDCORPSE:
-		iValue *= iValue*8;
-		break;
-	case SKILL_CRAFTING:case SKILL_FARMING:
+	case SKILL_MINING:
 	case SKILL_MANUFACTURING:
 	case SKILL_ALCHEMY:
-	case SKILL_MINING:
-	case SKILL_FISHING:
 		iValue *= iValue*2;
 		break;
 	}
@@ -176,7 +168,7 @@ void CalculateSSN_SkillIndex(int iClientH, short sSkillIndex, int iValue)
 		(g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] > iSSNpoint) ) {
 
 			g_clientList[iClientH]->m_cSkillMastery[sSkillIndex]++; 
-			switch (sSkillIndex) 
+			switch (sSkillIndex)
 			{
 			case SKILL_MINING:
 			case SKILL_MANUFACTURING:
@@ -187,53 +179,14 @@ void CalculateSSN_SkillIndex(int iClientH, short sSkillIndex, int iValue)
 				else g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = 0;
 				break;
 
-			//case SKILL_MAGICRES:
-			case SKILL_PRETENDCORPSE:
-				case SKILL_FISHING:
-			
-				if (g_clientList[iClientH]->m_cSkillMastery[sSkillIndex] > (g_clientList[iClientH]->m_iLevel * 2)) {
-					g_clientList[iClientH]->m_cSkillMastery[sSkillIndex]--;
-					g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = iOldSSN;
-				}
-				else g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = 0;
-				break;
-
-			////case SKILL_MAGIC:
-			////case SKILL_STAFF:
-			//	if (g_clientList[iClientH]->m_cSkillMastery[sSkillIndex] > (g_clientList[iClientH]->GetMag() * 2)) {
-			//		g_clientList[iClientH]->m_cSkillMastery[sSkillIndex]--;
-			//		g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = iOldSSN;
-			//	}
-			//	else g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = 0;
-			//	break;
-
-			
-		//	case SKILL_DEFENSE:
-			/*
-				if (g_clientList[iClientH]->m_cSkillMastery[sSkillIndex] > (g_clientList[iClientH]->GetDex() * 2)) {
-					g_clientList[iClientH]->m_cSkillMastery[sSkillIndex]--;
-					g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = iOldSSN;
-				}
-				else g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = 0;
-				break;
-*/
-			case SKILL_FARMING:
 			case SKILL_ALCHEMY:
-				case SKILL_CRAFTING:	
+			case SKILL_MAGIC:
 				if (g_clientList[iClientH]->m_cSkillMastery[sSkillIndex] > (g_clientList[iClientH]->GetInt() * 2)) {
 					g_clientList[iClientH]->m_cSkillMastery[sSkillIndex]--;
 					g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = iOldSSN;
 				}
 				else g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = 0;
 				break;
-
-			/*case SKILL_POISONRES:
-				if (g_clientList[iClientH]->m_cSkillMastery[sSkillIndex] > (g_clientList[iClientH]->m_iVit * 2)) {
-					g_clientList[iClientH]->m_cSkillMastery[sSkillIndex]--;
-					g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = iOldSSN;
-				}
-				else g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = 0;
-				break;*/
 
 			default:
 				g_clientList[iClientH]->m_iSkillSSN[sSkillIndex] = 0;
@@ -666,7 +619,7 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 
 			if ((wWeaponType == 27) && (g_npcList[sTargetH]->m_iNpcCrops != 0) && (g_npcList[sTargetH]->m_cActionLimit == 5) && (g_npcList[sTargetH]->m_iBuildCount > 0)) {
 
-				iSkillLV = g_clientList[sAttackerH]->m_cSkillMastery[SKILL_FARMING];
+				iSkillLV = g_clientList[sAttackerH]->m_cSkillMastery[SKILL_ARCHERY];
 				iCropLimit = g_npcList[sTargetH]->m_iCropsSkillLV;
 
 				if(20 > iSkillLV) return 0;  
@@ -682,7 +635,7 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 						//						g_npcList[sTargetH]->m_sAppr2 = (char)0;
 
 						if(iSkillLV <= iCropLimit + 10)
-							CalculateSSN_SkillIndex(sAttackerH, SKILL_FARMING, 1);
+							CalculateSSN_SkillIndex(sAttackerH, SKILL_ARCHERY, 1);
 
 						g_game->SendEventToNearClient_TypeA(sTargetH, OWNERTYPE_NPC, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
 
@@ -699,7 +652,7 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 						//						g_npcList[sTargetH]->m_sAppr2 = (char)3;
 
 						if(iSkillLV <= iCropLimit + 10)
-							CalculateSSN_SkillIndex(sAttackerH, SKILL_FARMING, 1);
+							CalculateSSN_SkillIndex(sAttackerH, SKILL_ARCHERY, 1);
 
 						g_game->SendEventToNearClient_TypeA(sTargetH, OWNERTYPE_NPC, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
 
@@ -707,7 +660,7 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 						if(probabilityTable(iSkillLV,iCropLimit,2) > 0)
 						{
 							if(iSkillLV <= iCropLimit + 10)
-								CalculateSSN_SkillIndex(sAttackerH, SKILL_FARMING, 1);
+								CalculateSSN_SkillIndex(sAttackerH, SKILL_ARCHERY, 1);
 							g_game->bCropsItemDrop(sAttackerH,sTargetH);
 						}
 						break;
@@ -717,7 +670,7 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 						//						g_npcList[sTargetH]->m_sAppr2 = (char)2;
 
 						if(iSkillLV <= iCropLimit + 10)
-							CalculateSSN_SkillIndex(sAttackerH, SKILL_FARMING, 1);
+							CalculateSSN_SkillIndex(sAttackerH, SKILL_ARCHERY, 1);
 
 						g_game->SendEventToNearClient_TypeA(sTargetH, OWNERTYPE_NPC, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
 
@@ -725,7 +678,7 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 						if(probabilityTable(iSkillLV,iCropLimit,2) > 0)
 						{
 							if(iSkillLV <= iCropLimit + 10)
-								CalculateSSN_SkillIndex(sAttackerH, SKILL_FARMING, 1);
+								CalculateSSN_SkillIndex(sAttackerH, SKILL_ARCHERY, 1);
 							g_game->bCropsItemDrop(sAttackerH,sTargetH);
 						}
 						break;

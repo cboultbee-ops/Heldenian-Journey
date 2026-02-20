@@ -7,6 +7,13 @@ public:
 	CMyDib(char *szFilename, unsigned long dwFilePointer);
 	~CMyDib();
 	void PaintImage(HDC hDC);
+
+	// Get pointer to raw pixel data
+	LPSTR GetPixels() const;
+
+	// Get bits per pixel
+	WORD GetBitsPerPixel() const;
+
 	WORD m_wWidthX;
 	WORD m_wWidthY;
 	WORD m_wColorNums;//bmp

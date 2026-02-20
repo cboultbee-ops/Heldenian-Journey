@@ -879,10 +879,16 @@ void CGame::ClientMotionHandler(int iClientH, char * pData)
 		break;
 
 	case OBJECTMAGIC:
+		wsprintf(g_cTxt, "(DEBUG) OBJECTMAGIC received: player=%s magicType=%d pos=(%d,%d) dir=%d", m_pClientList[iClientH]->m_cCharName, magicType, sX, sY, cDir);
+		PutLogList(g_cTxt);
 		iRet = iClientMotion_Magic_Handler(iClientH, sX, sY, cDir);
+		wsprintf(g_cTxt, "(DEBUG) OBJECTMAGIC iClientMotion_Magic_Handler returned %d", iRet);
+		PutLogList(g_cTxt);
 		if (iRet == 1) {
 			SendEventToNearClient_TypeA((short)iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTMAGIC, magicType,(short) 10, NULL);
 			m_pClientList[iClientH]->m_hasPrecasted = true;
+			wsprintf(g_cTxt, "(DEBUG) OBJECTMAGIC precast set to true for %s", m_pClientList[iClientH]->m_cCharName);
+			PutLogList(g_cTxt);
 		}
 		else if (iRet == 2) SendObjectMotionRejectMsg(iClientH);
 		break;
@@ -3516,6 +3522,8 @@ void CGame::InitPlayerData(int iClientH, char * pData, DWORD dwSize)
 
 
 	if ((player->m_sX == -1) && (player->m_sY == -1)) {
+		wsprintf(g_cTxt, "(DEBUG) Player %s position was (-1,-1), using initial point", player->m_cCharName);
+		PutLogList(g_cTxt);
 		GetMapInitialPoint(player->m_cMapIndex, &player->m_sX, &player->m_sY, player->m_cLocation);
 	}
 
@@ -4619,6 +4627,8 @@ bool CGame::_bDecodePlayerDatafileContents(int iClientH, char * pData, DWORD dwS
 	}
 	m_pClientList[iClientH]->m_sX = (short)wGetOffsetValue(pData, 74);
 	m_pClientList[iClientH]->m_sY = (short)wGetOffsetValue(pData, 76);
+	wsprintf(g_cTxt, "(DEBUG) Player %s loaded at map=%s x=%d y=%d", m_pClientList[iClientH]->m_cCharName, m_pClientList[iClientH]->m_cMapName, m_pClientList[iClientH]->m_sX, m_pClientList[iClientH]->m_sY);
+	PutLogList(g_cTxt);
 	m_pClientList[iClientH]->m_iContribution = dwGetOffsetValue(pData, 78);
 	m_pClientList[iClientH]->m_iSpecialAbilityTime = dwGetOffsetValue(pData, 82);
 	ZeroMemory(m_pClientList[iClientH]->m_cLockedMapName, sizeof(m_pClientList[iClientH]->m_cLockedMapName));
@@ -4988,6 +4998,8 @@ int CGame::_iComposePlayerDataFileContents(int iClientH, char * pData)
 	SafeCopy(pData+64, m_pClientList[iClientH]->m_cMapName);
 	PutOffsetValue(pData, 74, WORDSIZE, m_pClientList[iClientH]->m_sX);
 	PutOffsetValue(pData, 76, WORDSIZE, m_pClientList[iClientH]->m_sY);
+	wsprintf(g_cTxt, "(DEBUG) Saving player %s: map=%s x=%d y=%d", m_pClientList[iClientH]->m_cCharName, m_pClientList[iClientH]->m_cMapName, m_pClientList[iClientH]->m_sX, m_pClientList[iClientH]->m_sY);
+	PutLogList(g_cTxt);
 	PutOffsetValue(pData, 78, DWORDSIZE, m_pClientList[iClientH]->m_iContribution);
 	PutOffsetValue(pData, 82, DWORDSIZE, m_pClientList[iClientH]->m_iSpecialAbilityTime);
 	ZeroMemory(pData+86, 10);
@@ -4995,7 +5007,10 @@ int CGame::_iComposePlayerDataFileContents(int iClientH, char * pData)
 	PutOffsetValue(pData, 96, DWORDSIZE, m_pClientList[iClientH]->m_iLockedMapTime);
 	ZeroMemory(pData+100, 20);
 	ZeroMemory(cTxt, sizeof(cTxt));
-	wsprintf(cTxt, "%d-%d-%d 00:00:00", m_pClientList[iClientH]->m_iPenaltyBlockYear, m_pClientList[iClientH]->m_iPenaltyBlockMonth, m_pClientList[iClientH]->m_iPenaltyBlockDay);
+	if(m_pClientList[iClientH]->m_iPenaltyBlockYear == 0)
+		SafeCopy(cTxt, "1000-01-01 00:00:00");
+	else
+		wsprintf(cTxt, "%d-%d-%d 00:00:00", m_pClientList[iClientH]->m_iPenaltyBlockYear, m_pClientList[iClientH]->m_iPenaltyBlockMonth, m_pClientList[iClientH]->m_iPenaltyBlockDay);
 	SafeCopy(pData+100, cTxt);
 	ZeroMemory(pData+120, 20);
 	if (m_pClientList[iClientH]->m_iGuildRank != -1)
@@ -5008,7 +5023,11 @@ int CGame::_iComposePlayerDataFileContents(int iClientH, char * pData)
 		SafeCopy(pData+120, "NONE");
 		PutOffsetValue(pData, 140, WORDSIZE, -1);
 	}
-	PutOffsetValue(pData, 142, WORDSIZE, m_pClientList[iClientH]->m_iGuildRank);
+	{ // GuildRank: DB column is tinyint (-128..127); clamp so packet never sends out-of-range value (see Run_Mev0.1.sql)
+		int gr = m_pClientList[iClientH]->m_iGuildRank;
+		if (gr > 127) gr = 127; else if (gr < -128) gr = -128;
+		PutOffsetValue(pData, 142, WORDSIZE, gr);
+	}
 	PutOffsetValue(pData, 143, BYTESIZE, m_pClientList[iClientH]->m_iFightzoneNumber);
 	PutOffsetValue(pData, 144, DWORDSIZE, m_pClientList[iClientH]->m_iReserveTime);
 	PutOffsetValue(pData, 148, BYTESIZE, m_pClientList[iClientH]->m_iFightZoneTicketNumber);
@@ -6468,9 +6487,9 @@ void CGame::ChatMsgHandler(int iClientH, char * pData, DWORD dwMsgSize)
 		while (*cp != NULL) {
 			if ((cp[0] != NULL) && (cp[0] != ' ') && (cp[1] != NULL) && (cp[1] != ' ')) {
 				switch (dice(1,3)) {
-				case 1:	memcpy(cp, "¿ö", 2); break;
-				case 2:	memcpy(cp, "¿ì", 2); break;
-				case 3:	memcpy(cp, "¿ù", 2); break;
+				case 1:	memcpy(cp, "ï¿½ï¿½", 2); break;
+				case 2:	memcpy(cp, "ï¿½ï¿½", 2); break;
+				case 3:	memcpy(cp, "ï¿½ï¿½", 2); break;
 				}
 				cp += 2;
 			}
@@ -7435,7 +7454,7 @@ void CGame::MsgProcess()
 
 		case MSGFROM_CLIENT:
 			// 1st: log out corrupted packets from client
-			// ici, rajouter un check sur les clients qui viennent juste d'être éffacés.
+			// ici, rajouter un check sur les clients qui viennent juste d'ï¿½tre ï¿½ffacï¿½s.
 			if (m_pClientList[iClientH] == NULL)// Remember erased clients	
 			{	if (iClientH != NULL)
 				{	for (i = 0; i < MAXCLIENTS; i++) 
@@ -8152,8 +8171,14 @@ void CGame::ClientCommonHandler(int iClientH, char * pData)
 		break;
 
 	case COMMONTYPE_MAGIC:
+		wsprintf(g_cTxt, "(DEBUG) COMMONTYPE_MAGIC received: player=%s hasPrecasted=%d IsGM=%d iV1=%d iV2=%d iV3=%d", m_pClientList[iClientH]->m_cCharName, m_pClientList[iClientH]->m_hasPrecasted, m_pClientList[iClientH]->IsGM(), iV1, iV2, iV3);
+		PutLogList(g_cTxt);
 		if(m_pClientList[iClientH]->m_hasPrecasted || m_pClientList[iClientH]->IsGM())
 		PlayerMagicHandler(iClientH, iV1, iV2, (iV3 - 100));
+		else {
+			wsprintf(g_cTxt, "(DEBUG) COMMONTYPE_MAGIC REJECTED: hasPrecasted=false and not GM");
+			PutLogList(g_cTxt);
+		}
 		break;
 
 	case COMMONTYPE_TOGGLESAFEATTACKMODE:
@@ -12442,6 +12467,10 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 
 	if (!caster || !caster->m_bIsInitComplete) return;
 
+	// DEBUG: Log magic handler entry
+	wsprintf(g_cTxt, "(DEBUG) PlayerMagicHandler: player=%s sType=%d target=(%d,%d) bItemEffect=%d", caster->m_cCharName, sType, dX, dY, bItemEffect);
+	PutLogList(g_cTxt);
+
 	// ### BUG POINT!!!  	caster->m_cMapIndex == -1 ???
 	if (caster->m_cMapIndex < 0) return;
 	if (m_pMapList[caster->m_cMapIndex] == NULL) return;
@@ -12459,28 +12488,60 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 		return;
 	}
 
-	if ((sType < 0) || (sType >= 100))     return;
-	if (m_pMagicConfigList[sType] == NULL) return;
+	if ((sType < 0) || (sType >= 100)) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: sType out of range", sType);
+		PutLogList(g_cTxt);
+		return;
+	}
+	if (m_pMagicConfigList[sType] == NULL) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: config is NULL", sType);
+		PutLogList(g_cTxt);
+		return;
+	}
 	spell =	m_pMagicConfigList[sType];
 
-	if ((bItemEffect == FALSE) && (caster->m_cMagicMastery[sType] != 1)) return;
+	if ((bItemEffect == FALSE) && (caster->m_cMagicMastery[sType] != 1)) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: mastery not learned (mastery=%d)", sType, caster->m_cMagicMastery[sType]);
+		PutLogList(g_cTxt);
+		return;
+	}
 
-	if (m_pMapList[ caster->m_cMapIndex ]->m_bIsAttackEnabled == FALSE 
+	if (m_pMapList[ caster->m_cMapIndex ]->m_bIsAttackEnabled == FALSE
 		&& spell->m_sType != MAGICTYPE_CREATE
 		&& spell->m_sType != MAGICTYPE_TELEPORT
-		&& !caster->IsGM()) return;
+		&& !caster->IsGM()) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: attack not enabled on map", sType);
+		PutLogList(g_cTxt);
+		return;
+	}
 
-	if (m_pMapList[ caster->m_cMapIndex ]->m_magicLimited[sType] == true && !caster->IsGM()) return;
+	if (m_pMapList[ caster->m_cMapIndex ]->m_magicLimited[sType] == true && !caster->IsGM()) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: magic limited on map", sType);
+		PutLogList(g_cTxt);
+		return;
+	}
 
-	if (caster->m_cMagicEffectStatus[MAGICTYPE_INHIBITION] != 0) return;
+	if (caster->m_cMagicEffectStatus[MAGICTYPE_INHIBITION] != 0) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: inhibition active", sType);
+		PutLogList(g_cTxt);
+		return;
+	}
 
 	if (caster->m_sItemEquipmentStatus[ EQUIPPOS_RHAND ] != -1) {
 		wWeaponType = ((caster->m_sAppr2 & 0x0FF0) >> 4);
-		if(wWeaponType < 34 || wWeaponType > 39) return;
+		if(wWeaponType < 34 || wWeaponType > 39) {
+			wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: wrong weapon type %d (need 34-39 for wand)", sType, wWeaponType);
+			PutLogList(g_cTxt);
+			return;
+		}
 	}
 
 	if ((caster->m_sItemEquipmentStatus[ EQUIPPOS_LHAND ]   != -1) ||
-		(caster->m_sItemEquipmentStatus[ EQUIPPOS_TWOHAND ] != -1)) return;
+		(caster->m_sItemEquipmentStatus[ EQUIPPOS_TWOHAND ] != -1)) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: left-hand or two-hand item equipped", sType);
+		PutLogList(g_cTxt);
+		return;
+	}
 
 
 	if ((dwTime - caster->m_dwRecentAttackTime) < 100) return; 
@@ -12567,18 +12628,24 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 
 		diceRes = dice(1,100);
 		if (iResult < diceRes) {
+			wsprintf(g_cTxt, "(DEBUG) Magic %d failed dice roll: result=%d < dice=%d", sType, iResult, diceRes);
+			PutLogList(g_cTxt);
 			SendEventToNearClient_TypeA(iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTDAMAGE, 0, -1, NULL);
 			return;
 		}
 	}
 
 	if (((caster->m_iHungerStatus <= 10) || (caster->m_iSP <= 0)) && (dice(1,1000) <= 100)) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d failed: hunger=%d SP=%d check", sType, caster->m_iHungerStatus, caster->m_iSP);
+		PutLogList(g_cTxt);
 		SendEventToNearClient_TypeA(iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTDAMAGE, 0, -1, NULL);
 		return;
 	}
 
 
 	if (caster->m_iMP < iManaCost) {
+		wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: MP %d < cost %d", sType, caster->m_iMP, iManaCost);
+		PutLogList(g_cTxt);
 		return;
 	}
 
@@ -12610,7 +12677,11 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 
 
 	if (spell->m_cCategory == 1) {
-		if (m_pMapList[caster->m_cMapIndex]->iGetAttribute(sX, sY, 0x00000005) != 0) return;
+		if (m_pMapList[caster->m_cMapIndex]->iGetAttribute(sX, sY, 0x00000005) != 0) {
+			wsprintf(g_cTxt, "(DEBUG) Magic %d rejected: caster at (%d,%d) is in no-attack area (category=1)", sType, sX, sY);
+			PutLogList(g_cTxt);
+			return;
+		}
 	}
 
 
@@ -12621,9 +12692,12 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 
 	target = m_pMapList[caster->m_cMapIndex]->GetOwner(dX, dY);
 
+	wsprintf(g_cTxt, "(DEBUG) Magic %d passed all checks. spellType=%d delayTime=%d MP=%d cost=%d", sType, spell->m_sType, spell->m_dwDelayTime, caster->m_iMP, iManaCost);
+	PutLogList(g_cTxt);
+
 	if (spell->m_dwDelayTime == 0) {
 
-		switch (spell->m_sType) 
+		switch (spell->m_sType)
 		{
 		case MAGICTYPE_RESURRECTION: 
 			//if(!target) goto MAGIC_NOEFFECT;
@@ -13669,9 +13743,13 @@ if ((m_bHeldenianMode) && (m_pMapList[caster->m_cMapIndex]->m_bIsHeldenianMap ==
 			break;
 
 		case MAGICTYPE_BERSERK:
+			wsprintf(g_cTxt, "(DEBUG) BERSERK case reached: MAGICV_TYPE=%d target=(%d,%d)", spell->m_sValue[MAGICV_TYPE], dX, dY);
+			PutLogList(g_cTxt);
 			switch (spell->m_sValue[MAGICV_TYPE]) {
 			case 1:
 				m_pMapList[caster->m_cMapIndex]->GetOwner(&sOwnerH, &cOwnerType, dX, dY);
+				wsprintf(g_cTxt, "(DEBUG) BERSERK GetOwner: sOwnerH=%d cOwnerType=%d", sOwnerH, cOwnerType);
+				PutLogList(g_cTxt);
 
 				switch (cOwnerType) {
 				case OWNERTYPE_PLAYER:
@@ -15398,7 +15476,7 @@ int CGame::_iGetSkillNumber(char * pSkillName)
 	ZeroMemory(cTmpName, sizeof(cTmpName));
 	strcpy(cTmpName, pSkillName);
 
-	for (i = 1; i < MAXSKILLTYPE; i++) 
+	for (i = 0; i < MAXSKILLTYPE; i++)
 		if (m_pSkillConfigList[i] != NULL) {
 			if (memcmp(cTmpName, m_pSkillConfigList[i]->m_cName, 20) == 0) {
 
@@ -16587,13 +16665,13 @@ bool CGame::_bReadMapInfoFiles(int iMapIndex)
 
 			case 24: // item event
 				/*
-				; mapdata¿¡ µé¾î°¥ ³»¿ë
+				; mapdataï¿½ï¿½ ï¿½ï¿½î°¥ ï¿½ï¿½ï¿½ï¿½
 				;item-event = index	item_name	amount	TotalNumber	month	day	type	mob_list[Max:5]
-				;	type = 0 : ÇØ´ç ¾ÆÀÌÅÛÀÌ ÀÏ¹Ý ¾ÆÀÌÅÛ »ý¼º°úÁ¤¿¡¼­ »ý¼ºµÇÁö ¾Ê´Â´Ù.
-				;	       1 : Item Event¿¡ ÀÇÇØ¼­µµ »ý¼ºµÇ°í ÀÏ¹Ý ¾ÆÀÌÅÛ »ý¼º°úÁ¤À» ÅëÇØ¼­µµ »ý¼ºµÈ´Ù.
+				;	type = 0 : ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ï¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½.
+				;	       1 : Item Eventï¿½ï¿½ ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ ï¿½Ï¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½È´ï¿½.
 
-				item-event = 	1	Àû»ö¼Ò¿ø±¸	1	10		11	1	0	Cannibal-Plant Ettin EOL
-				item-event = 	2	³ì»ö¼Ò¿ø±¸	1	10		11	1	0	Giant-Frog Scorpion EOL
+				item-event = 	1	ï¿½ï¿½ï¿½ï¿½ï¿½Ò¿ï¿½ï¿½ï¿½	1	10		11	1	0	Cannibal-Plant Ettin EOL
+				item-event = 	2	ï¿½ï¿½ï¿½ï¿½Ò¿ï¿½ï¿½ï¿½	1	10		11	1	0	Giant-Frog Scorpion EOL
 				*/
 				switch (cReadModeB) 
 				{
@@ -22105,7 +22183,7 @@ void CGame::UseSkillHandler(int iClientH, int iV1, int iV2, int iV3)
 	if (iV1 != 19) {
 	m_pClientList[iClientH]->m_iAbuseCount++;
 	if ((m_pClientList[iClientH]->m_iAbuseCount % 30) == 0) {
-	wsprintf(g_cTxt, "(!) ÇØÅ· ¿ëÀÇÀÚ(%s) Skill(%d) Tries(%d)",m_pClientList[iClientH]->m_cCharName, 
+	wsprintf(g_cTxt, "(!) ï¿½ï¿½Å· ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½(%s) Skill(%d) Tries(%d)",m_pClientList[iClientH]->m_cCharName, 
 	iV1, m_pClientList[iClientH]->m_iAbuseCount);
 	PutLogFileList(g_cTxt);
 	}
@@ -23206,9 +23284,9 @@ void CGame::CalcTotalItemEffect(int iClientH, int iEquipItemID, bool bNotify)
 			case ITEMEFFECTTYPE_ATTACK_MANASAVE:
 			case ITEMEFFECTTYPE_ATTACK_MAXHPDOWN:
 			case ITEMEFFECTTYPE_ATTACK:
-				player->m_cAttackDiceThrow_SM = item->m_sItemEffectValue1 * 100;
-				player->m_cAttackDiceRange_SM = item->m_sItemEffectValue2 * 100;
-				player->m_cAttackBonus_SM     = item->m_sItemEffectValue3*100;
+				player->m_cAttackDiceThrow_SM = item->m_sItemEffectValue1;
+				player->m_cAttackDiceRange_SM = item->m_sItemEffectValue2;
+				player->m_cAttackBonus_SM     = item->m_sItemEffectValue3;
 				if(item->m_sItemEffectType == ITEMEFFECTTYPE_ATTACK_MANASAVE)
 				{	
 					player->m_cAttackDiceThrow_L  = player->m_cAttackDiceThrow_SM;
@@ -24892,7 +24970,7 @@ void CGame::ReqGetFishThisTimeHandler(int iClientH)
 
 
 		GetExp(iClientH, dice(m_pFish[m_pClientList[iClientH]->m_iAllocatedFish]->m_iDifficulty, 6)); //m_pClientList[iClientH]->m_iExpStock += dice(m_pFish[m_pClientList[iClientH]->m_iAllocatedFish]->m_iDifficulty, 5);
-		CalculateSSN_SkillIndex(iClientH, SKILL_FISHING, m_pFish[m_pClientList[iClientH]->m_iAllocatedFish]->m_iDifficulty);
+		CalculateSSN_SkillIndex(iClientH, SKILL_MINING, m_pFish[m_pClientList[iClientH]->m_iAllocatedFish]->m_iDifficulty);
 
 
 		pItem = m_pFish[m_pClientList[iClientH]->m_iAllocatedFish]->m_pItem;
@@ -26564,7 +26642,7 @@ void CGame::NpcTalkHandler(int iClientH, int iWho)
 		}
 		else {
 			switch (iRewardType) {
-			case -10: strcpy(cRewardName, "°æÇèÄ¡"); break;
+			case -10: strcpy(cRewardName, "ï¿½ï¿½ï¿½ï¿½Ä¡"); break;
 			}
 		}
 
@@ -28257,7 +28335,7 @@ int CGame::_iTalkToNpcResult_Cityhall(int iClientH, int * pQuestType, int * pMod
 					GetExp(iClientH, m_pClientList[iClientH]->m_iQuestRewardAmount); //m_pClientList[iClientH]->m_iExpStock += m_pClientList[iClientH]->m_iQuestRewardAmount;
 					m_pClientList[iClientH]->m_iContribution += m_pQuestConfigList[m_pClientList[iClientH]->m_iQuest]->m_iContribution;
 					SendNotifyMsg(NULL, iClientH, NOTIFY_QUESTREWARD, 4, 1, m_pClientList[iClientH]->m_iQuestRewardAmount, 
-						"°æÇèÄ¡              ", m_pClientList[iClientH]->m_iContribution);
+						"ï¿½ï¿½ï¿½ï¿½Ä¡              ", m_pClientList[iClientH]->m_iContribution);
 
 
 					_ClearQuestStatus(iClientH);
@@ -28274,7 +28352,7 @@ int CGame::_iTalkToNpcResult_Cityhall(int iClientH, int * pQuestType, int * pMod
 					m_pClientList[iClientH]->m_iContribution += m_pQuestConfigList[m_pClientList[iClientH]->m_iQuest]->m_iContribution;
 
 					SendNotifyMsg(NULL, iClientH, NOTIFY_QUESTREWARD, 4, 1, iExp, 
-						"°æÇèÄ¡              ", m_pClientList[iClientH]->m_iContribution);
+						"ï¿½ï¿½ï¿½ï¿½Ä¡              ", m_pClientList[iClientH]->m_iContribution);
 
 
 					_ClearQuestStatus(iClientH);
@@ -31795,13 +31873,13 @@ void CGame::NpcDeadItemGenerator(int iNpcH, short sAttackerH, char cAttackerType
 
 
 /*
-; mapdata¿¡ µé¾î°¥ ³»¿ë
+; mapdataï¿½ï¿½ ï¿½ï¿½î°¥ ï¿½ï¿½ï¿½ï¿½
 ;item-event = index	item_name	amount	TotalNumber	month	day		type	mob_list[Max:5]
-;	type = 0 : ÇØ´ç ¾ÆÀÌÅÛÀÌ ÀÏ¹Ý ¾ÆÀÌÅÛ »ý¼º°úÁ¤¿¡¼­ »ý¼ºµÇÁö ¾Ê´Â´Ù.
-;	       1 : Item Event¿¡ ÀÇÇØ¼­µµ »ý¼ºµÇ°í ÀÏ¹Ý ¾ÆÀÌÅÛ »ý¼º°úÁ¤À» ÅëÇØ¼­µµ »ý¼ºµÈ´Ù.
+;	type = 0 : ï¿½Ø´ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ï¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Ê´Â´ï¿½.
+;	       1 : Item Eventï¿½ï¿½ ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½ ï¿½Ï¹ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½È´ï¿½.
 
-item-event = 	1	Àû»ö¼Ò¿ø±¸	1		10			11		1		0		Cannibal-Plant Ettin EOL
-item-event = 	2	³ì»ö¼Ò¿ø±¸	1		10			11		1		0		Giant-Frog Scorpion EOL
+item-event = 	1	ï¿½ï¿½ï¿½ï¿½ï¿½Ò¿ï¿½ï¿½ï¿½	1		10			11		1		0		Cannibal-Plant Ettin EOL
+item-event = 	2	ï¿½ï¿½ï¿½ï¿½Ò¿ï¿½ï¿½ï¿½	1		10			11		1		0		Giant-Frog Scorpion EOL
 */
 bool CGame::NpcDeadItemGeneratorWithItemEvent(int iNpcH, short sAttackerH, char cAttackerType)
 {
@@ -32778,7 +32856,7 @@ bool CGame::bCheckEnergySphereDestination(int iNpcH, short sAttackerH, char cAtt
 
 			if ((cAttackerType == OWNERTYPE_PLAYER) && (m_pClientList[sAttackerH] != NULL)) {
 				if (m_pClientList[sAttackerH]->m_side == 1) { // Aresden (Side:1)
-					wsprintf(g_cTxt, "(!) ¿¡³ÊÁö ½ºÇÇ¾î °ñÀÎ (%s)", m_pClientList[sAttackerH]->m_cCharName);
+					wsprintf(g_cTxt, "(!) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ (%s)", m_pClientList[sAttackerH]->m_cCharName);
 					PutLogFileList(g_cTxt);
 				}
 				else {
@@ -32802,7 +32880,7 @@ bool CGame::bCheckEnergySphereDestination(int iNpcH, short sAttackerH, char cAtt
 
 			if ((cAttackerType == OWNERTYPE_PLAYER) && (m_pClientList[sAttackerH] != NULL)) {
 				if (m_pClientList[sAttackerH]->m_side == 2) { // Elvine (Side:2)
-					wsprintf(g_cTxt, "(!) ¿¡³ÊÁö ½ºÇÇ¾î °ñÀÎ (%s)", m_pClientList[sAttackerH]->m_cCharName);
+					wsprintf(g_cTxt, "(!) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ (%s)", m_pClientList[sAttackerH]->m_cCharName);
 					PutLogFileList(g_cTxt);
 				}
 				else {
@@ -32837,7 +32915,7 @@ bool CGame::bCheckEnergySphereDestination(int iNpcH, short sAttackerH, char cAtt
 			if ((cAttackerType == OWNERTYPE_PLAYER) && (m_pClientList[sAttackerH] != NULL)) {
 				if (m_pClientList[sAttackerH]->m_side == 1) { // Aresden (Side:1)
 					m_pClientList[sAttackerH]->m_iContribution += 5;
-					wsprintf(g_cTxt, "(!) ¿¡³ÊÁö ½ºÇÇ¾î °ñÀÎ (%s)", m_pClientList[sAttackerH]->m_cCharName);
+					wsprintf(g_cTxt, "(!) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ (%s)", m_pClientList[sAttackerH]->m_cCharName);
 					PutLogFileList(g_cTxt);
 				}
 				else {
@@ -32861,7 +32939,7 @@ bool CGame::bCheckEnergySphereDestination(int iNpcH, short sAttackerH, char cAtt
 			if ((cAttackerType == OWNERTYPE_PLAYER) && (m_pClientList[sAttackerH] != NULL)) {
 				if (m_pClientList[sAttackerH]->m_side == 2) { // Elvine (Side:2)
 					m_pClientList[sAttackerH]->m_iContribution += 5;
-					wsprintf(g_cTxt, "(!) ¿¡³ÊÁö ½ºÇÇ¾î °ñÀÎ (%s)", m_pClientList[sAttackerH]->m_cCharName);
+					wsprintf(g_cTxt, "(!) ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½Ç¾ï¿½ ï¿½ï¿½ï¿½ï¿½ (%s)", m_pClientList[sAttackerH]->m_cCharName);
 					PutLogFileList(g_cTxt);
 				}
 				else {
@@ -35692,7 +35770,7 @@ int CGame::iGetMapLocationSide(char *pMapName)
 	if (memcmp(pMapName, "elvwrhus", 8) == 0) return ELVINE ;
 	if (memcmp(pMapName, "istwrhus", 8) == 0) return ISTRIA ;
 
-	/*  memcmp ¸¦ÇÏ±â ¶§¹®¿¡ ¾Õ¿¡¼­ °É¸°´Ù.
+	/*  memcmp ï¿½ï¿½ï¿½Ï±ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½Õ¿ï¿½ï¿½ï¿½ ï¿½É¸ï¿½ï¿½ï¿½.
 	if (memcmp(pMapName, "gshop_1f") == 0) return 1;
 	if (memcmp(pMapName, "bsmith_1f") == 0) return 1;
 	if (memcmp(pMapName, "wrhus_1f") == 0) return 1;
@@ -37925,13 +38003,13 @@ void CGame::SetForceRecallTime(int iClientH)
 		else {
 			GetLocalTime(&SysTime);
 			switch (SysTime.wDayOfWeek) {
-			case 1:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeMonday; break;  //¿ù¿äÀÏ  3ºÐ 2002-09-10 #1
-			case 2:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeTuesday; break;  //È­¿äÀÏ  3ºÐ 
-			case 3:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeWednesday; break;  //¼ö¿äÀÏ  3ºÐ 
-			case 4:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeThursday; break;  //¸ñ¿äÀÏ  3ºÐ 
-			case 5:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeFriday; break; //±Ý¿äÀÏ 15ºÐ
-			case 6:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeSaturday; break; //Åä¿äÀÏ 45ºÐ 
-			case 0:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeSunday; break; //ÀÏ¿äÀÏ 60ºÐ
+			case 1:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeMonday; break;  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½ 2002-09-10 #1
+			case 2:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeTuesday; break;  //È­ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½ 
+			case 3:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeWednesday; break;  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½ 
+			case 4:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeThursday; break;  //ï¿½ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½ 
+			case 5:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeFriday; break; //ï¿½Ý¿ï¿½ï¿½ï¿½ 15ï¿½ï¿½
+			case 6:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeSaturday; break; //ï¿½ï¿½ï¿½ï¿½ï¿½ 45ï¿½ï¿½ 
+			case 0:	m_pClientList[iClientH]->m_iTimeLeft_ForceRecall = 20*m_sRaidTimeSunday; break; //ï¿½Ï¿ï¿½ï¿½ï¿½ 60ï¿½ï¿½
 			}
 		}
 	}
@@ -37943,13 +38021,13 @@ void CGame::SetForceRecallTime(int iClientH)
 
 			GetLocalTime(&SysTime);
 			switch (SysTime.wDayOfWeek) {
-			case 1:	iTL_ = 20*m_sRaidTimeMonday; break;  //¿ù¿äÀÏ  3ºÐ 2002-09-10 #1
-			case 2:	iTL_ = 20*m_sRaidTimeTuesday; break;  //È­¿äÀÏ  3ºÐ
-			case 3:	iTL_ = 20*m_sRaidTimeWednesday; break;  //¼ö¿äÀÏ  3ºÐ
-			case 4:	iTL_ = 20*m_sRaidTimeThursday; break;  //¸ñ¿äÀÏ  3ºÐ
-			case 5:	iTL_ = 20*m_sRaidTimeFriday; break; //±Ý¿äÀÏ 15ºÐ
-			case 6:	iTL_ = 20*m_sRaidTimeSaturday; break; //Åä¿äÀÏ 45ºÐ 
-			case 0:	iTL_ = 20*m_sRaidTimeSunday; break; //ÀÏ¿äÀÏ 60ºÐ
+			case 1:	iTL_ = 20*m_sRaidTimeMonday; break;  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½ 2002-09-10 #1
+			case 2:	iTL_ = 20*m_sRaidTimeTuesday; break;  //È­ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½
+			case 3:	iTL_ = 20*m_sRaidTimeWednesday; break;  //ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½
+			case 4:	iTL_ = 20*m_sRaidTimeThursday; break;  //ï¿½ï¿½ï¿½ï¿½ï¿½  3ï¿½ï¿½
+			case 5:	iTL_ = 20*m_sRaidTimeFriday; break; //ï¿½Ý¿ï¿½ï¿½ï¿½ 15ï¿½ï¿½
+			case 6:	iTL_ = 20*m_sRaidTimeSaturday; break; //ï¿½ï¿½ï¿½ï¿½ï¿½ 45ï¿½ï¿½ 
+			case 0:	iTL_ = 20*m_sRaidTimeSunday; break; //ï¿½Ï¿ï¿½ï¿½ï¿½ 60ï¿½ï¿½
 			}
 		}
 
@@ -38039,7 +38117,7 @@ bool CGame::__bSetAgricultureItem(int iMapIndex, int dX, int dY, int iType,int i
 		return FALSE;
 	}
 
-	if(iSsn > m_pClientList[iClientH]->m_cSkillMastery[SKILL_FARMING]) 
+	if(iSsn > m_pClientList[iClientH]->m_cSkillMastery[SKILL_ARCHERY]) 
 	{
 		SendNotifyMsg(NULL, iClientH, NOTIFY_AGRICULTURESKILLLIMIT, NULL, NULL, NULL, NULL);  //??
 		return FALSE;

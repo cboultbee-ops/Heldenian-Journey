@@ -3,6 +3,8 @@
 //////////////////////////////////////////////////////////////////////
 
 #include "Sprite.h"
+#include "GPURenderer.h"
+#include "../stb_image.h"
 
 extern char G_cSpriteAlphaDegree;
 
@@ -23,11 +25,13 @@ CSprite::CSprite(HANDLE hPakFile, DXC_ddraw *pDDraw, char *cPakFileName, short s
 {
 	DWORD  nCount;
 	int iASDstart;
+	DWORD nextBlockStart = 0;
 
 	m_stBrush	= NULL;
 	m_lpSurface = NULL;
 	m_bIsSurfaceEmpty = TRUE;
 	ZeroMemory(m_cPakFileName, sizeof(m_cPakFileName));
+	m_dwBitmapFileSize = 0;
 
 	m_cAlphaDegree = 1;
 	m_bOnCriticalSection = FALSE;
@@ -35,24 +39,46 @@ CSprite::CSprite(HANDLE hPakFile, DXC_ddraw *pDDraw, char *cPakFileName, short s
 	m_pDDraw = pDDraw;
 	if (framePositions) {
 		iASDstart = (*framePositions)[sNthFile];
-	} 
+		if (sNthFile + 1 < (short)framePositions->size())
+			nextBlockStart = (DWORD)(*framePositions)[sNthFile + 1];
+	}
 	else {
-		SetFilePointer(hPakFile, 24 + sNthFile*8, NULL, FILE_BEGIN);
-		ReadFile(hPakFile, &iASDstart,  4, &nCount, NULL); 
+		DWORD iTotalimage = 0;
+		SetFilePointer(hPakFile, 20, NULL, FILE_BEGIN);
+		ReadFile(hPakFile, &iTotalimage, 4, &nCount, NULL);
+		SetFilePointer(hPakFile, 24 + sNthFile * 8, NULL, FILE_BEGIN);
+		ReadFile(hPakFile, &iASDstart, 4, &nCount, NULL);
+		if (sNthFile + 1 < (short)iTotalimage) {
+			SetFilePointer(hPakFile, 24 + (sNthFile + 1) * 8, NULL, FILE_BEGIN);
+			ReadFile(hPakFile, &nextBlockStart, 4, &nCount, NULL);
+		}
 	}
 	//i+100       Sprite Confirm
-	SetFilePointer(hPakFile, iASDstart+100, NULL, FILE_BEGIN); 
+	SetFilePointer(hPakFile, iASDstart+100, NULL, FILE_BEGIN);
 	ReadFile(hPakFile, &m_iTotalFrame,  4, &nCount, NULL);
 	m_dwBitmapFileStartLoc = iASDstart  + (108 + (12*m_iTotalFrame));
 	m_stBrush = new stBrush[m_iTotalFrame];
 	ReadFile(hPakFile, m_stBrush, 12*m_iTotalFrame, &nCount, NULL);
+	// Image size for PNG/BMP-in-PAK (next block start - image start; or from file size if last sprite)
+	if (nextBlockStart > m_dwBitmapFileStartLoc)
+		m_dwBitmapFileSize = nextBlockStart - m_dwBitmapFileStartLoc;
+	else if (hPakFile && hPakFile != INVALID_HANDLE_VALUE) {
+		DWORD fileSize = GetFileSize(hPakFile, NULL);
+		if (fileSize > m_dwBitmapFileStartLoc)
+			m_dwBitmapFileSize = fileSize - m_dwBitmapFileStartLoc;
+	}
 	// PAK
 	memcpy(m_cPakFileName, cPakFileName, strlen(cPakFileName));
 	m_bAlphaEffect = bAlphaEffect;
+
+	// GPU texture initialization
+	m_glTextureID = 0;
+	m_bIsGPUTexture = false;
 }
 
 CSprite::~CSprite()
 {
+	UnloadFromGPU();
 	if (m_stBrush != NULL) delete[] m_stBrush;
 	if (m_lpSurface != NULL) m_lpSurface->Release();
 }
@@ -97,7 +123,7 @@ void CSprite::PutSpriteFast(int sX, int sY, int sFrame, DWORD dwTime)
 	if( this == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
 	if( m_stBrush == NULL ) return;
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
 
 	sx  = m_stBrush[sFrame].sx;
@@ -107,12 +133,12 @@ void CSprite::PutSpriteFast(int sX, int sY, int sFrame, DWORD dwTime)
 	pvx = m_stBrush[sFrame].pvx;
 	pvy = m_stBrush[sFrame].pvy;
 
-  	dX = sX + pvx;
+	dX = static_cast<short>(sX + pvx);
 	dY = sY + pvy;
 
 	if (dX < m_pDDraw->m_rcClipArea.left)
 	{
-		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);							
+		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);
 		szx = szx - (m_pDDraw->m_rcClipArea.left - dX);
 		if (szx <= 0) {
 			m_rcBound.top = -1;
@@ -147,9 +173,30 @@ void CSprite::PutSpriteFast(int sX, int sY, int sFrame, DWORD dwTime)
 			return;
 		}
 	}
-	
+
 	m_dwRefTime = dwTime;
-	
+
+	m_rcBound.left = dX;
+	m_rcBound.top  = dY;
+	m_rcBound.right  = dX + szx;
+	m_rcBound.bottom = dY + szy;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) {
+			LoadToGPU();
+		}
+		if (m_bIsGPUTexture) {
+			m_pDDraw->m_pGPURenderer->QueueSprite(
+				m_glTextureID, dX, dY, sx, sy, szx, szy,
+				m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_COLORKEY, 1.0f, 0.0f, 0.0f, 0.0f);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
+	// DirectDraw fallback path
 	if (m_bIsSurfaceEmpty == TRUE)
 	{
 		if( _iOpenSprite() == FALSE ) return;
@@ -170,11 +217,6 @@ void CSprite::PutSpriteFast(int sX, int sY, int sFrame, DWORD dwTime)
 	rcRect.top  = sy;
 	rcRect.right  = sx + szx;
 	rcRect.bottom = sy + szy;
-
-	m_rcBound.left = dX;
-	m_rcBound.top  = dY;
-	m_rcBound.right  = dX + szx;
-	m_rcBound.bottom = dY + szy;
 
 	m_pDDraw->m_lpBackB4->BltFast( dX, dY, m_lpSurface, &rcRect, DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT );
 
@@ -273,8 +315,34 @@ void CSprite::PutSpriteFastNoColorKey(int sX, int sY, int sFrame, DWORD dwTime)
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_OPAQUE, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
 	szx = m_stBrush[sFrame].szx;
@@ -283,10 +351,10 @@ void CSprite::PutSpriteFastNoColorKey(int sX, int sY, int sFrame, DWORD dwTime)
 	pvy = m_stBrush[sFrame].pvy;
   	dX = sX + pvx;
 	dY = sY + pvy;
-	if (dX < m_pDDraw->m_rcClipArea.left) 								  
-	{	sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);							
+	if (dX < m_pDDraw->m_rcClipArea.left)
+	{	sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);
 		szx = szx - (m_pDDraw->m_rcClipArea.left - dX);
-		if (szx <= 0) 
+		if (szx <= 0)
 		{	m_rcBound.top = -1;
 			return;
 		}
@@ -435,6 +503,8 @@ void CSprite::PutSpriteFastFrontBuffer(int sX, int sY, int sFrame, DWORD dwTime)
  RECT rcRect;
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
+	// GPU mode has no front buffer surface
+	if (m_pDDraw->m_bUseGPU) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
 	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
 	m_bOnCriticalSection = TRUE;
@@ -529,8 +599,35 @@ void CSprite::PutSpriteFastWidth(int sX, int sY, int sFrame, int sWidth, DWORD d
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			// Limit width
+			if (sWidth < srcW) srcW = (short)sWidth;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_COLORKEY, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -647,8 +744,29 @@ void CSprite::PutShadowSprite(int sX, int sY, int sFrame, DWORD dwTime)
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - simplified shadow (no skew transform)
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_SHADOW, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -718,9 +836,34 @@ void CSprite::PutShadowSpriteClip(int sX, int sY, int sFrame, DWORD dwTime)
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
-	
+
+	// GPU rendering path - simplified shadow (no skew transform)
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_SHADOW, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
 	szx = m_stBrush[sFrame].szx;
@@ -811,13 +954,13 @@ void CSprite::PutShadowSpriteClip(int sX, int sY, int sFrame, DWORD dwTime)
 void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alphaDepth)
 {
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
- int  ix, iy;
- WORD * pSrc, * pDst;
- 	
+	int  ix, iy;
+	WORD * pSrc, * pDst;
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
-	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	m_rcBound.top = -1;
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
 
 	sx  = m_stBrush[sFrame].sx;
@@ -827,12 +970,12 @@ void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alpha
 	pvx = m_stBrush[sFrame].pvx;
 	pvy = m_stBrush[sFrame].pvy;
 
-  	dX = sX + pvx;
+	dX = sX + pvx;
 	dY = sY + pvy;
 
-	if (dX < m_pDDraw->m_rcClipArea.left) 								  
+	if (dX < m_pDDraw->m_rcClipArea.left)
 	{
-		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);							
+		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);
 		szx = szx - (m_pDDraw->m_rcClipArea.left - dX);
 		if (szx < 0) {
 			m_rcBound.top = -1;
@@ -849,7 +992,7 @@ void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alpha
 		}
 	}
 
-	if (dY < m_pDDraw->m_rcClipArea.top) 								  
+	if (dY < m_pDDraw->m_rcClipArea.top)
 	{
 		sy = sy	+ (m_pDDraw->m_rcClipArea.top - dY);
 		szy = szy - (m_pDDraw->m_rcClipArea.top - dY);
@@ -869,7 +1012,28 @@ void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alpha
 	}
 
 	m_dwRefTime = dwTime;
-	
+
+	m_rcBound.left = dX;
+	m_rcBound.top  = dY;
+	m_rcBound.right  = dX + szx;
+	m_rcBound.bottom = dY + szy;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) {
+			LoadToGPU();
+		}
+		if (m_bIsGPUTexture) {
+			m_pDDraw->m_pGPURenderer->QueueSprite(
+				m_glTextureID, dX, dY, sx, sy, szx, szy,
+				m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ALPHA, 1.0f, 0.0f, 0.0f, 0.0f);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
+	// DirectDraw fallback path
 	if (m_bIsSurfaceEmpty == TRUE) {
 		if( _iOpenSprite() == FALSE ) return;
 	}
@@ -884,11 +1048,6 @@ void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alpha
 			}
 		}
 	}
-
-	m_rcBound.left = dX;
-	m_rcBound.top  = dY;
-	m_rcBound.right  = dX + szx;
-	m_rcBound.bottom = dY + szy;
 
 	pSrc = (WORD *)m_pSurfaceAddr + sx + ((sy)*m_sPitch);
 	pDst = (WORD *)m_pDDraw->m_pBackB4Addr + dX + ((dY)*m_pDDraw->m_sBackB4Pitch);
@@ -939,12 +1098,39 @@ void CSprite::PutTransSprite_NoColorKey(int sX, int sY, int sFrame, DWORD dwTime
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  int  ix, iy;
  WORD * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			// alphaDepth=0 means "no transparency" (100% opaque) in the original DD code
+			float alpha = (alphaDepth == 0) ? 1.0f : (float)alphaDepth / 100.0f;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, alpha, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -1058,13 +1244,13 @@ void CSprite::PutTransSprite_NoColorKey(int sX, int sY, int sFrame, DWORD dwTime
 void CSprite::PutTransSprite70(int sX, int sY, int sFrame, DWORD dwTime)
 {
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
- int  ix, iy;
- WORD * pSrc, * pDst;
- 	
+	int  ix, iy;
+	WORD * pSrc, * pDst;
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
-	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	m_rcBound.top = -1;
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
 
 	sx  = m_stBrush[sFrame].sx;
@@ -1074,12 +1260,12 @@ void CSprite::PutTransSprite70(int sX, int sY, int sFrame, DWORD dwTime)
 	pvx = m_stBrush[sFrame].pvx;
 	pvy = m_stBrush[sFrame].pvy;
 
-  	dX = sX + pvx;
+	dX = sX + pvx;
 	dY = sY + pvy;
 
-	if (dX < m_pDDraw->m_rcClipArea.left) 								  
+	if (dX < m_pDDraw->m_rcClipArea.left)
 	{
-		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);							
+		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);
 		szx = szx - (m_pDDraw->m_rcClipArea.left - dX);
 		if (szx < 0) {
 			m_rcBound.top = -1;
@@ -1096,7 +1282,7 @@ void CSprite::PutTransSprite70(int sX, int sY, int sFrame, DWORD dwTime)
 		}
 	}
 
-	if (dY < m_pDDraw->m_rcClipArea.top) 								  
+	if (dY < m_pDDraw->m_rcClipArea.top)
 	{
 		sy = sy	+ (m_pDDraw->m_rcClipArea.top - dY);
 		szy = szy - (m_pDDraw->m_rcClipArea.top - dY);
@@ -1116,7 +1302,28 @@ void CSprite::PutTransSprite70(int sX, int sY, int sFrame, DWORD dwTime)
 	}
 
 	m_dwRefTime = dwTime;
-	
+
+	m_rcBound.left = dX;
+	m_rcBound.top  = dY;
+	m_rcBound.right  = dX + szx;
+	m_rcBound.bottom = dY + szy;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) {
+			LoadToGPU();
+		}
+		if (m_bIsGPUTexture) {
+			m_pDDraw->m_pGPURenderer->QueueSprite(
+				m_glTextureID, dX, dY, sx, sy, szx, szy,
+				m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 0.7f, 0.0f, 0.0f, 0.0f);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
+	// DirectDraw fallback path
 	if (m_bIsSurfaceEmpty == TRUE) {
 		if( _iOpenSprite() == FALSE ) return;
 	}
@@ -1131,12 +1338,6 @@ void CSprite::PutTransSprite70(int sX, int sY, int sFrame, DWORD dwTime)
 			}
 		}
 	}
-
-	//SetRect(&m_rcBound, dX, dY, dX + szx, dY + szy);
-	m_rcBound.left = dX;
-	m_rcBound.top  = dY;
-	m_rcBound.right  = dX + szx;
-	m_rcBound.bottom = dY + szy;
 
 	pSrc = (WORD *)m_pSurfaceAddr + sx + ((sy)*m_sPitch);
 	pDst = (WORD *)m_pDDraw->m_pBackB4Addr + dX + ((dY)*m_pDDraw->m_sBackB4Pitch);
@@ -1188,12 +1389,37 @@ void CSprite::PutTransSprite70_NoColorKey(int sX, int sY, int sFrame, DWORD dwTi
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  int  ix, iy;
  WORD * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - 70% additive
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 0.7f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -1307,13 +1533,13 @@ void CSprite::PutTransSprite70_NoColorKey(int sX, int sY, int sFrame, DWORD dwTi
 void CSprite::PutTransSprite50(int sX, int sY, int sFrame, DWORD dwTime)
 {
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
- int  ix, iy;
- WORD * pSrc, * pDst;
- 	
+	int  ix, iy;
+	WORD * pSrc, * pDst;
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
-	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	m_rcBound.top = -1;
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
 
 	sx  = m_stBrush[sFrame].sx;
@@ -1323,12 +1549,12 @@ void CSprite::PutTransSprite50(int sX, int sY, int sFrame, DWORD dwTime)
 	pvx = m_stBrush[sFrame].pvx;
 	pvy = m_stBrush[sFrame].pvy;
 
-  	dX = sX + pvx;
+	dX = sX + pvx;
 	dY = sY + pvy;
 
-	if (dX < m_pDDraw->m_rcClipArea.left) 								  
+	if (dX < m_pDDraw->m_rcClipArea.left)
 	{
-		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);							
+		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);
 		szx = szx - (m_pDDraw->m_rcClipArea.left - dX);
 		if (szx < 0) {
 			m_rcBound.top = -1;
@@ -1345,7 +1571,7 @@ void CSprite::PutTransSprite50(int sX, int sY, int sFrame, DWORD dwTime)
 		}
 	}
 
-	if (dY < m_pDDraw->m_rcClipArea.top) 								  
+	if (dY < m_pDDraw->m_rcClipArea.top)
 	{
 		sy = sy	+ (m_pDDraw->m_rcClipArea.top - dY);
 		szy = szy - (m_pDDraw->m_rcClipArea.top - dY);
@@ -1365,7 +1591,28 @@ void CSprite::PutTransSprite50(int sX, int sY, int sFrame, DWORD dwTime)
 	}
 
 	m_dwRefTime = dwTime;
-	
+
+	m_rcBound.left = dX;
+	m_rcBound.top  = dY;
+	m_rcBound.right  = dX + szx;
+	m_rcBound.bottom = dY + szy;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) {
+			LoadToGPU();
+		}
+		if (m_bIsGPUTexture) {
+			m_pDDraw->m_pGPURenderer->QueueSprite(
+				m_glTextureID, dX, dY, sx, sy, szx, szy,
+				m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 0.5f, 0.0f, 0.0f, 0.0f);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
+	// DirectDraw fallback path
 	if (m_bIsSurfaceEmpty == TRUE) {
 		if( _iOpenSprite() == FALSE ) return;
 	}
@@ -1381,7 +1628,6 @@ void CSprite::PutTransSprite50(int sX, int sY, int sFrame, DWORD dwTime)
 		}
 	}
 
-	//SetRect(&m_rcBound, dX, dY, dX + szx, dY + szy);
 	m_rcBound.left = dX;
 	m_rcBound.top  = dY;
 	m_rcBound.right  = dX + szx;
@@ -1437,12 +1683,37 @@ void CSprite::PutTransSprite50_NoColorKey(int sX, int sY, int sFrame, DWORD dwTi
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  int  ix, iy;
  WORD * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - 50% additive
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 0.5f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -1557,12 +1828,37 @@ void CSprite::PutTransSprite25(int sX, int sY, int sFrame, DWORD dwTime)
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  int  ix, iy;
  WORD * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - 25% additive
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 0.25f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -1685,12 +1981,37 @@ void CSprite::PutTransSprite25_NoColorKey(int sX, int sY, int sFrame, DWORD dwTi
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  int  ix, iy;
  WORD * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - 25% additive
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 0.25f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -1806,12 +2127,37 @@ void CSprite::PutTransSprite2(int sX, int sY, int sFrame, DWORD dwTime)
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  int  ix, iy;
  WORD * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - average blend
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_AVERAGE, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -1922,12 +2268,37 @@ void CSprite::PutShiftTransSprite2(int sX, int sY, int shX, int shY, int sFrame,
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  int  ix, iy;
  WORD * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - average blend with shift
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx + shX;
+			short srcY = m_stBrush[sFrame].sy + shY;
+			short srcW = 128;
+			short srcH = 128;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_AVERAGE, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -2047,8 +2418,33 @@ void CSprite::PutFadeSprite(short sX, short sY, short sFrame, DWORD dwTime)
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - fade/darken effect
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_FADE, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -2291,16 +2687,285 @@ void CSprite::_iCloseSprite()
 	m_cAlphaDegree = 1;
 }
 
+//////////////////////////////////////////////////////////////////////
+// GPU Texture Methods
+//////////////////////////////////////////////////////////////////////
+
+bool CSprite::LoadToGPU()
+{
+	if (m_bIsGPUTexture && m_glTextureID != 0) return true;  // Already loaded
+	if (m_stBrush == NULL) return false;
+	if (m_pDDraw == NULL || m_pDDraw->m_pGPURenderer == NULL) return false;
+
+	// PNG or BMP from PAK: decode with stb_image for OpenGL
+	{
+		char pathName[32];
+		if (memcmp(m_cPakFileName, "lgn_", 4) == 0)
+			wsprintf(pathName, "sprites\\%s.lpk", m_cPakFileName);
+		else
+			wsprintf(pathName, "sprites\\%s.pak", m_cPakFileName);
+		HANDLE hFile = CreateFileA(pathName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+		if (hFile == INVALID_HANDLE_VALUE) return false;
+
+		// Determine image data size (may not have been set in constructor for last sprite)
+		DWORD bitmapSize = m_dwBitmapFileSize;
+		if (bitmapSize == 0) {
+			DWORD fileSize = GetFileSize(hFile, NULL);
+			if (fileSize > m_dwBitmapFileStartLoc)
+				bitmapSize = fileSize - m_dwBitmapFileStartLoc;
+		}
+		if (bitmapSize == 0) { CloseHandle(hFile); return false; }
+
+		SetFilePointer(hFile, m_dwBitmapFileStartLoc, NULL, FILE_BEGIN);
+		unsigned char* blob = (unsigned char*)malloc(bitmapSize);
+		if (!blob) { CloseHandle(hFile); return false; }
+		DWORD nRead = 0;
+		ReadFile(hFile, blob, bitmapSize, &nRead, NULL);
+		CloseHandle(hFile);
+		if (nRead != bitmapSize) { free(blob); return false; }
+		int w = 0, h = 0, ch = 0;
+		stbi_set_flip_vertically_on_load(0);
+		unsigned char* rgba = stbi_load_from_memory(blob, (int)bitmapSize, &w, &h, &ch, 4);
+		free(blob);
+		if (!rgba || w <= 0 || h <= 0) return false;
+		m_wBitmapSizeX = (WORD)w;
+		m_wBitmapSizeY = (WORD)h;
+		m_glTextureID = m_pDDraw->m_pGPURenderer->CreateTexture(rgba, m_wBitmapSizeX, m_wBitmapSizeY);
+		stbi_image_free(rgba);
+		if (m_glTextureID == 0) return false;
+		m_bIsGPUTexture = true;
+		return true;
+	}
+
+	// Legacy: load BMP from pak (CMyDib reads file header for size)
+	CMyDib mydib(m_cPakFileName, m_dwBitmapFileStartLoc);
+	if (mydib.m_lpDib == NULL) return false;
+
+	m_wBitmapSizeX = mydib.m_wWidthX;
+	m_wBitmapSizeY = mydib.m_wWidthY;
+
+	LPBITMAPINFOHEADER bmpHeader = (LPBITMAPINFOHEADER)mydib.m_lpDib;
+	WORD bitsPerPixel = (WORD)bmpHeader->biBitCount;
+
+	// Get pointer to pixel data (after header and palette)
+	LPSTR pPixelData = mydib.m_lpDib + bmpHeader->biSize + mydib.m_wColorNums * sizeof(RGBQUAD);
+
+	// Allocate RGBA buffer
+	int totalPixels = m_wBitmapSizeX * m_wBitmapSizeY;
+	uint8_t* rgbaData = new uint8_t[totalPixels * 4];
+
+	// Calculate row stride (BMP rows are padded to 4-byte boundaries)
+	int rowStride = ((m_wBitmapSizeX * bitsPerPixel + 31) / 32) * 4;
+
+	if (bitsPerPixel == 8) {
+		// 8-bit palette-based image
+		RGBQUAD* palette = (RGBQUAD*)(mydib.m_lpDib + bmpHeader->biSize);
+		uint8_t* pSrc = (uint8_t*)pPixelData;
+
+		// Get color key from top-left visual pixel (last row of bottom-up BMP data)
+		uint8_t* topVisualRow = pSrc + (m_wBitmapSizeY - 1) * rowStride;
+		uint8_t colorKeyIndex = topVisualRow[0];
+
+		for (int y = 0; y < m_wBitmapSizeY; y++) {
+			// BMP is bottom-up, flip to top-down for OpenGL
+			int srcY = m_wBitmapSizeY - 1 - y;
+			uint8_t* srcRow = pSrc + srcY * rowStride;
+
+			for (int x = 0; x < m_wBitmapSizeX; x++) {
+				uint8_t index = srcRow[x];
+				int dstIdx = (y * m_wBitmapSizeX + x) * 4;
+
+				// Look up in palette (RGBQUAD is BGRA order)
+				rgbaData[dstIdx + 0] = palette[index].rgbRed;
+				rgbaData[dstIdx + 1] = palette[index].rgbGreen;
+				rgbaData[dstIdx + 2] = palette[index].rgbBlue;
+				rgbaData[dstIdx + 3] = (index == colorKeyIndex) ? 0 : 255;
+			}
+		}
+	} else if (bitsPerPixel == 24) {
+		// 24-bit RGB image
+		uint8_t* pSrc = (uint8_t*)pPixelData;
+
+		// Get color key from top-left visual pixel (last row of bottom-up BMP data, BGR order)
+		uint8_t* topVisualRow = pSrc + (m_wBitmapSizeY - 1) * rowStride;
+		uint8_t ckB = topVisualRow[0], ckG = topVisualRow[1], ckR = topVisualRow[2];
+
+		for (int y = 0; y < m_wBitmapSizeY; y++) {
+			int srcY = m_wBitmapSizeY - 1 - y;
+			uint8_t* srcRow = pSrc + srcY * rowStride;
+
+			for (int x = 0; x < m_wBitmapSizeX; x++) {
+				int srcIdx = x * 3;
+				int dstIdx = (y * m_wBitmapSizeX + x) * 4;
+
+				uint8_t b = srcRow[srcIdx + 0];
+				uint8_t g = srcRow[srcIdx + 1];
+				uint8_t r = srcRow[srcIdx + 2];
+
+				rgbaData[dstIdx + 0] = r;
+				rgbaData[dstIdx + 1] = g;
+				rgbaData[dstIdx + 2] = b;
+				rgbaData[dstIdx + 3] = (r == ckR && g == ckG && b == ckB) ? 0 : 255;
+			}
+		}
+	} else if (bitsPerPixel == 4) {
+		// 4-bit palette-based image (16 colors)
+		RGBQUAD* palette = (RGBQUAD*)(mydib.m_lpDib + bmpHeader->biSize);
+		uint8_t* pSrc = (uint8_t*)pPixelData;
+
+		// Get color key from top-left visual pixel (last row of bottom-up BMP data, high nibble)
+		uint8_t* topVisualRow = pSrc + (m_wBitmapSizeY - 1) * rowStride;
+		uint8_t colorKeyIndex = (topVisualRow[0] >> 4) & 0x0F;
+
+		for (int y = 0; y < m_wBitmapSizeY; y++) {
+			int srcY = m_wBitmapSizeY - 1 - y;
+			uint8_t* srcRow = pSrc + srcY * rowStride;
+
+			for (int x = 0; x < m_wBitmapSizeX; x++) {
+				// Each byte contains 2 pixels: high nibble first, then low nibble
+				int byteIdx = x / 2;
+				uint8_t index;
+				if (x % 2 == 0) {
+					index = (srcRow[byteIdx] >> 4) & 0x0F;  // High nibble
+				} else {
+					index = srcRow[byteIdx] & 0x0F;  // Low nibble
+				}
+
+				int dstIdx = (y * m_wBitmapSizeX + x) * 4;
+
+				rgbaData[dstIdx + 0] = palette[index].rgbRed;
+				rgbaData[dstIdx + 1] = palette[index].rgbGreen;
+				rgbaData[dstIdx + 2] = palette[index].rgbBlue;
+				rgbaData[dstIdx + 3] = (index == colorKeyIndex) ? 0 : 255;
+			}
+		}
+	} else if (bitsPerPixel == 16) {
+		// 16-bit RGB image — detect RGB555 vs RGB565 from BMP header
+		uint16_t* pSrc = (uint16_t*)pPixelData;
+		// Get color key from top-left visual pixel (last row of bottom-up BMP data)
+		uint16_t* topVisualRow16 = (uint16_t*)((uint8_t*)pSrc + (m_wBitmapSizeY - 1) * rowStride);
+		m_wColorKey = topVisualRow16[0];
+
+		// Detect pixel format: BI_BITFIELDS has explicit masks, BI_RGB defaults to RGB555
+		bool bIsRGB565 = false;
+		if (bmpHeader->biCompression == BI_BITFIELDS) {
+			// Bit masks follow the BITMAPINFOHEADER
+			DWORD* pMasks = (DWORD*)(mydib.m_lpDib + bmpHeader->biSize);
+			DWORD dwRedMask = pMasks[0];
+			bIsRGB565 = (dwRedMask == 0xF800);  // RGB565: R=F800, G=07E0, B=001F
+			// else RGB555: R=7C00, G=03E0, B=001F
+		}
+		// BI_RGB with 16-bit = RGB555 by Windows standard
+
+		for (int y = 0; y < m_wBitmapSizeY; y++) {
+			int srcY = m_wBitmapSizeY - 1 - y;
+			uint16_t* srcRow = (uint16_t*)((uint8_t*)pSrc + srcY * rowStride);
+
+			for (int x = 0; x < m_wBitmapSizeX; x++) {
+				uint16_t pixel = srcRow[x];
+				int dstIdx = (y * m_wBitmapSizeX + x) * 4;
+
+				if (bIsRGB565) {
+					// RGB565: RRRRRGGGGGGBBBBB (5-6-5)
+					uint8_t r5 = (pixel >> 11) & 0x1F;
+					uint8_t g6 = (pixel >> 5) & 0x3F;
+					uint8_t b5 = pixel & 0x1F;
+					rgbaData[dstIdx + 0] = (r5 << 3) | (r5 >> 2);
+					rgbaData[dstIdx + 1] = (g6 << 2) | (g6 >> 4);
+					rgbaData[dstIdx + 2] = (b5 << 3) | (b5 >> 2);
+				} else {
+					// RGB555: 0RRRRRGGGGGBBBBB (1-5-5-5)
+					uint8_t r5 = (pixel >> 10) & 0x1F;
+					uint8_t g5 = (pixel >> 5) & 0x1F;
+					uint8_t b5 = pixel & 0x1F;
+					rgbaData[dstIdx + 0] = (r5 << 3) | (r5 >> 2);
+					rgbaData[dstIdx + 1] = (g5 << 3) | (g5 >> 2);
+					rgbaData[dstIdx + 2] = (b5 << 3) | (b5 >> 2);
+				}
+				rgbaData[dstIdx + 3] = (pixel == m_wColorKey) ? 0 : 255;
+			}
+		}
+	} else if (bitsPerPixel == 1) {
+		// 1-bit monochrome image
+		RGBQUAD* palette = (RGBQUAD*)(mydib.m_lpDib + bmpHeader->biSize);
+		uint8_t* pSrc = (uint8_t*)pPixelData;
+
+		// Color key is index 0 (usually black/background)
+		uint8_t colorKeyIndex = 0;
+
+		for (int y = 0; y < m_wBitmapSizeY; y++) {
+			int srcY = m_wBitmapSizeY - 1 - y;
+			uint8_t* srcRow = pSrc + srcY * rowStride;
+
+			for (int x = 0; x < m_wBitmapSizeX; x++) {
+				int byteIdx = x / 8;
+				int bitIdx = 7 - (x % 8);  // MSB first
+				uint8_t index = (srcRow[byteIdx] >> bitIdx) & 0x01;
+
+				int dstIdx = (y * m_wBitmapSizeX + x) * 4;
+
+				rgbaData[dstIdx + 0] = palette[index].rgbRed;
+				rgbaData[dstIdx + 1] = palette[index].rgbGreen;
+				rgbaData[dstIdx + 2] = palette[index].rgbBlue;
+				rgbaData[dstIdx + 3] = (index == colorKeyIndex) ? 0 : 255;
+			}
+		}
+	} else if (bitsPerPixel == 32) {
+		// 32-bit BGRA image — use alpha channel directly (no color key)
+		uint8_t* pSrc = (uint8_t*)pPixelData;
+		for (int y = 0; y < m_wBitmapSizeY; y++) {
+			int srcY = m_wBitmapSizeY - 1 - y;
+			uint8_t* srcRow = pSrc + srcY * rowStride;
+			for (int x = 0; x < m_wBitmapSizeX; x++) {
+				int srcIdx = x * 4;
+				int dstIdx = (y * m_wBitmapSizeX + x) * 4;
+				rgbaData[dstIdx + 0] = srcRow[srcIdx + 2];  // R
+				rgbaData[dstIdx + 1] = srcRow[srcIdx + 1];  // G
+				rgbaData[dstIdx + 2] = srcRow[srcIdx + 0];  // B
+				rgbaData[dstIdx + 3] = srcRow[srcIdx + 3];  // A
+			}
+		}
+	} else {
+		// Unsupported format - log and fail gracefully
+		OutputDebugString("LoadToGPU: Unsupported BMP bit depth\n");
+		delete[] rgbaData;
+		return false;
+	}
+
+	// Create OpenGL texture
+	m_glTextureID = m_pDDraw->m_pGPURenderer->CreateTexture(rgbaData, m_wBitmapSizeX, m_wBitmapSizeY);
+
+	delete[] rgbaData;
+
+	if (m_glTextureID == 0) {
+		return false;
+	}
+
+	m_bIsGPUTexture = true;
+	return true;
+}
+
+void CSprite::UnloadFromGPU()
+{
+	// Note: Individual glDeleteTextures calls are skipped here.
+	// During shutdown, the GL context destruction (wglDeleteContext) automatically
+	// frees all textures. Calling DeleteTexture after the renderer is destroyed
+	// would access freed memory and cause heap corruption.
+	// During gameplay, sprites are loaded once and kept; no mid-game recycling needed.
+	m_glTextureID = 0;
+	m_bIsGPUTexture = false;
+}
+
 void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int sBlue, DWORD dwTime)
 {
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
- int  ix, iy, iRedPlus255, iGreenPlus255, iBluePlus255;
- WORD * pSrc, * pDst;
- 	
+	int  ix, iy, iRedPlus255, iGreenPlus255, iBluePlus255;
+	WORD * pSrc, * pDst;
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
-	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	m_rcBound.top = -1;
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
 
 	sx  = m_stBrush[sFrame].sx;
@@ -2310,12 +2975,12 @@ void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int
 	pvx = m_stBrush[sFrame].pvx;
 	pvy = m_stBrush[sFrame].pvy;
 
-  	dX = sX + pvx;
+	dX = sX + pvx;
 	dY = sY + pvy;
 
-	if (dX < m_pDDraw->m_rcClipArea.left) 								  
+	if (dX < m_pDDraw->m_rcClipArea.left)
 	{
-		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);							
+		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);
 		szx = szx - (m_pDDraw->m_rcClipArea.left - dX);
 		if (szx < 0) {
 			m_rcBound.top = -1;
@@ -2332,7 +2997,7 @@ void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int
 		}
 	}
 
-	if (dY < m_pDDraw->m_rcClipArea.top) 								  
+	if (dY < m_pDDraw->m_rcClipArea.top)
 	{
 		sy = sy	+ (m_pDDraw->m_rcClipArea.top - dY);
 		szy = szy - (m_pDDraw->m_rcClipArea.top - dY);
@@ -2350,8 +3015,36 @@ void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int
 			return;
 		}
 	}
-	
+
 	m_dwRefTime = dwTime;
+
+	if ((szx == 0) || (szy == 0)) return;
+
+	m_rcBound.left = dX;
+	m_rcBound.top  = dY;
+	m_rcBound.right  = dX + szx;
+	m_rcBound.bottom = dY + szy;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) {
+			LoadToGPU();
+		}
+		if (m_bIsGPUTexture) {
+			// Convert color values to 0-1 range (original values are -255 to 255)
+			float colorR = sRed / 255.0f;
+			float colorG = sGreen / 255.0f;
+			float colorB = sBlue / 255.0f;
+			m_pDDraw->m_pGPURenderer->QueueSprite(
+				m_glTextureID, dX, dY, sx, sy, szx, szy,
+				m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_TINTED, 1.0f, colorR, colorG, colorB);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
+	// DirectDraw fallback path
 	if (m_bIsSurfaceEmpty == TRUE) {
 		if( _iOpenSprite() == FALSE ) return;
 	}
@@ -2366,13 +3059,6 @@ void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int
 			}
 		}
 	}
-
-	if ((szx == 0) || (szy == 0)) return;
-
-	m_rcBound.left = dX;
-	m_rcBound.top  = dY;
-	m_rcBound.right  = dX + szx;
-	m_rcBound.bottom = dY + szy;
 
 	pSrc = (WORD *)m_pSurfaceAddr + sx + ((sy)*m_sPitch);
 	pDst = (WORD *)m_pDDraw->m_pBackB4Addr + dX + ((dY)*m_pDDraw->m_sBackB4Pitch);
@@ -2426,12 +3112,42 @@ void CSprite::PutTransSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  short ix, iy, iRedPlus255, iGreenPlus255, iBluePlus255;
  WORD  * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - additive color blend (texture + tint added to destination)
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			// Normalize integer tint values to float range (original is 5-bit: -31 to +31)
+			// Shader clamps tex+tint to [0,1], so negative tints darken naturally
+			float normR = sRed / 32.0f;
+			float normG = sGreen / 32.0f;
+			float normB = sBlue / 32.0f;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 1.0f, normR, normG, normB);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -2557,12 +3273,42 @@ void CSprite::PutTransSpriteRGB_NoColorKey(int sX, int sY, int sFrame, int sRed,
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
  short ix, iy, iRedPlus255, iGreenPlus255, iBluePlus255;
  WORD  * pSrc, * pDst;
- 	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - additive color blend (texture + tint added to destination)
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			// Normalize integer tint values to float range (original is 5-bit: -31 to +31)
+			// Shader clamps tex+tint to [0,1], so negative tints darken naturally
+			float normR = sRed / 32.0f;
+			float normG = sGreen / 32.0f;
+			float normB = sBlue / 32.0f;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ADDITIVE, 1.0f, normR, normG, normB);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -2837,7 +3583,7 @@ BOOL CSprite::_bCheckCollison(int sX, int sY, short sFrame, int msX, int msY)
 	if( this == NULL ) return FALSE;
 	if( m_stBrush == NULL ) return FALSE;
 	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return FALSE;
-	if( m_bIsSurfaceEmpty == TRUE ) return FALSE;
+	if( m_bIsSurfaceEmpty == TRUE && !(m_pDDraw->m_bUseGPU) ) return FALSE;
 	if( msX < m_pDDraw->m_rcClipArea.left+3 ) return FALSE;
 	if( msX > m_pDDraw->m_rcClipArea.right-3 ) return FALSE;
 	if( msY < m_pDDraw->m_rcClipArea.top+3 ) return FALSE;
@@ -2900,8 +3646,11 @@ BOOL CSprite::_bCheckCollison(int sX, int sY, short sFrame, int msX, int msY)
 			return FALSE;
 		}
 	}
-	
+
 	SetRect(&m_rcBound, dX, dY, dX + szx, dY + szy);
+
+	// GPU mode: bounding box passed, no pixel data available for sub-pixel test
+	if( m_bIsSurfaceEmpty == TRUE ) return TRUE;
 
 	pSrc = (WORD *)m_pSurfaceAddr + sx + ((sy)*m_sPitch);
 	tX = dX;
@@ -2933,8 +3682,33 @@ void CSprite::PutShiftSpriteFast(int sX, int sY, int shX, int shY, int sFrame, D
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path - shifted sprite
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx + shX;
+			short srcY = m_stBrush[sFrame].sy + shY;
+			short srcW = 128;
+			short srcH = 128;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_OPAQUE, 1.0f, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
 
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
@@ -3027,13 +3801,40 @@ void CSprite::PutRevTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int al
 	int  iR, iG, iB;
 	WORD * pSrc, * pDst;
 	int dX,dY,sx,sy,szx,szy,pvx,pvy;//,sTmp;
-	
+
 	if( this == NULL ) return;
 	if( m_stBrush == NULL ) return;
 	m_rcBound.top = -1; // Fix by Snoopy.... (Reco at mine)
-	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;	
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
 	m_bOnCriticalSection = TRUE;
-	
+
+	// GPU rendering path - reverse alpha blend
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			int destX = sX + pivotX;
+			int destY = sY + pivotY;
+			m_rcBound.left = destX;
+			m_rcBound.top = destY;
+			m_rcBound.right = destX + srcW;
+			m_rcBound.bottom = destY + srcH;
+			// Reverse alpha: use (1 - alpha) for the blend
+			float alpha = 1.0f - ((float)alphaDepth / 100.0f);
+			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				BLEND_ALPHA, alpha, 0, 0, 0);
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
 	sx  = m_stBrush[sFrame].sx;
 	sy  = m_stBrush[sFrame].sy;
 	szx = m_stBrush[sFrame].szx;

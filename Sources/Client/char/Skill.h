@@ -14,6 +14,7 @@
 #include "..\..\shared\skilltypes.h"
 
 class CSkill  
+
 {
 public:
 	CSkill();

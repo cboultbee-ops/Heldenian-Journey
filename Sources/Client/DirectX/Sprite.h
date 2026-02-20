@@ -19,6 +19,7 @@
 
 #include "DXC_ddraw.h"
 #include "Mydib.h"
+#include "GPURenderer.h"
 
 typedef struct stBrushtag
 {
@@ -85,6 +86,12 @@ public:
 	bool _iOpenSprite();
 	void iRestore();
 	IDirectDrawSurface7 *  _pMakeSpriteSurface();
+
+	// GPU texture support
+	bool LoadToGPU();
+	void UnloadFromGPU();
+	bool IsGPUTexture() const { return m_bIsGPUTexture; }
+	GLuint GetGPUTextureID() const { return m_glTextureID; }
 		
 	RECT	m_rcBound;
 	DWORD	m_dwRefTime;
@@ -95,6 +102,7 @@ public:
 	class	DXC_ddraw * m_pDDraw;
 	WORD*	m_pSurfaceAddr;
 	DWORD	m_dwBitmapFileStartLoc;
+	DWORD	m_dwBitmapFileSize;  // bytes (for PNG/BMP-in-PAK; 0 = use legacy BMP header size)
 	short	m_sPitch;
 	int		m_iTotalFrame;
 	char	m_cAlphaDegree;
@@ -103,6 +111,10 @@ public:
 	char	m_cPakFileName[16];
 	stBrush* m_stBrush;
 	LPDIRECTDRAWSURFACE7 m_lpSurface;
+
+	// GPU texture members
+	GLuint	m_glTextureID;
+	bool	m_bIsGPUTexture;
 };
 
 #endif // !defined(AFX_SPRITE_H__0089D9E2_74E6_11D2_A8E6_00001C7030A6__INCLUDED_)

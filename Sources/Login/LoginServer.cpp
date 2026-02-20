@@ -1318,7 +1318,8 @@ BOOL CLoginServer::ReadConfig(char *FileName)
 			fread(QuestCfg, dwFileSize, 1, pFile);	
 		}
 		else if(IsSame(FileName,"Skill.cfg")){
-			SkillCfg = new char[dwFileSize+2];
+			
+			SkillCfg= new char[dwFileSize+2];
 			ZeroMemory(SkillCfg, dwFileSize+2);
 			fread(SkillCfg, dwFileSize, 1, pFile);
 		}
@@ -1955,7 +1956,7 @@ void CLoginServer::OnTimer()
 		for(WORD w = 0; w < MAXCLIENTS; w ++){
 			if(Client[w] != NULL){
 				if(Client[w]->IsPlaying == FALSE && (dwTime - Client[w]->Time) > MAXWAITTIMEFORPLAYERENTERGAME){
-					if(Client[w]->ForceDisconnRequestTime == 0)	RequestForceDisconnect(Client[w], 10);
+					if(Client[w]->ForceDisconnRequestTime == 0)	RequestForceDisconnect(w, 10);
 					else if((dwTime - Client[w]->ForceDisconnRequestTime) > MAX_FORCEDISCONN_WAIT_TIME){
 						ZeroMemory(log, sizeof(log));
 						sprintf(log, "(ERROR) Client(%s) was deleted with no savedata due to no response from gameserver.", Client[w]->AccountName);
@@ -2088,7 +2089,7 @@ void CLoginServer::ProcessClientRequestEnterGame(char *Data, DWORD ClientID, MYS
 		if(IsAccountInUse(AccName, &AccountID) && IsSame(AccName, Client[AccountID]->AccountName)
 			&& IsSame(AccPwd, Client[AccountID]->AccountPassword)){
 				if(IsMapAvailable(MapName, WorldName, GameServerIP, &GameServerPort, &GameServerID)) {
-					RequestForceDisconnect(Client[AccountID], 10);
+					RequestForceDisconnect(AccountID, 10);
 				} else {
 					SAFEDELETE(Client[AccountID]);
 				}
@@ -2178,9 +2179,11 @@ void CLoginServer::ProcessRequestPlayerData(char *Data, BYTE GSID, MYSQL myConn)
 	//SendBuff+16 = m_cAccountStatus, not used on hgserver
 	if(IsAccountInUse(AccName, &AccountID))
 	{
-		if(!IsSame(AccPwd, Client[AccountID]->AccountPassword) ||
-			!IsSame(CharName, Client[AccountID]->CharName) ||
-			Client[AccountID]->ConnectedServerID != GameServerSocket[GSID]->GSID)
+		BOOL bAllowRequest = (IsSame(AccPwd, Client[AccountID]->AccountPassword) &&
+			IsSame(CharName, Client[AccountID]->CharName) &&
+			(Client[AccountID]->ConnectedServerID == GameServerSocket[GSID]->GSID ||
+			 Client[AccountID]->IsOnServerChange == TRUE));
+		if(!bAllowRequest)
 		{
 			*wp = LOGRESMSGTYPE_REJECT;
 			ZeroMemory(log, sizeof(log));
@@ -2207,6 +2210,7 @@ void CLoginServer::ProcessRequestPlayerData(char *Data, BYTE GSID, MYSQL myConn)
 			else{
 				*wp = LOGRESMSGTYPE_CONFIRM;
 				Client[AccountID]->IsOnServerChange = FALSE;
+				Client[AccountID]->ConnectedServerID = GameServerSocket[GSID]->GSID;
 			}
 		}
 	}
@@ -2626,16 +2630,17 @@ void CLoginServer::ProcessClientLogout(char *Data, BOOL save, int type, BYTE GSI
 			PutLogList(LogTxt);
 		}
 		if(CountLogout) {
-			//crashed server
+			// Full logout: remove client from login server
 			SAFEDELETE(Client[AccountID]);
-		} else {  
+		} else {
+			// Server change: keep client so new server can request player data
 			Client[AccountID]->IsOnServerChange = TRUE;
 			Client[AccountID]->Time = timeGetTime();
 			ZeroMemory(SendBuff, sizeof(SendBuff));
 			SendValue(SendBuff, 0, DWORDSIZE, MSGID_RESPONSE_SAVEPLAYERDATA_REPLY);
 			SafeCopy(SendBuff+6, CharName);
 			SendMsgToGS(GSID, SendBuff, strlen(CharName)+6);
-			SAFEDELETE(Client[AccountID]);
+			// Do NOT delete Client[AccountID] - Towns (or other) server will request player data next
 		}
 	}
 }
@@ -2662,14 +2667,14 @@ void CLoginServer::ConfirmCharEnterGame(char *Data, BYTE GSID)
 			ZeroMemory(log, sizeof(log));
 			sprintf(log, "(ERROR) Wrong data: Account(%s) pwd[%s/%s] IP[%s/%s] GSID[%d/%d]", AccName, AccPwd, Client[AccountID]->AccountPassword, ClientIP, Client[AccountID]->ClientIP, Client[AccountID]->ConnectedServerID, GameServerSocket[GSID]->GSID);
 			PutLogList(log, WARN_MSG, TRUE, ERROR_LOGFILE);
-			RequestForceDisconnect(Client[AccountID], 10);
+			RequestForceDisconnect(AccountID, 10);
 		}
 		/*  else if(!IsSame(Client[AccountID]->ClientIP, "127.0.0.1") && !IsSame(ClientIP, Client[AccountID]->ClientIP))
 		{
 		ZeroMemory(log, sizeof(log));
 		sprintf(log, "(ERROR) Client IP mismatch: Account(%s) IP[%s/%s]", AccName, ClientIP, Client[AccountID]->ClientIP);
 		PutLogList(log, WARN_MSG, TRUE, ERROR_LOGFILE);
-		RequestForceDisconnect(Client[AccountID], 10);
+		RequestForceDisconnect(AccountID, 10);
 		}*/
 		else
 		{
@@ -2732,6 +2737,7 @@ void CLoginServer::SaveCharacter(char* Data, MYSQL myConn)
 	cItem	*ItemInfo;
 	std::string itemQuery;
 	static long charIndexEnd = 751;
+	long nAppr1, nAppr2, nAppr3, nAppr4, nCharID1, nCharID2, nCharID3;
 
 
 	ZeroMemory(CharName, sizeof(CharName));
@@ -2766,6 +2772,15 @@ void CLoginServer::SaveCharacter(char* Data, MYSQL myConn)
 	Appr2 = Retrive32DWordValue(cp, 42);
 	Appr3 = Retrive32DWordValue(cp, 46);
 	Appr4 = Retrive32DWordValue(cp, 50);
+	{
+		const long MEDIUMINT_MAX = 8388607L;
+		const long MEDIUMINT_MIN = (-8388608L);
+		nAppr1 = (long)(LONG)Appr1; nAppr2 = (long)(LONG)Appr2; nAppr3 = (long)(LONG)Appr3; nAppr4 = (long)(LONG)Appr4;
+		if(nAppr1 > MEDIUMINT_MAX) nAppr1 = MEDIUMINT_MAX; else if(nAppr1 < MEDIUMINT_MIN) nAppr1 = MEDIUMINT_MIN;
+		if(nAppr2 > MEDIUMINT_MAX) nAppr2 = MEDIUMINT_MAX; else if(nAppr2 < MEDIUMINT_MIN) nAppr2 = MEDIUMINT_MIN;
+		if(nAppr3 > MEDIUMINT_MAX) nAppr3 = MEDIUMINT_MAX; else if(nAppr3 < MEDIUMINT_MIN) nAppr3 = MEDIUMINT_MIN;
+		if(nAppr4 > MEDIUMINT_MAX) nAppr4 = MEDIUMINT_MAX; else if(nAppr4 < MEDIUMINT_MIN) nAppr4 = MEDIUMINT_MIN;
+	}
 	ZeroMemory(Location, sizeof(Location));
 	SafeCopy(Location, cp+54, 10);
 	ZeroMemory(MapName, sizeof(MapName));
@@ -2779,6 +2794,9 @@ void CLoginServer::SaveCharacter(char* Data, MYSQL myConn)
 	LockedMapTime = Retrive32DWordValue(cp, 96);
 	ZeroMemory(BlockDate, sizeof(BlockDate));
 	SafeCopy(BlockDate, cp+100, 20);
+	// Normalize invalid BlockDate for MySQL (rejects '0-0-0 00:00:00' and '0000-00-00 00:00:00')
+	if(strlen(BlockDate) == 0 || IsSame(BlockDate, "0-0-0 00:00:00") || IsSame(BlockDate, "0000-00-00 00:00:00"))
+		SafeCopy(BlockDate, "1000-01-01 00:00:00");
 	ZeroMemory(GuildName, sizeof(GuildName));
 	SafeCopy(GuildName, cp+120, 20);
 	GuildID = Retrive16WordValue(cp, 140);
@@ -2821,6 +2839,20 @@ void CLoginServer::SaveCharacter(char* Data, MYSQL myConn)
 	SafeCopy(MagicMastery, cp+243, 100);
 	ZeroMemory(Profile, sizeof(Profile));
 	SafeCopy(Profile, (cp+343), 255);
+
+	// char_database column ranges – see Run_Mev0.1.sql. Clamp all values before UPDATE so they fit schema types.
+	{
+		const int TINYINT_MIN = -128;
+		const int TINYINT_MAX = 127;
+		const long MEDIUMINT_MIN = (-8388608L);
+		const long MEDIUMINT_MAX = 8388607L;
+		if (GuildRank > TINYINT_MAX) GuildRank = (sWORD)TINYINT_MAX; else if (GuildRank < TINYINT_MIN) GuildRank = (sWORD)TINYINT_MIN;
+		if (DownSkillIndex > TINYINT_MAX) DownSkillIndex = (sBYTE)TINYINT_MAX; else if (DownSkillIndex < TINYINT_MIN) DownSkillIndex = (sBYTE)TINYINT_MIN;
+		nCharID1 = (long)CharID1; nCharID2 = (long)CharID2; nCharID3 = (long)CharID3;
+		if (nCharID1 > MEDIUMINT_MAX) nCharID1 = MEDIUMINT_MAX; else if (nCharID1 < MEDIUMINT_MIN) nCharID1 = MEDIUMINT_MIN;
+		if (nCharID2 > MEDIUMINT_MAX) nCharID2 = MEDIUMINT_MAX; else if (nCharID2 < MEDIUMINT_MIN) nCharID2 = MEDIUMINT_MIN;
+		if (nCharID3 > MEDIUMINT_MAX) nCharID3 = MEDIUMINT_MAX; else if (nCharID3 < MEDIUMINT_MIN) nCharID3 = MEDIUMINT_MIN;
+	}
 
 	for (w = 0; w < 10; w++)
 	{
@@ -2922,9 +2954,9 @@ void CLoginServer::SaveCharacter(char* Data, MYSQL myConn)
 	MakeGoodName(GoodGuildName, GuildName);
 	ZeroMemory(GoodProfile, sizeof(GoodProfile));
 	MakeGoodName(GoodProfile, Profile);
-	sprintf(QueryConsult, "UPDATE `char_database` SET `ID1` = '%d',`ID2` = '%d',`ID3` = '%d',`Level` = '%d',`Strenght` = '%d',`Vitality` = '%d',`Dexterity` = '%d',`Intelligence` = '%d',`Magic` = '%d',`Agility` = '%d',`Luck` = '%d',`Exp` = '%lu',`Gender` = '%d',`Skin` = '%d',`HairStyle` = '%d',`HairColor` = '%d',`Underwear` = '%d',`ApprColor` = '%lu',`Appr1` = '%lu',`Appr2` = '%lu',`Appr3` = '%lu',`Appr4` = '%lu',`Nation` = '%s',`MapLoc` = '%s',`LocX` = '%d',`LocY` = '%d',`Profile` = '%s',`Contribution` = '%lu',`LeftSpecTime` = '%lu',`LockMapName` = '%s',`LockMapTime` = '%lu',`BlockDate` = '%s',`GuildName` = '%s',`GuildID` = '%d',`GuildRank` = '%d',`FightNum` = '%d',`FightDate` = '%lu',`FightTicket` = '%d',`QuestNum` = '%u',`QuestID` = '%u',`QuestCount` = '%u',`QuestRewType` = '%d',`QuestRewAmmount` = '%lu',\
+	sprintf(QueryConsult, "UPDATE `char_database` SET `ID1` = '%ld',`ID2` = '%ld',`ID3` = '%ld',`Level` = '%d',`Strenght` = '%d',`Vitality` = '%d',`Dexterity` = '%d',`Intelligence` = '%d',`Magic` = '%d',`Agility` = '%d',`Luck` = '%d',`Exp` = '%lu',`Gender` = '%d',`Skin` = '%d',`HairStyle` = '%d',`HairColor` = '%d',`Underwear` = '%d',`ApprColor` = '%lu',`Appr1` = '%d',`Appr2` = '%d',`Appr3` = '%d',`Appr4` = '%d',`Nation` = '%s',`MapLoc` = '%s',`LocX` = '%d',`LocY` = '%d',`Profile` = '%s',`Contribution` = '%lu',`LeftSpecTime` = '%lu',`LockMapName` = '%s',`LockMapTime` = '%lu',`BlockDate` = '%s',`GuildName` = '%s',`GuildID` = '%d',`GuildRank` = '%d',`FightNum` = '%d',`FightDate` = '%lu',`FightTicket` = '%d',`QuestNum` = '%u',`QuestID` = '%u',`QuestCount` = '%u',`QuestRewType` = '%d',`QuestRewAmmount` = '%lu',\
 						  `QuestCompleted` = '%d',`EventID` = '%lu',`WarCon` = '%lu',`CruJob` = '%d',`CruID` = '%lu',`CruConstructPoint` = '%lu', `Popularity` = '%li' ,`HP` = '%lu',`MP` = '%lu',`SP` = '%lu',`EK` = '%lu',`PK` = '%lu',`RewardGold` = '%lu',`DownSkillID` = '%d',`Hunger` = '%d',`LeftSAC` = '%u',`LeftShutupTime` = '%lu',`LeftPopTime` = '%lu',`LeftForceRecallTime` = '%lu',`LeftFirmStaminarTime` = '%lu',`LeftDeadPenaltyTime` = '%lu',`MagicMastery` = '%s',`PartyID` = '%lu',`GizonItemUpgradeLeft` = '%lu',`elo` = '%lu' WHERE `CharID` = '%lu' LIMIT 1;",
-						  CharID1, CharID2, CharID3, Level, STR, VIT, DEX, INT, MAG, AGI, Luck, Exp, Sex, Skin, HairStyle, HairColor, Underwear, ApprColor, Appr1, Appr2, Appr3, Appr4, Location, MapName, MapLocX, MapLocY, GoodProfile, Contribution, SpecialAbilityTime, LockedMapName, LockedMapTime, BlockDate, GoodGuildName, GuildID, GuildRank, FightzoneNumber, ReserveTime, FightzoneTicketNumber, Quest, QuestID, CurQuestCount, QuestRewardType, QuestRewardAmmount, IsQuestCompleted, SpecialEventID, WarContribution, CrusadeDuty, CrusadeGUID, ConstructionPoint, Rating, HP, MP, SP, EK, PK, RewardGold, DownSkillIndex, HungerStatus, SuperAttackLeft, TimeLeftShutUp, TimeLeftRating, TimeLeftForceRecall, TimeLeftFirmStaminar, DeadPenaltyTime, MagicMastery, PartyID, Gizon, elo, CharID);
+						  nCharID1, nCharID2, nCharID3, Level, STR, VIT, DEX, INT, MAG, AGI, Luck, Exp, Sex, Skin, HairStyle, HairColor, Underwear, ApprColor, nAppr1, nAppr2, nAppr3, nAppr4, Location, MapName, MapLocX, MapLocY, GoodProfile, Contribution, SpecialAbilityTime, LockedMapName, LockedMapTime, BlockDate, GoodGuildName, GuildID, GuildRank, FightzoneNumber, ReserveTime, FightzoneTicketNumber, Quest, QuestID, CurQuestCount, QuestRewardType, QuestRewardAmmount, IsQuestCompleted, SpecialEventID, WarContribution, CrusadeDuty, CrusadeGUID, ConstructionPoint, Rating, HP, MP, SP, EK, PK, RewardGold, DownSkillIndex, HungerStatus, SuperAttackLeft, TimeLeftShutUp, TimeLeftRating, TimeLeftForceRecall, TimeLeftFirmStaminar, DeadPenaltyTime, MagicMastery, PartyID, Gizon, elo, CharID);
 	//PutLogFileList(QueryConsult, "Logs/SaveCharQuery.txt");
 	if(ProcessQuery(&myConn, QueryConsult) == -1) return;
 	pQueryResult = mysql_store_result(&myConn);
@@ -3120,12 +3152,15 @@ void CLoginServer::MsgProcess()
 	for(w=0; w<MAXGAMESERVERS; w++)	if(GameServer[w] != NULL) GameServer[w]->SendStockMsgToGameServer();
 }
 //=============================================================================
-void CLoginServer::RequestForceDisconnect(CClient *pClient, WORD count)
+void CLoginServer::RequestForceDisconnect(WORD clientIndex, WORD count)
 {
 	char SendBuff[50];
 	DWORD *dwp;
 	WORD *wp;
+	CClient *pClient;
 
+	if(clientIndex >= MAXCLIENTS) return;
+	pClient = Client[clientIndex];
 	if(pClient == NULL) return;
 	if(GameServer[pClient->ConnectedServerID] == NULL){
 		pClient->ForceDisconnRequestTime = timeGetTime();
@@ -3139,8 +3174,7 @@ void CLoginServer::RequestForceDisconnect(CClient *pClient, WORD count)
 	SafeCopy(SendBuff+6, pClient->AccountName);
 	if(GameServer[pClient->ConnectedServerID] != NULL) GameServer[pClient->ConnectedServerID]->SendMsg(SendBuff, 16, NULL, true);
 	if(pClient->ForceDisconnRequestTime == 0) pClient->ForceDisconnRequestTime = timeGetTime();
-	SAFEDELETE(pClient);
-
+	SAFEDELETE(Client[clientIndex]);
 }
 //=============================================================================
 uint64 CLoginServer::GetLastInsertedItemID(MYSQL myConn)
@@ -3525,8 +3559,13 @@ void CLoginServer::ServerStockMsgHandler(char *Data, BYTE ID)
 			ZeroMemory(cName, sizeof(cName));
 			SafeCopy(cName, cp, 10);
 			cp += 10;
-			for(w = 0; w < MAXCLIENTS; w++) if(Client[w] != NULL && IsSame(Client[w]->CharName, cName)){ Client[w]->IsPlaying = FALSE; return;}
-			SAFEDELETE(Client[w]);
+			for(w = 0; w < MAXCLIENTS; w++) {
+				if(Client[w] != NULL && IsSame(Client[w]->CharName, cName)){
+					Client[w]->IsPlaying = FALSE;
+					SAFEDELETE(Client[w]);
+					break;
+				}
+			}
 			break;
 
 		case GSM_REQUEST_FINDCHARACTER:
