@@ -296,6 +296,28 @@ MagicMastery[100] = '\0';
 - Copied `Login.vcxproj.xml` → `Login.vcxproj` (the .vcxproj file was missing)
 - Fixed `res\Resources.rc`: replaced `#include "afxres.h"` with `#include <windows.h>`
 
+### G. GPU Renderer — Blend Mode Corrections & Line Drawing
+**Root cause:** Multiple sprite rendering functions were mapped to the wrong GPU blend mode, causing black backgrounds on spells, invisible lightning bolts, and dark shadows where effects should be transparent.
+
+**Blend mode fixes (Sources/Client/DirectX/Sprite.cpp, GPURenderer.cpp):**
+- `PutTransSprite`: Changed from `BLEND_ALPHA` → `BLEND_ADDITIVE` (DD uses `_CalcMaxValue`: additive math src+dst)
+- `PutRevTransSprite`: Changed from `BLEND_ALPHA` → `BLEND_SUBTRACTIVE` (DD uses `_CalcMinValue`: dst-src)
+- Added `BLEND_SUBTRACTIVE` (mode 10) with `GL_FUNC_REVERSE_SUBTRACT` for Armor Break and similar effects
+- `BLEND_ADDITIVE` shader now uses `max(R,G,B)` as alpha — dark pixels fade smoothly (matching DD behavior)
+
+**Lightning bolt / line drawing (Sources/Client/Game.cpp, GPURenderer.cpp/h):**
+- `DrawLine()` and `DrawLine2()` were completely skipped in GPU mode (`if (m_bUseGPU) return;`)
+- Added `QueueLine()` / `FlushLines()` to CGPURenderer using GL_LINES with additive blending
+- Created 1x1 white texture for line color rendering
+- Color inputs converted from 16-bit components (0-31/0-63) to normalized floats
+
+### H. Asset Pipeline — Color-Key Alpha Extraction Fix (asset_pipeline/steps/colorkey_alpha.py)
+- DirectDraw loads ALL BMPs onto 16-bit surfaces regardless of stored bit depth (24-bit → RGB565)
+- Color key comparison now quantizes to RGB565 at 16-bit precision (matching DD's `SRCCOLORKEY` behavior)
+- Removed tolerance-based comparison (was inaccurate)
+- Added edge-padding: transparent pixels' RGB filled with nearest opaque neighbor to prevent bilinear fringe artifacts
+- Configurable `dd_surface_format` in config.yaml: rgb565 (default), rgb555, bgr565
+
 ---
 
 ## 9. Source Code Key Locations
@@ -372,7 +394,7 @@ The Day 1 commit fixed many issues. Key changes:
 ## 11. Known Remaining Issues
 
 1. **m_iPlayerMaxLevel uninitialized** (HG.h:917) → causes log spam. Fix: set `= m_sMaxPlayerLevel` after HG.cpp:4344
-2. **Pixel/graphics issues in client** — not yet investigated
+2. ~~Pixel/graphics issues in client~~ — **FIXED** (blend mode corrections, subtractive blend, line drawing)
 3. **Exp table overflows** at level 891+ (int32), not critical at max 180
 4. **Settings.cfg slight differences** — Neutrals has different enemy-kill-adjust (1) and secondary-drop-rate (5) vs the other 3 servers (10 and 1)
 5. **Client uses `Client_d.exe`** (original) — the rebuilt `Play_Me.exe` may need testing as a replacement

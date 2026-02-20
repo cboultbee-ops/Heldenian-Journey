@@ -33,7 +33,7 @@ in vec4 Color;
 out vec4 FragColor;
 
 uniform sampler2D uTexture;
-uniform int uBlendMode;       // 0=colorkey, 1=alpha, 2=additive, 3=shadow, 4=fade, 5=average, 7=opaque, 8=darken, 9=tinted
+uniform int uBlendMode;       // 0=colorkey, 1=alpha, 2=additive, 3=shadow, 4=fade, 5=average, 7=opaque, 8=darken, 9=tinted, 10=subtractive
 uniform float uAlpha;         // For alpha blend modes
 uniform vec3 uColorTint;      // For RGB tinting
 
@@ -48,14 +48,9 @@ void main() {
 
     // Discard transparent pixels (alpha from RGBA conversion)
     if (texColor.a < 0.01) discard;
-    // Effect blends (alpha/additive): discard near-black or near-white pixels that may have wrong alpha
-    if (uBlendMode == 1 || uBlendMode == 2) {
+    // Alpha blend: discard near-black or near-white pixels that may have wrong alpha
+    if (uBlendMode == 1) {
         float lum = length(texColor.rgb);
-        // For additive mode with color tint, check luminance AFTER tint
-        // (dark source pixels like sprite font characters become visible when tint is added)
-        if (uBlendMode == 2 && length(uColorTint) > 0.01) {
-            lum = length(clamp(texColor.rgb + uColorTint, 0.0, 1.0));
-        }
         if (lum < 0.08) discard;
         if (lum > 0.92 && min(texColor.r, min(texColor.g, texColor.b)) > 0.85) discard;
     }
@@ -69,9 +64,14 @@ void main() {
         FragColor = vec4(texColor.rgb, texColor.a * uAlpha) * Color;
     }
     else if (uBlendMode == 2) {
-        // Additive: sprite texture + tint, added to destination
-        // With GL_SRC_ALPHA, GL_ONE: result = (tex+tint)*alpha + dst
-        FragColor = vec4(clamp(texColor.rgb + uColorTint, 0.0, 1.0), texColor.a * uAlpha);
+        // Additive: sprite RGB + tint, added to destination.
+        // In DD additive blending, a pixel's brightness IS its contribution
+        // strength — dark pixels add almost nothing, bright pixels add a lot.
+        // We replicate this by using max(RGB) as alpha so dark edge pixels
+        // smoothly fade to invisible instead of rendering as a black outline.
+        vec3 added = clamp(texColor.rgb + uColorTint, 0.0, 1.0);
+        float brightness = max(added.r, max(added.g, added.b));
+        FragColor = vec4(added, brightness * uAlpha);
     }
     else if (uBlendMode == 3) {
         // Shadow (darken destination - simulated via dark semi-transparent)
@@ -100,6 +100,14 @@ void main() {
         // Used for PutColouredSprite (replaces destination with tinted source)
         vec3 tinted = clamp(texColor.rgb + uColorTint, 0.0, 1.0);
         FragColor = vec4(tinted, texColor.a) * Color;
+    }
+    else if (uBlendMode == 10) {
+        // Subtractive (PutRevTransSprite): result = dst - src.rgb * src.a
+        // DD formula: result = max(dst - src, 0)  per channel.
+        // Dark source pixels subtract almost nothing (invisible).
+        // Bright source pixels subtract a lot (visible darkening).
+        // GL_FUNC_REVERSE_SUBTRACT handles the dst-src and clamping.
+        FragColor = vec4(texColor.rgb, texColor.a * uAlpha);
     }
     else {
         FragColor = texColor * Color;
@@ -135,6 +143,9 @@ CGPURenderer::CGPURenderer()
     m_currentColorB = 0.0f;
 
     memset(m_projectionMatrix, 0, sizeof(m_projectionMatrix));
+
+    // Line drawing
+    m_glWhiteTexture = 0;
 
     // Font atlas initialization
     m_fontAtlasTexture = 0;
@@ -297,6 +308,14 @@ bool CGPURenderer::Init(HWND hWnd, int virtualWidth, int virtualHeight)
     }
 
     UpdateProjectionMatrix();
+
+    // Create 1x1 white texture for line drawing
+    uint8_t whitePixel[4] = { 255, 255, 255, 255 };
+    glGenTextures(1, &m_glWhiteTexture);
+    glBindTexture(GL_TEXTURE_2D, m_glWhiteTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, whitePixel);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     m_bInitialized = true;
     OutputDebugString("GPURenderer: Initialized successfully with WGL\n");
@@ -513,6 +532,7 @@ void CGPURenderer::EndFrame()
     if (!m_bInitialized) return;
 
     Flush();
+    FlushLines();
     m_bInFrame = false;
 }
 
@@ -623,6 +643,12 @@ void CGPURenderer::Flush()
         glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         break;
+    case BLEND_SUBTRACTIVE:
+        // PutRevTransSprite: result = dst - src (dark pixels subtract nothing = invisible)
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        break;
     case BLEND_TINTED:
     case BLEND_SHADOW:
     case BLEND_FADE:
@@ -664,7 +690,7 @@ void CGPURenderer::Flush()
     glBindVertexArray(0);
 
     // Reset blend state if modified
-    if (cmd.blendMode == BLEND_DARKEN) {
+    if (cmd.blendMode == BLEND_DARKEN || cmd.blendMode == BLEND_SUBTRACTIVE) {
         glBlendEquation(GL_FUNC_ADD);
     }
     if (cmd.blendMode == BLEND_OPAQUE) {
@@ -675,6 +701,53 @@ void CGPURenderer::Flush()
     m_vertices.clear();
     m_indices.clear();
     m_drawCmds.clear();
+}
+
+void CGPURenderer::QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b)
+{
+    // Queue two vertices for a line segment (drawn with GL_LINES)
+    SpriteVertex v0 = { (float)x0, (float)y0, 0.0f, 0.0f, r, g, b, 1.0f };
+    SpriteVertex v1 = { (float)x1, (float)y1, 0.0f, 0.0f, r, g, b, 1.0f };
+    m_lineVertices.push_back(v0);
+    m_lineVertices.push_back(v1);
+}
+
+void CGPURenderer::FlushLines()
+{
+    if (m_lineVertices.empty() || !m_bInitialized) return;
+
+    // Additive blending: result = dst + src (dark lines add nothing = invisible)
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+    glUseProgram(m_shaderProgram);
+    glUniformMatrix4fv(m_uProjection, 1, GL_FALSE, m_projectionMatrix);
+    glUniform1i(m_uTexture, 0);
+    // Use COLORKEY mode (0): FragColor = texColor * Color
+    // With 1x1 white texture: FragColor = (1,1,1,1) * vertexColor = vertexColor
+    glUniform1i(m_uBlendMode, 0);
+    glUniform1f(m_uAlpha, 1.0f);
+    glUniform3f(m_uColorTint, 0.0f, 0.0f, 0.0f);
+
+    // Bind white texture so texColor = (1,1,1,1)
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, m_glWhiteTexture);
+
+    // Upload line vertices to the existing VBO and draw as GL_LINES
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0,
+                    m_lineVertices.size() * sizeof(SpriteVertex),
+                    m_lineVertices.data());
+
+    glDrawArrays(GL_LINES, 0, (GLsizei)m_lineVertices.size());
+
+    glBindVertexArray(0);
+
+    // Restore default blend state
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+    m_lineVertices.clear();
 }
 
 GLuint CGPURenderer::CreateTexture(const uint8_t* rgbaData, int width, int height)

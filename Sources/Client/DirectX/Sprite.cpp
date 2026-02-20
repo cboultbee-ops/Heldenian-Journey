@@ -1018,7 +1018,8 @@ void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alpha
 	m_rcBound.right  = dX + szx;
 	m_rcBound.bottom = dY + szy;
 
-	// GPU rendering path
+	// GPU rendering path — DD uses G_lTransRB100: result = min(src + dst, max)
+	// This is additive blending (dark pixels add nothing = invisible)
 	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
 		if (!m_bIsGPUTexture) {
 			LoadToGPU();
@@ -1027,7 +1028,7 @@ void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alpha
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
 				m_wBitmapSizeX, m_wBitmapSizeY,
-				BLEND_ALPHA, 1.0f, 0.0f, 0.0f, 0.0f);
+				BLEND_ADDITIVE, 1.0f, 0.0f, 0.0f, 0.0f);
 		}
 		m_bOnCriticalSection = FALSE;
 		return;
@@ -3825,11 +3826,12 @@ void CSprite::PutRevTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int al
 			m_rcBound.top = destY;
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
-			// Reverse alpha: use (1 - alpha) for the blend
-			float alpha = 1.0f - ((float)alphaDepth / 100.0f);
+			// Subtractive blend: result = dst - src per channel (DD _CalcMinValue)
+			// alphaDepth increases subtraction strength (0 = normal)
+			float alpha = 1.0f + ((float)alphaDepth / 32.0f);
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
 				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
-				BLEND_ALPHA, alpha, 0, 0, 0);
+				BLEND_SUBTRACTIVE, alpha, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
 		return;

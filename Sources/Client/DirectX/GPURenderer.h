@@ -25,7 +25,8 @@ enum GPUBlendMode {
     BLEND_TEXT = 6,          // Text rendering (tint color + texture alpha)
     BLEND_OPAQUE = 7,       // Opaque draw (map background - force alpha 1.0)
     BLEND_DARKEN = 8,       // Subtractive darken (reverse-subtract blend)
-    BLEND_TINTED = 9        // Replacement draw with color tint (standard alpha blend)
+    BLEND_TINTED = 9,       // Replacement draw with color tint (standard alpha blend)
+    BLEND_SUBTRACTIVE = 10  // Subtractive blend: dst - src (PutRevTransSprite)
 };
 
 // Vertex structure for sprite batching
@@ -99,6 +100,10 @@ public:
     // Flush batched sprites to GPU
     void Flush();
 
+    // Line drawing (additive blend, used for lightning/thunder effects)
+    void QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b);
+    void FlushLines();
+
     // Texture creation from RGBA data
     GLuint CreateTexture(const uint8_t* rgbaData, int width, int height);
     void DeleteTexture(GLuint textureID);
@@ -168,6 +173,10 @@ private:
     GPUBlendMode m_currentBlendMode;
     float m_currentAlpha;
     float m_currentColorR, m_currentColorG, m_currentColorB;
+
+    // Line drawing
+    std::vector<SpriteVertex> m_lineVertices;
+    GLuint m_glWhiteTexture;
 
     // Font atlas
     GLuint m_fontAtlasTexture;

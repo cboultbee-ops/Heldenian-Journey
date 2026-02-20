@@ -20698,8 +20698,17 @@ void CGame::DlgBoxClick_ShutDownMsg(short msX, short msY)
 
 void CGame::DrawLine(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
 {
-	// GPU mode: back buffer is 32-bit, direct 16-bit pixel ops would corrupt memory
-	if (m_DDraw.m_bUseGPU) return;
+	// GPU mode: draw additive-blended lines via OpenGL
+	if (m_DDraw.m_bUseGPU) {
+		if (m_DDraw.m_pGPURenderer != NULL) {
+			// Convert 16-bit component values (R/B: 0-31, G: 0-63) to 0-1 float
+			float fR = (m_DDraw.m_cPixelFormat == 2) ? iR / 31.0f : iR / 31.0f;
+			float fG = (m_DDraw.m_cPixelFormat == 2) ? iG / 31.0f : iG / 63.0f;
+			float fB = iB / 31.0f;
+			m_DDraw.m_pGPURenderer->QueueLine(x0, y0, x1, y1, fR, fG, fB);
+		}
+		return;
+	}
 
  int dx, dy, x_inc, y_inc, error, index, dstR, dstG, dstB;
  int iResultX, iResultY;
@@ -20778,7 +20787,15 @@ void CGame::DrawLine(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
 
 void CGame::DrawLine2(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
 {
-	if (m_DDraw.m_bUseGPU) return;
+	if (m_DDraw.m_bUseGPU) {
+		if (m_DDraw.m_pGPURenderer != NULL) {
+			float fR = (m_DDraw.m_cPixelFormat == 2) ? iR / 31.0f : iR / 31.0f;
+			float fG = (m_DDraw.m_cPixelFormat == 2) ? iG / 31.0f : iG / 63.0f;
+			float fB = iB / 31.0f;
+			m_DDraw.m_pGPURenderer->QueueLine(x0, y0, x1, y1, fR, fG, fB);
+		}
+		return;
+	}
 int dx, dy, x_inc, y_inc, error, index, dstR, dstG, dstB;
  int iResultX, iResultY;
  WORD * pDst;
