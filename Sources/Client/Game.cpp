@@ -735,6 +735,14 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 	m_stMCursor.sX = 0;
 	m_stMCursor.sY = 0;
 	m_pMapData = new class CMapData(this);
+
+	// Apply configurable speed overrides for player types 1-6
+	for (int iType = 1; iType <= 6; iType++) {
+		m_pMapData->m_stFrame[iType][OBJECTMOVE].m_sFrameTime = (short)m_iWalkSpeed;
+		m_pMapData->m_stFrame[iType][OBJECTRUN].m_sFrameTime = (short)m_iRunSpeed;
+		m_pMapData->m_stFrame[iType][OBJECTATTACKMOVE].m_sFrameTime = (short)m_iDashSpeed;
+	}
+
 	ZeroMemory(m_cPlayerName, sizeof(m_cPlayerName));
 	ZeroMemory(m_cAccountName, sizeof(m_cAccountName));
 	ZeroMemory(m_cAccountPassword, sizeof(m_cAccountPassword));
@@ -868,6 +876,19 @@ void CGame::Quit()
 
 void CGame::UpdateScreen()
 { 	G_dwGlobalTime = timeGetTime();
+
+	// Frame limiter - cap at ~60 FPS (16ms per frame)
+	static DWORD dwLastFrameTime = 0;
+	static BOOL bTimerResSet = FALSE;
+	if (!bTimerResSet) { timeBeginPeriod(1); bTimerResSet = TRUE; }
+	DWORD dwElapsed = G_dwGlobalTime - dwLastFrameTime;
+	if (dwElapsed < 16) {
+		DWORD dwRemain = 16 - dwElapsed;
+		if (dwRemain > 2) Sleep(dwRemain - 2);
+		while (timeGetTime() - dwLastFrameTime < 16) {}
+		G_dwGlobalTime = timeGetTime();
+	}
+	dwLastFrameTime = G_dwGlobalTime;
 	switch (m_cGameMode) {
 
 	case GAMEMODE_ONAGREEMENT:
@@ -2803,7 +2824,7 @@ void CGame::UpdateScreen_OnMainMenu()
 	DrawVersion();
 
 	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
-	{ char dbg[64]; wsprintf(dbg, "X:%d Y:%d", msX, msY); PutString2(300, 10, dbg, 255, 255, 0); }
+	
 
 	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
 	
@@ -4440,6 +4461,10 @@ void CGame::InitGameSettings()
 	m_bDialogTrans   = FALSE;
 	m_cWhetherStatus = NULL;
 	m_cLogOutCount = -1;
+	m_iLogOutTimer = 11;
+	m_iWalkSpeed = 70;
+	m_iRunSpeed  = 42;
+	m_iDashSpeed = 30;
 	m_dwLogOutCountTime = NULL;
 	m_iSuperAttackLeft = 0;
 	m_bSuperAttackMode = FALSE;
@@ -13719,11 +13744,40 @@ BOOL CGame::bReadLoginConfigFile(char * cFn)
 				}
 				cReadMode = 0;
 				break;
+			case 4: // logout-timer
+				m_iLogOutTimer = atoi(token);
+				if (m_iLogOutTimer < 1) m_iLogOutTimer = 1;
+				if (m_iLogOutTimer > 60) m_iLogOutTimer = 60;
+				m_iLogOutTimer += 1; // +1 accounts for immediate first decrement
+				cReadMode = 0;
+				break;
+			case 5: // walk-speed
+				m_iWalkSpeed = atoi(token);
+				if (m_iWalkSpeed < 10) m_iWalkSpeed = 10;
+				if (m_iWalkSpeed > 200) m_iWalkSpeed = 200;
+				cReadMode = 0;
+				break;
+			case 6: // run-speed
+				m_iRunSpeed = atoi(token);
+				if (m_iRunSpeed < 10) m_iRunSpeed = 10;
+				if (m_iRunSpeed > 200) m_iRunSpeed = 200;
+				cReadMode = 0;
+				break;
+			case 7: // dash-speed
+				m_iDashSpeed = atoi(token);
+				if (m_iDashSpeed < 10) m_iDashSpeed = 10;
+				if (m_iDashSpeed > 200) m_iDashSpeed = 200;
+				cReadMode = 0;
+				break;
 			}
 		}else
 		{	if (memcmp(token, "log-server-address",18) == 0) cReadMode = 1;
 			if (memcmp(token, "log-server-port",15) == 0)    cReadMode = 2;
 			if (memcmp(token, "game-server-mode",16) == 0)   cReadMode = 3;
+			if (memcmp(token, "logout-timer",12) == 0)       cReadMode = 4;
+			if (memcmp(token, "walk-speed",10) == 0)         cReadMode = 5;
+			if (memcmp(token, "run-speed",9) == 0)           cReadMode = 6;
+			if (memcmp(token, "dash-speed",10) == 0)         cReadMode = 7;
 		}
 		token = strtok( NULL, seps );
 	}
@@ -16300,7 +16354,7 @@ void CGame::DrawDialogBoxs(short msX, short msY, short msZ, char cLB)
 	{	*/
 		if (m_iSuperAttackLeft > 0)
 		{	wsprintf(G_cTxt, "%d", m_iSuperAttackLeft);
-			PutString_SprFont2(380, 454, G_cTxt, 10, 10, 10);
+			PutString_SprFont2(380, 454, G_cTxt, 255, 255, 255);
 	}	
 	
 	//}
@@ -18101,7 +18155,7 @@ void CGame::DrawDialogBox_GaugePannel()
 	if( iBarWidth > 101 ) iBarWidth = 101;
 	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(23, 437,  12, iBarWidth, m_dwCurTime);
 
-	wsprintf(G_cTxt, "(%d)", (short) m_iHP);
+	wsprintf(G_cTxt, "%d", m_iHP);
 	if (m_bIsPoisoned) {
 		PutString_SprNum(85, 441, G_cTxt, m_wR[5]*11, m_wG[5]*11, m_wB[5]*11);
 		PutString_SprFont3(35, 439, "Poisoned", m_wR[5]*8, m_wG[5]*8, m_wB[5]*8, TRUE, 2); 
@@ -24736,7 +24790,7 @@ void CGame::OnKeyUp(WPARAM wParam)
 		if (m_cGameMode == GAMEMODE_ONMAINGAME)
 		{	if ((m_bIsObserverMode == TRUE) && (m_bShiftPressed)) { //ObserverMode Shift+Esc
 				// Log Out
-				if (m_cLogOutCount == -1) m_cLogOutCount = 1;
+				if (m_cLogOutCount == -1) m_cLogOutCount = (char)m_iLogOutTimer;
 				DisableDialogBox(19);
 				PlaySound('E', 14, 5);
 			}
@@ -24745,6 +24799,12 @@ void CGame::OnKeyUp(WPARAM wParam)
 					m_cLogOutCount = -1;
 					AddEventList(DLGBOX_CLICK_SYSMENU2, 10);
 				}
+			}
+			else {
+				if (m_bIsDialogEnabled[19])
+					DisableDialogBox(19);
+				else
+					EnableDialogBox(19, NULL, NULL, NULL);
 			}
 			if (m_bIsGetPointingMode == TRUE) {
 				m_bIsGetPointingMode = FALSE;
@@ -28453,12 +28513,7 @@ void CGame::DlgBoxClick_SysMenu(short msX, short msY)
 	if (m_bForceDisconn) return;
 	if ((msX >= sX + LBTNPOSX) && (msX <= sX + LBTNPOSX + BTNSZX) && (msY >= sY + 225) && (msY <= sY + 225 + BTNSZY)) {
 		if( m_cLogOutCount == -1 )
-
-#ifdef _DEBUG
-			m_cLogOutCount = 1;
-#else
-			m_cLogOutCount = 11;
-#endif
+			m_cLogOutCount = (char)m_iLogOutTimer;
 		else {
 			m_cLogOutCount = -1;
 			AddEventList(DLGBOX_CLICK_SYSMENU2, 10);
@@ -30433,12 +30488,8 @@ void CGame::UpdateScreen_OnGame()
 	//	DrawQuestHelper();
 	//}
 
-#ifdef _DEBUG
-	if(iUpdateRet){
-		wsprintf(G_cTxt, "M(%d,%d) T(%d,%d)", msX, msY, (m_sViewPointX + msX)/32, (m_sViewPointY + msY)/32);
-		PutString(msX, msY +30, G_cTxt, RGB(255,255,255));
-	}
-#endif
+
+
 
 	// LogOut process
 	if (m_cLogOutCount > 0)
@@ -33042,10 +33093,8 @@ void CGame::DrawDialogBox_LevelUpSetting(short msX, short msY)
  char cTxt[120];
  int iStats;
 
-#ifdef _DEBUG
-	wsprintf( G_cTxt, "m_stat[STAT_STR]: %d   m_angelStat[STAT_STR]: %d", m_stat[STAT_STR], m_angelStat[STAT_STR] );
-	PutString( 10, 10, G_cTxt, RGB(255,255,255) );
-#endif
+
+
 
 	sX = m_stDialogBoxInfo[12].sX;
 	sY = m_stDialogBoxInfo[12].sY;
@@ -39848,17 +39897,21 @@ void CGame::_Draw_OnLogin(char *pAccount, char *pPassword, int msX, int msY, int
 	if ((m_Misc.bCheckValidName(pAccount) == FALSE) || (strlen(pAccount) == 0)) bFlag = FALSE;
 
 	if (m_cCurFocus != 2) {
+		char cMasked[12];
+		int iPwLen = strlen(pPassword);
+		if (iPwLen > 11) iPwLen = 11;
+		memset(cMasked, '*', iPwLen);
+		cMasked[iPwLen] = 0;
 		if ((m_Misc.bCheckValidString(pPassword) != FALSE))
-			 PutString(180, 185, pPassword, RGB(200,200,200), TRUE, 1);
-		else PutString(180, 185, pPassword, RGB(200,100,100), TRUE, 1);
+			 PutString(180, 185, cMasked, RGB(200,200,200), TRUE, 1);
+		else PutString(180, 185, cMasked, RGB(200,100,100), TRUE, 1);
 	}
 	if ((m_Misc.bCheckValidString(pPassword) == FALSE) || (strlen(pPassword) == 0)) bFlag = FALSE;
 
 	if (m_cCurFocus == 1)
 		ShowReceivedString();
-	else
-	////if (m_cCurFocus == 2)
-		//ShowReceivedString(TRUE);
+	else if (m_cCurFocus == 2)
+		ShowReceivedString(TRUE);
 
 	if (bFlag == TRUE)
 	{	if (m_cCurFocus == 3) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 80,282, 3, TRUE);

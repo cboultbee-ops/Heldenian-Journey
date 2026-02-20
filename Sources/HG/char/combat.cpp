@@ -373,14 +373,14 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 			dTmp1 = (double)iAP_SM;
 			dTmp2 = (double)g_clientList[sAttackerH]->m_iLevel;
 			dTmp3 = dTmp2 / 100.0f;
-			dTmp2 = dTmp1 * dTmp3;
+			dTmp2 = dTmp1 * dTmp3 * (double)g_game->m_iSuperAttackMultiplier / 100.0;
 			iTemp = (int)(dTmp2 +0.5f);
 			iAP_SM += iTemp;
 
 			dTmp1 = (double)iAP_L;
 			dTmp2 = (double)g_clientList[sAttackerH]->m_iLevel;
 			dTmp3 = dTmp2 / 100.0f;
-			dTmp2 = dTmp1 * dTmp3;
+			dTmp2 = dTmp1 * dTmp3 * (double)g_game->m_iSuperAttackMultiplier / 100.0;
 			iTemp = (int)(dTmp2 +0.5f);
 			iAP_L += iTemp;
 

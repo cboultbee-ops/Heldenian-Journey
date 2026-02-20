@@ -101,7 +101,7 @@
 #define MAXPOTIONTYPES				500 
 #define MAXCRAFTING					120
 
-#define MOBEVENTTIME				300000 // 5ºÐ 
+#define MOBEVENTTIME				300000 // 5ï¿½ï¿½ 
 #define MAXQUESTTYPE				200
 
 #define MAXSUBLOGSOCK				5
@@ -926,6 +926,17 @@ public:
 	short m_sCharSkillLimit;
 	char m_cRepDropModifier;
 	short m_sExpModifier;
+
+	short m_sMinSpeedAxe;
+	short m_sMinSpeedLongSword;
+	short m_sMinSpeedFencing;
+	short m_sMinSpeedShortSword;
+	short m_sMinSpeedArchery;
+
+	int m_iAttackFreqMin;
+	int m_iMoveFreqMin;
+	int m_iMagicFreqMin;
+	int m_iSuperAttackMultiplier;
 
 	short m_sMaxPlayerLevel;
 	short m_sRaidTimeMonday; 

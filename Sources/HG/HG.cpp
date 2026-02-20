@@ -166,6 +166,15 @@ CGame::CGame(HWND hWnd) : m_hWnd(hWnd)
 		m_sRaidTimeSunday		= 0;
 		m_sCharPointLimit		= 0;
 		m_sExpModifier		= 0;
+		m_sMinSpeedAxe			= 3;
+		m_sMinSpeedLongSword	= 2;
+		m_sMinSpeedFencing		= 1;
+		m_sMinSpeedShortSword	= 0;
+		m_sMinSpeedArchery		= 1;
+		m_iAttackFreqMin		= 0;
+		m_iMoveFreqMin			= 0;
+		m_iMagicFreqMin			= 1500;
+		m_iSuperAttackMultiplier = 100;
 		m_sCharSkillLimit		= 0;
 
 		m_iAutoRebootingCount = 0;
@@ -4352,14 +4361,78 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
                cReadMode = 0;
                break;
 
-		 case 16: 
-               m_sExpModifier = atoi(token); 
-               wsprintf(cTxt, "(*) Exp modifier: (%d)", m_sExpModifier); 
-               PutLogList(cTxt); 
+		 case 16:
+               m_sExpModifier = atoi(token);
+               wsprintf(cTxt, "(*) Exp modifier: (%d)", m_sExpModifier);
+               PutLogList(cTxt);
                if (m_sExpModifier < 0) m_sExpModifier = 0;
-               cReadMode = 0; 
+               cReadMode = 0;
                break;
-			
+
+		 case 17:
+               m_sMinSpeedAxe = atoi(token);
+               wsprintf(cTxt, "(*) Min speed axe: (%d)", m_sMinSpeedAxe);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 18:
+               m_sMinSpeedLongSword = atoi(token);
+               wsprintf(cTxt, "(*) Min speed longsword: (%d)", m_sMinSpeedLongSword);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 19:
+               m_sMinSpeedFencing = atoi(token);
+               wsprintf(cTxt, "(*) Min speed fencing: (%d)", m_sMinSpeedFencing);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 20:
+               m_sMinSpeedShortSword = atoi(token);
+               wsprintf(cTxt, "(*) Min speed shortsword: (%d)", m_sMinSpeedShortSword);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 21:
+               m_sMinSpeedArchery = atoi(token);
+               wsprintf(cTxt, "(*) Min speed archery: (%d)", m_sMinSpeedArchery);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 22:
+               m_iAttackFreqMin = atoi(token);
+               wsprintf(cTxt, "(*) Attack frequency min: (%d)ms", m_iAttackFreqMin);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 23:
+               m_iMoveFreqMin = atoi(token);
+               wsprintf(cTxt, "(*) Move frequency min: (%d)ms", m_iMoveFreqMin);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 24:
+               m_iMagicFreqMin = atoi(token);
+               wsprintf(cTxt, "(*) Magic frequency min: (%d)ms", m_iMagicFreqMin);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 25:
+               m_iSuperAttackMultiplier = atoi(token);
+               if (m_iSuperAttackMultiplier < 0) m_iSuperAttackMultiplier = 0;
+               wsprintf(cTxt, "(*) Super attack multiplier: (%d)%%", m_iSuperAttackMultiplier);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
 			}
          } 
          else { 
@@ -4379,7 +4452,16 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
 			if (memcmp(token, "rep-drop-modifier", 17) == 0)		cReadMode = 14;
 			if (memcmp(token, "max-player-level", 16) == 0)		cReadMode = 15;
 			if (memcmp(token, "exp-modifier", 12) == 0)		cReadMode = 16;
-			
+			if (memcmp(token, "min-speed-axe", 13) == 0)		cReadMode = 17;
+			if (memcmp(token, "min-speed-longsword", 19) == 0)	cReadMode = 18;
+			if (memcmp(token, "min-speed-fencing", 17) == 0)	cReadMode = 19;
+			if (memcmp(token, "min-speed-shortsword", 20) == 0)	cReadMode = 20;
+			if (memcmp(token, "min-speed-archery", 17) == 0)	cReadMode = 21;
+			if (memcmp(token, "attack-frequency-min", 20) == 0)	cReadMode = 22;
+			if (memcmp(token, "move-frequency-min", 18) == 0)	cReadMode = 23;
+			if (memcmp(token, "magic-frequency-min", 19) == 0)	cReadMode = 24;
+			if (memcmp(token, "super-attack-multiplier", 23) == 0) cReadMode = 25;
+
          } 
 
          token = pStrTok->pGet(); 
@@ -5066,7 +5148,7 @@ int CGame::_iComposePlayerDataFileContents(int iClientH, char * pData)
 	PutOffsetValue(pData, 241, BYTESIZE, m_pClientList[iClientH]->m_bIsBankModified);
 	//adminlevel +1
 	for (i = 0; i < MAXMAGICTYPE; i++) 
-		PutOffsetValue(pData, 243+i, BYTESIZE, m_pClientList[iClientH]->m_cMagicMastery[i]);//+48
+		PutOffsetValue(pData, 243+i, BYTESIZE, m_pClientList[iClientH]->m_cMagicMastery[i]);
 	if(strlen(m_pClientList[iClientH]->m_cProfile) == 0){
 		SafeCopy(pData+343, "__________");
 		//return (Index+12);
@@ -8656,7 +8738,14 @@ bool CGame::bEquipItemHandler(int iClientH, short sItemIndex, bool bNotify)
 		////}			
 #else
 		sSpeed -= (m_pClientList[iClientH]->GetStr() / 13);
-		if (sSpeed < 0) sSpeed = 0;	
+		switch (m_pClientList[iClientH]->m_pItemList[sItemIndex]->m_sRelatedSkill) {
+		case SKILL_ARCHERY:    if (sSpeed < m_sMinSpeedArchery) sSpeed = m_sMinSpeedArchery; break;
+		case SKILL_SHORTSWORD: if (sSpeed < m_sMinSpeedShortSword) sSpeed = m_sMinSpeedShortSword; break;
+		case SKILL_LONGSWORD:  if (sSpeed < m_sMinSpeedLongSword) sSpeed = m_sMinSpeedLongSword; break;
+		case SKILL_FENCING:    if (sSpeed < m_sMinSpeedFencing) sSpeed = m_sMinSpeedFencing; break;
+		case SKILL_AXE:        if (sSpeed < m_sMinSpeedAxe) sSpeed = m_sMinSpeedAxe; break;
+		default:               if (sSpeed < 0) sSpeed = 0; break;
+		}
 #endif
 		sTemp = sTemp | sSpeed;
 		m_pClientList[iClientH]->m_iStatus = iTemp;
@@ -8711,7 +8800,14 @@ bool CGame::bEquipItemHandler(int iClientH, short sItemIndex, bool bNotify)
 		//}	
 #else
 		sSpeed -= (m_pClientList[iClientH]->GetStr() / 13);
-		if (sSpeed < 0) sSpeed = 0;
+		switch (m_pClientList[iClientH]->m_pItemList[sItemIndex]->m_sRelatedSkill) {
+		case SKILL_ARCHERY:    if (sSpeed < m_sMinSpeedArchery) sSpeed = m_sMinSpeedArchery; break;
+		case SKILL_SHORTSWORD: if (sSpeed < m_sMinSpeedShortSword) sSpeed = m_sMinSpeedShortSword; break;
+		case SKILL_LONGSWORD:  if (sSpeed < m_sMinSpeedLongSword) sSpeed = m_sMinSpeedLongSword; break;
+		case SKILL_FENCING:    if (sSpeed < m_sMinSpeedFencing) sSpeed = m_sMinSpeedFencing; break;
+		case SKILL_AXE:        if (sSpeed < m_sMinSpeedAxe) sSpeed = m_sMinSpeedAxe; break;
+		default:               if (sSpeed < 0) sSpeed = 0; break;
+		}
 #endif
 
 		iTemp = iTemp | sSpeed;
@@ -12553,13 +12649,10 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 
 	//         1      2     3     4     5	 6     7	 8	  9    10
 	sMagicCircle = (sType / 10) + 1;
-//	if (caster->m_cSkillMastery[SKILL_MAGIC] == 0)
-	//	dV1 = 1.0f;
-	//else 
-		//dV1 = (double)caster->m_cSkillMastery[SKILL_MAGIC];
-
-
-	 dV1 = (double)100.0f;
+	if (caster->m_cSkillMastery[SKILL_MAGIC] == 0)
+		dV1 = 1.0f;
+	else
+		dV1 = (double)caster->m_cSkillMastery[SKILL_MAGIC];
 
 	dV2 = (double)(dV1 / 100.0f);
 	dV3 = (double)_tmp_iMCProb[sMagicCircle];
@@ -14081,8 +14174,8 @@ void CGame::RequestTeleportHandler(int iClientH, char teleportType, char * cMapN
 	}
 	else {
 		switch (teleportType) {
-		case 0: // Forced Recall. 
-		case 1: // Normal Recall 
+		case 0: // Forced Recall.
+		case 1: // Normal Recall
 			//if (memcmp(m_pMapList[ player->m_cMapIndex ]->m_cName, "resurr", 6) == 0) return;
 			ZeroMemory(cTempMapName, sizeof(cTempMapName));
 
@@ -14091,6 +14184,10 @@ void CGame::RequestTeleportHandler(int iClientH, char teleportType, char * cMapN
 			else
 				strcpy(cTempMapName, sideMapFarm[ player->m_side ]);
 
+			wsprintf(g_cTxt, "(DEBUG) Recall type=%d player=%s side=%d level=%d dest=%s curMap=%s",
+				teleportType, player->m_cCharName, player->m_side, player->m_iLevel, cTempMapName, player->m_cMapName);
+			PutLogList(g_cTxt);
+
 			// Crusade
 			if ((strcmp(player->m_cLockedMapName, "NONE") != 0) && (player->m_iLockedMapTime > 0)) {
 
@@ -14098,7 +14195,7 @@ void CGame::RequestTeleportHandler(int iClientH, char teleportType, char * cMapN
 				ZeroMemory(cTempMapName, sizeof(cTempMapName));
 				strcpy(cTempMapName, player->m_cLockedMapName);
 			}
-			
+
 			for (i = 0; i < MAXMAPS; i++)
 			{
 				if (m_pMapList[i] != NULL) {
@@ -14106,25 +14203,32 @@ void CGame::RequestTeleportHandler(int iClientH, char teleportType, char * cMapN
 
 						GetMapInitialPoint(i, &player->m_sX, &player->m_sY, player->m_cLocation);
 
-						player->m_cMapIndex = i; 
+						wsprintf(g_cTxt, "(DEBUG) Recall SAME-SERVER: map=%s index=%d pos=(%d,%d)",
+							m_pMapList[i]->m_cName, i, player->m_sX, player->m_sY);
+						PutLogList(g_cTxt);
+
+						player->m_cMapIndex = i;
 						ZeroMemory(player->m_cMapName, sizeof(player->m_cMapName));
-						memcpy(player->m_cMapName, m_pMapList[i]->m_cName, 10);  
+						memcpy(player->m_cMapName, m_pMapList[i]->m_cName, 10);
 						goto RTH_NEXTSTEP;
 					}
 				}
 			}
 
-			player->m_sX   = -1;	  
-			player->m_sY   = -1;	  
+			wsprintf(g_cTxt, "(DEBUG) Recall CROSS-SERVER: dest=%s not found locally, sending to login server", cTempMapName);
+			PutLogList(g_cTxt);
+
+			player->m_sX   = -1;
+			player->m_sY   = -1;
 
 			ZeroMemory(player->m_cMapName, sizeof(player->m_cMapName));
-			memcpy(player->m_cMapName, cTempMapName, 10);  
+			memcpy(player->m_cMapName, cTempMapName, 10);
 			// Slate
 			SendNotifyMsg(NULL, iClientH, NOTIFY_MAGICEFFECTOFF, MAGICTYPE_CONFUSE,
 				player->m_cMagicEffectStatus[ MAGICTYPE_CONFUSE ], NULL, NULL);
 			SetSlateFlag(iClientH, NOTIFY_SLATECLEAR, FALSE);
 
-			bSendMsgToLS(MSGID_REQUEST_SAVEPLAYERDATA_REPLY, iClientH, FALSE); 
+			bSendMsgToLS(MSGID_REQUEST_SAVEPLAYERDATA_REPLY, iClientH, FALSE);
 
 			player->m_bIsOnServerChange   = TRUE;
 			player->m_bIsOnWaitingProcess = TRUE;
@@ -14181,6 +14285,9 @@ void CGame::RequestTeleportHandler(int iClientH, char teleportType, char * cMapN
 
 RTH_NEXTSTEP:;
 
+	wsprintf(g_cTxt, "(DEBUG) RTH_NEXTSTEP: player=%s map=%s(%d) pos=(%d,%d) calling PlayerMapEntry",
+		player->m_cCharName, player->m_cMapName, player->m_cMapIndex, player->m_sX, player->m_sY);
+	PutLogList(g_cTxt);
 
 	PlayerMapEntry(iClientH, setRecallTime);
 	Notify_ApocalypseGateState(iClientH);	
@@ -37910,15 +38017,12 @@ bool CGame::bCheckClientAttackFrequency(int iClientH, DWORD dwClientTime)
 	else {
 		dwTimeGap = dwClientTime - m_pClientList[iClientH]->m_dwAttackFreqTime;
 		m_pClientList[iClientH]->m_dwAttackFreqTime = dwClientTime;
-#ifndef NO_MSGSPEEDCHECK
-		if (dwTimeGap < 500) {
-			wsprintf(g_cTxt, "(!) Speed hack suspect(%s)", m_pClientList[iClientH]->m_cCharName);
+		if (m_iAttackFreqMin > 0 && dwTimeGap < (DWORD)m_iAttackFreqMin) {
+			wsprintf(g_cTxt, "(!) Speed hack suspect(%s) attack freq %dms < %dms", m_pClientList[iClientH]->m_cCharName, dwTimeGap, m_iAttackFreqMin);
 			PutLogList(g_cTxt);
 			DeleteClient(iClientH, TRUE, TRUE);
-
 			return FALSE;
 		}
-#endif
 	}
 
 	return FALSE;
@@ -37931,17 +38035,16 @@ bool CGame::bCheckClientMagicFrequency(int iClientH, DWORD dwClientTime)
 
 	if (m_pClientList[iClientH] == NULL) return FALSE;
 
-	if (m_pClientList[iClientH]->m_dwMagicFreqTime == NULL) 
+	if (m_pClientList[iClientH]->m_dwMagicFreqTime == NULL)
 		m_pClientList[iClientH]->m_dwMagicFreqTime = dwClientTime;
 	else {
 		dwTimeGap = dwClientTime - m_pClientList[iClientH]->m_dwMagicFreqTime;
 		m_pClientList[iClientH]->m_dwMagicFreqTime = dwClientTime;
 
-		if (dwTimeGap < 1500) {
-			wsprintf(g_cTxt, "(!) Speed hack suspect(%s)", m_pClientList[iClientH]->m_cCharName);
+		if (m_iMagicFreqMin > 0 && dwTimeGap < (DWORD)m_iMagicFreqMin) {
+			wsprintf(g_cTxt, "(!) Speed hack suspect(%s) magic freq %dms < %dms", m_pClientList[iClientH]->m_cCharName, dwTimeGap, m_iMagicFreqMin);
 			PutLogList(g_cTxt);
 			DeleteClient(iClientH, TRUE, TRUE);
-
 			return FALSE;
 		}
 	}
@@ -37974,15 +38077,12 @@ bool CGame::bCheckClientMoveFrequency(int iClientH, DWORD dwClientTime)
 		dwTimeGap = dwClientTime - m_pClientList[iClientH]->m_dwMoveFreqTime;
 		m_pClientList[iClientH]->m_dwMoveFreqTime = dwClientTime;
 
-#ifndef NO_MSGSPEEDCHECK
-		if (dwTimeGap < 250) {
-			wsprintf(g_cTxt, "(!) Speed hack suspect(%s)", m_pClientList[iClientH]->m_cCharName);
+		if (m_iMoveFreqMin > 0 && dwTimeGap < (DWORD)m_iMoveFreqMin) {
+			wsprintf(g_cTxt, "(!) Speed hack suspect(%s) move freq %dms < %dms", m_pClientList[iClientH]->m_cCharName, dwTimeGap, m_iMoveFreqMin);
 			PutLogList(g_cTxt);
 			DeleteClient(iClientH, TRUE, TRUE);
-
 			return FALSE;
 		}
-#endif
 	}
 
 	return FALSE;

@@ -647,7 +647,7 @@ public:
 		char  cStr[32], cStr2[32], cStr3[32], cStr4[32];
 		char  cMode;
 		BOOL  bIsScrollSelected;
-	} m_stDialogBoxInfo[61];	 // Snoopy passé à 61 (origine 41, Alastor 60), j'ai mis +20 car plus pratique.
+	} m_stDialogBoxInfo[61];	 // Snoopy passï¿½ ï¿½ 61 (origine 41, Alastor 60), j'ai mis +20 car plus pratique.
 	char m_cDialogBoxOrder[61];
 	int m_bIsDialogEnabled[61];//was BOOL
 //Snoopy=>>>>>>>>>>>>>>>>>>>>>
@@ -927,6 +927,10 @@ public:
 	char m_cItemOrder[MAXITEMS];
 	char m_cAmountString[12];
 	char m_cLogOutCount;
+	int  m_iLogOutTimer;
+	int  m_iWalkSpeed;
+	int  m_iRunSpeed;
+	int  m_iDashSpeed;
 	char m_cRestartCount;
 	char m_cGameMode;
 	char m_cWhisperIndex;

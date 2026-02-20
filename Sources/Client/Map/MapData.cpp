@@ -31,7 +31,7 @@ CMapData::CMapData(class CGame * pGame)
 		m_stFrame[i][OBJECTATTACK].m_sFrameTime		= 78/SPEEDHAX_ATK;
 		m_stFrame[i][OBJECTATTACK].m_sMaxFrame		= 7;
 		m_stFrame[i][OBJECTATTACKMOVE].m_sMaxFrame	= 12;
-		m_stFrame[i][OBJECTATTACKMOVE].m_sFrameTime	= 78;
+		m_stFrame[i][OBJECTATTACKMOVE].m_sFrameTime	= 30;
 		m_stFrame[i][OBJECTMAGIC].m_sMaxFrame		= 15;
 		m_stFrame[i][OBJECTMAGIC].m_sFrameTime		= 88;
 		m_stFrame[i][OBJECTGETITEM].m_sMaxFrame		= 3;
@@ -1988,8 +1988,10 @@ int CMapData::iObjectFrameCounter(char * cPlayerName, short sViewPointX, short s
 				lPan = -(sCenterX - dX)*1000;
 				switch (m_Data[dX][dY].m_cOwnerAction) {
 				case OBJECTATTACK:
-				case OBJECTATTACKMOVE:
 					iDelay = (m_Data[dX][dY].m_iStatus & 0x000F)*12;
+					break;
+				case OBJECTATTACKMOVE:
+					iDelay = 0;
 					break;
 				case OBJECTMAGIC:
 				/*	if(isClientPlayer)
@@ -2556,11 +2558,11 @@ int CMapData::iObjectFrameCounter(char * cPlayerName, short sViewPointX, short s
 
 							if (m_Data[dX][dY].m_cOwnerFrame == 5) {
 								if ((m_Data[dX][dY].m_sAppr2 & 0xF000) != 0){ // not Peace mode
-									if (m_Data[dX][dY].m_sV3 != 1){ // autre que corp à corp
+									if (m_Data[dX][dY].m_sV3 != 1){ // autre que corp ï¿½ corp
 										m_pGame->bAddNewEffect(m_Data[dX][dY].m_sV3, m_sPivotX + dX, m_sPivotY + dY
 											, m_sPivotX + dX + m_Data[dX][dY].m_sV1, m_sPivotY + dY + m_Data[dX][dY].m_sV2
 											, 0, m_Data[dX][dY].m_sOwnerType);
-										if (m_Data[dX][dY].m_sV3 >= 20) m_pGame->PlaySound('E', 43, sDist, lPan); // Son "loupé"
+										if (m_Data[dX][dY].m_sV3 >= 20) m_pGame->PlaySound('E', 43, sDist, lPan); // Son "loupï¿½"
 									}
 									if (((m_Data[dX][dY].m_sAppr2 & 0x0FF0) >> 4) == 15){ // StormBlade
 										m_pGame->bAddNewEffect(81, m_sPivotX + dX, m_sPivotY + dY
