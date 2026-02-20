@@ -175,6 +175,7 @@ CGame::CGame(HWND hWnd) : m_hWnd(hWnd)
 		m_iMoveFreqMin			= 0;
 		m_iMagicFreqMin			= 1500;
 		m_iSuperAttackMultiplier = 100;
+		m_bRecallDamageTimer = 1;
 		m_sCharSkillLimit		= 0;
 
 		m_iAutoRebootingCount = 0;
@@ -4433,6 +4434,13 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
                cReadMode = 0;
                break;
 
+		 case 26:
+               m_bRecallDamageTimer = atoi(token);
+               wsprintf(cTxt, "(*) Recall damage timer: %s", m_bRecallDamageTimer ? "ENABLED" : "DISABLED");
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
 			}
          } 
          else { 
@@ -4461,6 +4469,7 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
 			if (memcmp(token, "move-frequency-min", 18) == 0)	cReadMode = 23;
 			if (memcmp(token, "magic-frequency-min", 19) == 0)	cReadMode = 24;
 			if (memcmp(token, "super-attack-multiplier", 23) == 0) cReadMode = 25;
+			if (memcmp(token, "recall-damage-timer", 19) == 0) cReadMode = 26;
 
          } 
 
@@ -12700,7 +12709,10 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 	iWhetherBonus = iGetWhetherMagicBonusEffect(sType, m_pMapList[caster->m_cMapIndex]->m_cWhetherStatus);
 
 	iManaCost = spell->m_manaCost;
-	if ((caster->m_bIsSafeAttackMode == TRUE) && 
+	if (spell->m_sType == MAGICTYPE_TELEPORT) {
+		iManaCost = 0;
+	}
+	if ((caster->m_bIsSafeAttackMode == TRUE) &&
 		(m_pMapList[caster->m_cMapIndex]->m_bIsFightZone == FALSE)) {
 
 			iManaCost *= 1.1;
@@ -13289,7 +13301,7 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 			switch (spell->m_sValue[MAGICV_TYPE]) {
 			case 1:
 				if ( (cOwnerType == OWNERTYPE_PLAYER) && (sOwnerH == iClientH) )
-					if((dwTime - caster->m_lastDamageTime) > 10000 || caster->IsGM()){
+					if(!m_bRecallDamageTimer || (dwTime - caster->m_lastDamageTime) > 10000 || caster->IsGM()){
 						if (caster->m_nextRecallPoint != 0 && strcmp(caster->m_cMapName, sideMap[ caster->m_side ]) == 0){
 							RequestTeleportHandler(iClientH, 3, caster->m_cMapName,
 								m_pMapList[caster->m_cMapIndex]->m_pInitialPoint[caster->m_nextRecallPoint].x,

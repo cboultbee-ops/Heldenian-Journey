@@ -928,6 +928,7 @@ public:
 	char m_cAmountString[12];
 	char m_cLogOutCount;
 	int  m_iLogOutTimer;
+	short m_sLogOutStartX, m_sLogOutStartY;
 	int  m_iWalkSpeed;
 	int  m_iRunSpeed;
 	int  m_iDashSpeed;

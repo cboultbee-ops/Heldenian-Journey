@@ -71,11 +71,11 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 		if ( (G_pGame->m_cGameMode == GAMEMODE_ONMAINGAME) && ( G_pGame->m_bForceDisconn == FALSE ) )
 		{
 
-#ifdef _DEBUG
-			if (G_pGame->m_cLogOutCount == -1 || G_pGame->m_cLogOutCount > 2) G_pGame->m_cLogOutCount = 1; 
-#else
-			if (G_pGame->m_cLogOutCount == -1 || G_pGame->m_cLogOutCount > 11) G_pGame->m_cLogOutCount = 11; 
-#endif
+			if (G_pGame->m_cLogOutCount == -1 || G_pGame->m_cLogOutCount > (char)G_pGame->m_iLogOutTimer) {
+				G_pGame->m_cLogOutCount = (char)G_pGame->m_iLogOutTimer;
+				G_pGame->m_sLogOutStartX = G_pGame->m_sPlayerX;
+				G_pGame->m_sLogOutStartY = G_pGame->m_sPlayerY;
+			}
 
 		}
 			else if (G_pGame->m_cGameMode == GAMEMODE_ONLOADING) return (DefWindowProc(hWnd, message, wParam, lParam));

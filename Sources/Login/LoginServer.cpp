@@ -2113,7 +2113,22 @@ void CLoginServer::ProcessClientRequestEnterGame(char *Data, DWORD ClientID, MYS
 	case ENTERGAMEMSGTYPE_CHANGINGSERVER:
 		if(IsMapAvailable(MapName, WorldName, GameServerIP, &GameServerPort, &GameServerID)){
 
-			if(IsAccountInUse(AccName, &AccountID)) *wp2 = ENTERGAMERESTYPE_PLAYING;
+			if(IsAccountInUse(AccName, &AccountID)){
+				if(Client[AccountID]->IsOnServerChange == TRUE &&
+				   IsSame(AccPwd, Client[AccountID]->AccountPassword) &&
+				   IsSame(CharName, Client[AccountID]->CharName)){
+					Client[AccountID]->IsOnServerChange = FALSE;
+					Client[AccountID]->ConnectedServerID = (char)GameServerID;
+					Client[AccountID]->Time = timeGetTime();
+					SendGameServerIP(ClientIP, GameServerID);
+					*wp2 = ENTERGAMERESTYPE_CONFIRM;
+					SafeCopy(SendBuff+6, GameServerIP);
+					wp2 = (WORD*)(SendBuff+22);
+					*wp2 = GameServerPort;
+				} else {
+					*wp2 = ENTERGAMERESTYPE_PLAYING;
+				}
+			}
 			else{
 				for(WORD w = 0; w < MAXCLIENTS; w++) if(Client[w] == NULL) {Client[w] = new CClient(AccName, AccPwd, CharName, CharLevel, ClientIP, GameServerID);break;}
 				SendGameServerIP(ClientIP, GameServerID);
@@ -2361,7 +2376,12 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 			AdminUserLevel = (BYTE)atoi(myRow[f]);
 			SendValue(Data, 242, BYTESIZE, AdminUserLevel);
 		}
-		else if(IsSame(field[f]->name, "MagicMastery"))     SafeCopy(Data+243, myRow[f], strlen(myRow[f]));
+		else if(IsSame(field[f]->name, "MagicMastery")) {
+			int mlen = strlen(myRow[f]);
+			if (mlen > 100) mlen = 100;
+			for (int m = 0; m < mlen; m++)
+				Data[243 + m] = (myRow[f][m] == '1') ? 1 : 0;
+		}
 		else if(IsSame(field[f]->name, "Profile"))          SafeCopy(Data+343, myRow[f]);
 	
 	/*if(strlen(CharProfile) == 0){
@@ -2836,7 +2856,9 @@ void CLoginServer::SaveCharacter(char* Data, MYSQL myConn)
 	bIsBankModified = (BOOL)Retrive8ByteValue(cp, 241);
 	//adminlevel +1
 	ZeroMemory(MagicMastery, sizeof(MagicMastery));
-	SafeCopy(MagicMastery, cp+243, 100);
+	for (int m = 0; m < 100; m++)
+		MagicMastery[m] = ((BYTE)cp[243 + m] == 1) ? '1' : '0';
+	MagicMastery[100] = '\0';
 	ZeroMemory(Profile, sizeof(Profile));
 	SafeCopy(Profile, (cp+343), 255);
 

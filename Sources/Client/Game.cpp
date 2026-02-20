@@ -4462,6 +4462,8 @@ void CGame::InitGameSettings()
 	m_cWhetherStatus = NULL;
 	m_cLogOutCount = -1;
 	m_iLogOutTimer = 11;
+	m_sLogOutStartX = 0;
+	m_sLogOutStartY = 0;
 	m_iWalkSpeed = 70;
 	m_iRunSpeed  = 42;
 	m_iDashSpeed = 30;
@@ -12760,16 +12762,6 @@ BOOL   CGame::DrawObject_OnStop(int indexX, int indexY, int sX, int sY, BOOL bTr
 		else{
 			DrawNpcName(sX, sY, _tmp_sOwnerType, _tmp_iStatus);
 		}
-#if _DEBUG
-		wsprintf(G_cTxt,"Appr1: 0x%.4X ",(WORD)_tmp_sAppr1);
-		PutString2(sX+70, sY+(14*1), G_cTxt, 30,255,30);
-		wsprintf(G_cTxt,"Appr2: 0x%.4X ",(WORD)_tmp_sAppr2);
-		PutString2(sX+70, sY+(14*2), G_cTxt, 30,255,30);
-		wsprintf(G_cTxt,"Appr3: 0x%.4X ",(WORD)_tmp_sAppr3);
-		PutString2(sX+70, sY+(14*3), G_cTxt, 30,255,30);
-		wsprintf(G_cTxt,"Appr4: 0x%.4X ",(WORD)_tmp_sAppr4);
-		PutString2(sX+70, sY+(14*4), G_cTxt, 30,255,30);
-#endif
 	}
 
 	if (_tmp_iChatIndex != NULL)
@@ -18915,6 +18907,20 @@ void CGame::DrawDialogBox_Inventory(int msX, int msY)
 	if ((msX >= sX +140) && (msX <= sX +212) && (msY >= sY +172) && (msY <= sY +184))
 	{	DrawNewDialogBox(SPRID_INTERFACE_ND_INVENTORY, sX+140, sY+172, 2);
 	}
+
+	// Item count and weight display
+	{	char cTxt[64];
+		int iItemCount = 0;
+		for (int j = 0; j < MAXITEMS; j++)
+			if (m_pItemList[j] != NULL) iItemCount++;
+		wsprintf(cTxt, "Items: %d / %d", iItemCount, MAXITEMS);
+		PutString2(sX + 10, sY + 190, cTxt, 255, 255, 0);
+
+		int iCurWeight = _iCalcTotalWeight() / 100;
+		int iMaxWeight = m_stat[STAT_STR] * 5 + m_iLevel * 5;
+		wsprintf(cTxt, "Weight: %d / %d", iCurWeight, iMaxWeight);
+		PutString2(sX + 10, sY + 202, cTxt, 255, 255, 0);
+	}
 }
 
 
@@ -24790,7 +24796,11 @@ void CGame::OnKeyUp(WPARAM wParam)
 		if (m_cGameMode == GAMEMODE_ONMAINGAME)
 		{	if ((m_bIsObserverMode == TRUE) && (m_bShiftPressed)) { //ObserverMode Shift+Esc
 				// Log Out
-				if (m_cLogOutCount == -1) m_cLogOutCount = (char)m_iLogOutTimer;
+				if (m_cLogOutCount == -1) {
+					m_cLogOutCount = (char)m_iLogOutTimer;
+					m_sLogOutStartX = m_sPlayerX;
+					m_sLogOutStartY = m_sPlayerY;
+				}
 				DisableDialogBox(19);
 				PlaySound('E', 14, 5);
 			}
@@ -28512,9 +28522,11 @@ void CGame::DlgBoxClick_SysMenu(short msX, short msY)
 
 	if (m_bForceDisconn) return;
 	if ((msX >= sX + LBTNPOSX) && (msX <= sX + LBTNPOSX + BTNSZX) && (msY >= sY + 225) && (msY <= sY + 225 + BTNSZY)) {
-		if( m_cLogOutCount == -1 )
+		if( m_cLogOutCount == -1 ) {
 			m_cLogOutCount = (char)m_iLogOutTimer;
-		else {
+			m_sLogOutStartX = m_sPlayerX;
+			m_sLogOutStartY = m_sPlayerY;
+		} else {
 			m_cLogOutCount = -1;
 			AddEventList(DLGBOX_CLICK_SYSMENU2, 10);
 			DisableDialogBox(19);
@@ -28584,10 +28596,6 @@ void CGame::DrawNpcName(short sX, short sY, short sOwnerType, int iStatus)
 	if( m_Misc.bCheckIMEString(cTxt2) ) PutString_SprFont3(sX, sY + 28, cTxt2, m_wR[13]*4, m_wG[13]*4, m_wB[13]*4, FALSE, 2);
 	else PutString2(sX, sY + 28, cTxt2, 240,240,70);
 
-#ifdef _DEBUG
-	wsprintf(G_cTxt,"Status: 0x%.8X ",iStatus);
-	PutString2(sX+70, sY+(14*0), G_cTxt, 30,255,30);
-#endif
 }
 
 void CGame::DrawObjectName(short sX, short sY, char * pName, int iStatus)
@@ -28721,10 +28729,6 @@ void CGame::DrawObjectName(short sX, short sY, char * pName, int iStatus)
 
 	PutString2(sX, sY+14 +iAddY, cTxt, sR, sG, sB);
 
-#ifdef _DEBUG
-	wsprintf(G_cTxt,"Status: 0x%.8X ",iStatus);
-	PutString2(sX+70, sY+(14*0), G_cTxt, 30,255,30);
-#endif
 }
 
 BOOL CGame::FindGuildName(char* pName, int* ipIndex)
@@ -30493,7 +30497,11 @@ void CGame::UpdateScreen_OnGame()
 
 	// LogOut process
 	if (m_cLogOutCount > 0)
-	{	if ((dwTime - m_dwLogOutCountTime) > 1000)
+	{	if ((m_sPlayerX != m_sLogOutStartX || m_sPlayerY != m_sLogOutStartY) && (m_bForceDisconn == FALSE))
+		{	m_cLogOutCount = -1;
+			AddEventList("Logout cancelled — you moved.", 10);
+		}
+		else if ((dwTime - m_dwLogOutCountTime) > 1000)
 		{	m_cLogOutCount--;
 			m_dwLogOutCountTime = dwTime;
 			wsprintf(G_cTxt, UPDATE_SCREEN_ONGAME13, m_cLogOutCount);

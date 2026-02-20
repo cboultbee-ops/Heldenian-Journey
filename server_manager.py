@@ -40,7 +40,7 @@ SERVERS = {
     },
 }
 
-CLIENT_EXE = os.path.join(BASE_DIR, "Client", "Client_d.exe")
+CLIENT_EXE = os.path.join(BASE_DIR, "Client", "Play_Me.exe")
 CLIENT_CWD = os.path.join(BASE_DIR, "Client")
 CLIENT_CFG = os.path.join(BASE_DIR, "Client", "GM.cfg")
 MYSQL_BIN = r"C:\Program Files\MySQL\MySQL Server 8.0\bin"
@@ -160,6 +160,43 @@ def write_cfg(path, settings):
         f.writelines(new_lines)
 
 
+# --- Scrollable Frame Helper ---
+
+class ScrollableFrame(ttk.Frame):
+    """A vertically scrollable frame for tkinter."""
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+
+        self.canvas = tk.Canvas(self, highlightthickness=0, borderwidth=0)
+        self.scrollbar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.inner = ttk.Frame(self.canvas)
+
+        self.inner.bind("<Configure>",
+                        lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all")))
+
+        self._canvas_window = self.canvas.create_window((0, 0), window=self.inner, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
+        self.canvas.bind("<Configure>", self._on_canvas_configure)
+        self.inner.bind("<Enter>", self._bind_mousewheel)
+        self.inner.bind("<Leave>", self._unbind_mousewheel)
+
+    def _on_canvas_configure(self, event):
+        self.canvas.itemconfig(self._canvas_window, width=event.width)
+
+    def _bind_mousewheel(self, event):
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+
+    def _unbind_mousewheel(self, event):
+        self.canvas.unbind_all("<MouseWheel>")
+
+    def _on_mousewheel(self, event):
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+
 # --- Main Application ---
 
 class ServerManager(tk.Tk):
@@ -258,99 +295,83 @@ class ServerManager(tk.Tk):
 
     # ---- Tab 2: Gameplay Tuning ----
     def _build_tab_gameplay_tuning(self):
-        tab = ttk.Frame(self.notebook, padding=10)
+        tab = ttk.Frame(self.notebook, padding=0)
         self.notebook.add(tab, text="Gameplay Tuning")
+
+        # Pinned buttons at top (always visible)
+        btn_frame = ttk.Frame(tab, padding=(10, 8, 10, 4))
+        btn_frame.pack(fill="x")
+        ttk.Button(btn_frame, text="Save Settings", command=self._save_gameplay_settings).pack(side="left", padx=3)
+        ttk.Button(btn_frame, text="Save & Restart", command=self._save_and_restart_gameplay).pack(side="left", padx=3)
+        ttk.Label(btn_frame, text="Settings applied to all 4 game servers",
+                  foreground="gray", font=("Segoe UI", 8)).pack(side="right", padx=5)
+
+        ttk.Separator(tab, orient="horizontal").pack(fill="x", padx=10)
+
+        # Scrollable content area
+        scroll = ScrollableFrame(tab)
+        scroll.pack(fill="both", expand=True, padx=5, pady=5)
+        content = scroll.inner
 
         # Read reference settings
         ref = read_cfg(SERVERS["Neutrals"]["settings"])
         client_cfg = read_cfg(CLIENT_CFG)
 
+        # --- Dev Toggles Section ---
+        toggle_frame = ttk.LabelFrame(content, text="Dev Toggles", padding=8)
+        toggle_frame.pack(fill="x", padx=5, pady=(5, 4))
+
+        ttk.Label(toggle_frame,
+                  text="Quick toggles for testing. Requires server restart to take effect.",
+                  foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
+
+        self.recall_timer_var = tk.IntVar(value=int(ref.get("recall-damage-timer", "1")))
+        self.recall_timer_btn = ttk.Checkbutton(
+            toggle_frame, text="Recall Damage Timer",
+            variable=self.recall_timer_var,
+            command=self._on_recall_timer_toggle)
+        self.recall_timer_btn.pack(anchor="w", pady=1)
+
+        self.recall_timer_label = ttk.Label(toggle_frame, text="", font=("Segoe UI", 8))
+        self.recall_timer_label.pack(anchor="w", padx=(20, 0))
+        self._update_recall_timer_label()
+
+        # Logout toggle row
+        row_logout = ttk.Frame(toggle_frame)
+        row_logout.pack(fill="x", pady=(6, 1))
+        timer_val = client_cfg.get("logout-timer", "10")
+        self.logout_timer_var.set(timer_val)
+        self.instant_logout_var.set(1 if timer_val in ("0", "1") else 0)
+        ttk.Checkbutton(row_logout, text="Instant Logout (Testing)",
+                        variable=self.instant_logout_var,
+                        command=self._on_instant_logout_toggle).pack(side="left")
+        ttk.Label(row_logout, text="Sets timer to 1s (client-side, GM.cfg)",
+                  foreground="gray", font=("Segoe UI", 8)).pack(side="left", padx=8)
+
         # --- Combat Speed Section ---
-        combat_frame = ttk.LabelFrame(tab, text="Combat Speed (per-weapon minimums)", padding=8)
-        combat_frame.pack(fill="x", pady=(0, 8))
+        combat_frame = ttk.LabelFrame(content, text="Combat Speed (per-weapon minimums)", padding=8)
+        combat_frame.pack(fill="x", padx=5, pady=4)
 
         ttk.Label(combat_frame,
-                  text="Higher = slower attack. 0 = fastest possible. Applied to all game servers.",
+                  text="Higher = slower attack. 0 = fastest possible.",
                   foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
 
         for key, label, lo, hi, default in WEAPON_SPEED_SETTINGS:
             row = ttk.Frame(combat_frame)
             row.pack(fill="x", pady=1)
-
-            ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
-            var = tk.StringVar(value=ref.get(key, str(default)))
-            entry = ttk.Entry(row, textvariable=var, width=6)
-            entry.pack(side="left", padx=5)
-            ttk.Label(row, text=f"({lo} - {hi})  default: {default}",
-                      foreground="gray", font=("Segoe UI", 8)).pack(side="left")
-            self.weapon_vars[key] = var
-
-        # --- Logout Section ---
-        logout_frame = ttk.LabelFrame(tab, text="Logout", padding=8)
-        logout_frame.pack(fill="x", pady=(0, 8))
-
-        row1 = ttk.Frame(logout_frame)
-        row1.pack(fill="x", pady=2)
-        ttk.Label(row1, text="Logout Timer (seconds)", width=24, anchor="w").pack(side="left")
-        timer_val = client_cfg.get("logout-timer", "10")
-        self.logout_timer_var.set(timer_val)
-        ttk.Entry(row1, textvariable=self.logout_timer_var, width=6).pack(side="left", padx=5)
-        ttk.Label(row1, text="(1 - 60)  default: 10", foreground="gray",
-                  font=("Segoe UI", 8)).pack(side="left")
-
-        row2 = ttk.Frame(logout_frame)
-        row2.pack(fill="x", pady=2)
-        self.instant_logout_var.set(1 if timer_val in ("0", "1") else 0)
-        ttk.Checkbutton(row2, text="Instant Logout (Testing)",
-                        variable=self.instant_logout_var,
-                        command=self._on_instant_logout_toggle).pack(side="left")
-        ttk.Label(row2, text="Sets timer to 1 second for testing",
-                  foreground="gray", font=("Segoe UI", 8)).pack(side="left", padx=8)
-
-        # --- Movement Section ---
-        move_frame = ttk.LabelFrame(tab, text="Movement & Dash Speed", padding=8)
-        move_frame.pack(fill="x", pady=(0, 8))
-
-        ttk.Label(move_frame,
-                  text="Lower value = faster movement. Applied to client config (GM.cfg). Restart client to apply.",
-                  foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
-
-        for key, label, lo, hi, default in MOVEMENT_SETTINGS:
-            row = ttk.Frame(move_frame)
-            row.pack(fill="x", pady=1)
-
-            ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
-            var = tk.StringVar(value=client_cfg.get(key, str(default)))
-            entry = ttk.Entry(row, textvariable=var, width=6)
-            entry.pack(side="left", padx=5)
-            ttk.Label(row, text=f"({lo} - {hi})  default: {default}",
-                      foreground="gray", font=("Segoe UI", 8)).pack(side="left")
-            self.movement_vars[key] = var
-
-        # --- Frequency Checks Section ---
-        freq_frame = ttk.LabelFrame(tab, text="Speed Check Thresholds (server)", padding=8)
-        freq_frame.pack(fill="x", pady=(0, 8))
-
-        ttk.Label(freq_frame,
-                  text="Server-side anti-speedhack. 0 = disabled. Applied to Settings.cfg.",
-                  foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
-
-        for key, label, lo, hi, default in FREQUENCY_SETTINGS:
-            row = ttk.Frame(freq_frame)
-            row.pack(fill="x", pady=1)
             ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
             var = tk.StringVar(value=ref.get(key, str(default)))
             ttk.Entry(row, textvariable=var, width=6).pack(side="left", padx=5)
-            ttk.Label(row, text=f"({lo} - {hi})  default: {default}",
+            ttk.Label(row, text=f"({lo}-{hi})  def: {default}",
                       foreground="gray", font=("Segoe UI", 8)).pack(side="left")
-            self.frequency_vars[key] = var
+            self.weapon_vars[key] = var
 
         # --- Super Attack Section ---
-        sa_frame = ttk.LabelFrame(tab, text="Super Attack", padding=8)
-        sa_frame.pack(fill="x", pady=(0, 8))
+        sa_frame = ttk.LabelFrame(content, text="Super Attack", padding=8)
+        sa_frame.pack(fill="x", padx=5, pady=4)
 
         ttk.Label(sa_frame,
-                  text="100 = normal damage. 200 = double. 50 = half. Applied to Settings.cfg.",
+                  text="100 = normal. 200 = double. 50 = half.",
                   foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
 
         for key, label, lo, hi, default in SUPER_ATTACK_SETTINGS:
@@ -359,15 +380,53 @@ class ServerManager(tk.Tk):
             ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
             var = tk.StringVar(value=ref.get(key, str(default)))
             ttk.Entry(row, textvariable=var, width=6).pack(side="left", padx=5)
-            ttk.Label(row, text=f"({lo} - {hi})  default: {default}",
+            ttk.Label(row, text=f"({lo}-{hi})  def: {default}",
                       foreground="gray", font=("Segoe UI", 8)).pack(side="left")
             self.super_attack_vars[key] = var
 
-        # Buttons
-        btn_frame = ttk.Frame(tab)
-        btn_frame.pack(fill="x", pady=(8, 0))
-        ttk.Button(btn_frame, text="Save Settings", command=self._save_gameplay_settings).pack(side="left", padx=3)
-        ttk.Button(btn_frame, text="Save & Restart", command=self._save_and_restart_gameplay).pack(side="left", padx=3)
+        # --- Movement Section ---
+        move_frame = ttk.LabelFrame(content, text="Movement & Dash Speed (client)", padding=8)
+        move_frame.pack(fill="x", padx=5, pady=4)
+
+        ttk.Label(move_frame,
+                  text="Lower = faster. Saved to GM.cfg. Restart client to apply.",
+                  foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
+
+        for key, label, lo, hi, default in MOVEMENT_SETTINGS:
+            row = ttk.Frame(move_frame)
+            row.pack(fill="x", pady=1)
+            ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
+            var = tk.StringVar(value=client_cfg.get(key, str(default)))
+            ttk.Entry(row, textvariable=var, width=6).pack(side="left", padx=5)
+            ttk.Label(row, text=f"({lo}-{hi})  def: {default}",
+                      foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+            self.movement_vars[key] = var
+
+        # Logout timer (numeric entry)
+        row_lt = ttk.Frame(move_frame)
+        row_lt.pack(fill="x", pady=1)
+        ttk.Label(row_lt, text="Logout Timer (seconds)", width=24, anchor="w").pack(side="left")
+        ttk.Entry(row_lt, textvariable=self.logout_timer_var, width=6).pack(side="left", padx=5)
+        ttk.Label(row_lt, text="(1-60)  def: 10", foreground="gray",
+                  font=("Segoe UI", 8)).pack(side="left")
+
+        # --- Frequency Checks Section ---
+        freq_frame = ttk.LabelFrame(content, text="Speed Check Thresholds (server)", padding=8)
+        freq_frame.pack(fill="x", padx=5, pady=4)
+
+        ttk.Label(freq_frame,
+                  text="Anti-speedhack. 0 = disabled.",
+                  foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
+
+        for key, label, lo, hi, default in FREQUENCY_SETTINGS:
+            row = ttk.Frame(freq_frame)
+            row.pack(fill="x", pady=1)
+            ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
+            var = tk.StringVar(value=ref.get(key, str(default)))
+            ttk.Entry(row, textvariable=var, width=6).pack(side="left", padx=5)
+            ttk.Label(row, text=f"({lo}-{hi})  def: {default}",
+                      foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+            self.frequency_vars[key] = var
 
     def _on_instant_logout_toggle(self):
         if self.instant_logout_var.get():
@@ -376,6 +435,26 @@ class ServerManager(tk.Tk):
             self.logout_timer_var.set("10")
         write_cfg(CLIENT_CFG, {"logout-timer": self.logout_timer_var.get()})
         self._log(f"Logout timer set to {self.logout_timer_var.get()}s (saved to GM.cfg)")
+
+    def _on_recall_timer_toggle(self):
+        val = self.recall_timer_var.get()
+        for name in ["Towns", "Neutrals", "Middleland", "Events"]:
+            path = SERVERS[name].get("settings")
+            if path:
+                write_cfg(path, {"recall-damage-timer": str(val)})
+        self._update_recall_timer_label()
+        state = "ON" if val else "OFF"
+        self._log(f"Recall Damage Timer: {state} (saved to all Settings.cfg — restart server to apply)")
+
+    def _update_recall_timer_label(self):
+        if self.recall_timer_var.get():
+            self.recall_timer_label.config(
+                text="ON — 10s delay after damage before Recall works (normal)",
+                foreground="#2ecc40")
+        else:
+            self.recall_timer_label.config(
+                text="OFF — Instant Recall even after taking damage (testing)",
+                foreground="#ff4136")
 
     # ---- Tab 3: Quick Actions ----
     def _build_tab_quick_actions(self):
