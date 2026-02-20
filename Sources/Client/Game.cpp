@@ -75,8 +75,8 @@ void CGame::ReadSettings()
 	else
 		m_partyAutoAccept = val;
 
-	if((val = ReadSettingsVar("DetailLevel")) == -1) 
-		m_cDetailLevel = FALSE;
+	if((val = ReadSettingsVar("DetailLevel")) == -1)
+		m_cDetailLevel = TRUE;
 	else
 		m_cDetailLevel = val;
 
@@ -28029,10 +28029,20 @@ void CGame::DlbBoxDoubleClick_Inventory(short msX, short msY)
 		x2 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->m_rcBound.right;
 		y2 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->m_rcBound.bottom;
 
-		if ((m_bIsItemDisabled[cItemID] == FALSE) && (m_bIsItemEquipped[cItemID] == FALSE) && (msX > x1) && (msX < x2) && (msY > y1) && (msY < y2)) 
+		if ((m_bIsItemDisabled[cItemID] == FALSE) && (m_bIsItemEquipped[cItemID] == FALSE) && (msX > x1) && (msX < x2) && (msY > y1) && (msY < y2))
 		{	// Order
 			_SetItemOrder(0, cItemID);
 			GetItemName(m_pItemList[cItemID], cStr1, cStr2, cStr3);
+
+			// Double-click to add item to sell list when sell dialog is open
+			if (m_bIsDialogEnabled[31] == TRUE)
+			{	m_stMCursor.cSelectedObjectType = SELECTEDOBJTYPE_ITEM;
+				m_stMCursor.sSelectedObjectID = (short)cItemID;
+				bItemDrop_SellList(msX, msY);
+				m_stMCursor.cSelectedObjectType = NULL;
+				m_stMCursor.sSelectedObjectID   = NULL;
+				return;
+			}
 
 			if ( m_bIsDialogEnabled[11] && (m_bIsDialogEnabled[23] == FALSE) && (m_bIsDialogEnabled[23] == FALSE) && (m_stDialogBoxInfo[39].sV3 == 24) )
 			{	if (m_pItemList[cItemID]->m_cEquipPos != EQUIPPOS_NONE)
@@ -28169,6 +28179,35 @@ void CGame::DlbBoxDoubleClick_Inventory(short msX, short msY)
 				bItemDrop_Character();
 				m_stMCursor.cSelectedObjectType = NULL;
 				m_stMCursor.sSelectedObjectID   = NULL;
+
+				// Ctrl+double-click: equip all overlapping items at this position
+				if (m_bCtrlPressed)
+				{	for (int j = 0; j < MAXITEMS; j++)
+					{	if (m_cItemOrder[MAXITEMS - 1 - j] == -1) continue;
+						char cOtherID = m_cItemOrder[MAXITEMS - 1 - j];
+						if (cOtherID == cItemID) continue;
+						if (m_pItemList[cOtherID] == NULL) continue;
+						if (m_bIsItemDisabled[cOtherID] == TRUE) continue;
+						if (m_bIsItemEquipped[cOtherID] == TRUE) continue;
+						if (m_pItemList[cOtherID]->m_cItemType != ITEMTYPE_EQUIP) continue;
+
+						m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cOtherID]->m_sSprite]->_GetSpriteRect(
+							sX + 32 + m_pItemList[cOtherID]->m_sX, sY + 44 + m_pItemList[cOtherID]->m_sY,
+							m_pItemList[cOtherID]->m_sSpriteFrame);
+						short ox1 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cOtherID]->m_sSprite]->m_rcBound.left;
+						short oy1 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cOtherID]->m_sSprite]->m_rcBound.top;
+						short ox2 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cOtherID]->m_sSprite]->m_rcBound.right;
+						short oy2 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cOtherID]->m_sSprite]->m_rcBound.bottom;
+
+						if ((msX > ox1) && (msX < ox2) && (msY > oy1) && (msY < oy2))
+						{	m_stMCursor.cSelectedObjectType = SELECTEDOBJTYPE_ITEM;
+							m_stMCursor.sSelectedObjectID = (short)cOtherID;
+							bItemDrop_Character();
+							m_stMCursor.cSelectedObjectType = NULL;
+							m_stMCursor.sSelectedObjectID   = NULL;
+						}
+					}
+				}
 			}
 			return;
 	}	}
@@ -44091,10 +44130,11 @@ void CGame::DlgBoxClick_GuideMap(short msX, short msY)
 	int recallPoint = 0;
 	int town;
 	int range = 25;
-	int recallPoints[2][5][2] = {
+	int recallPoints[3][5][2] = {
 		{{140,49}, {68,125}, {170,145}, {140,205}, {116,245}}, //Aresden
-		{{158,57}, {110,89}, {170,145}, {242,129}, {158,249}} //Elvine
-	}; 
+		{{158,57}, {110,89}, {170,145}, {242,129}, {158,249}}, //Elvine
+		{{192,228}, {100,70}, {400,100}, {100,400}, {350,400}} //Middleland
+	};
 
 	if( m_bZoomMap )
 	{
@@ -44102,21 +44142,22 @@ void CGame::DlgBoxClick_GuideMap(short msX, short msY)
 		shY = m_sPlayerY-64;
 		if( shX < 0 ) shX = 0;
 		else if( shX > m_pMapData->m_sMapSizeX-128 ) shX = m_pMapData->m_sMapSizeX-128;
-		if( shY < 0 ) shY = 0;		
+		if( shY < 0 ) shY = 0;
 		else if( shY > m_pMapData->m_sMapSizeY-128 ) shY = m_pMapData->m_sMapSizeY-128;
 		shX += msX - m_stDialogBoxInfo[9].sX;
 		shY += msY - m_stDialogBoxInfo[9].sY;
 	}
-	else {	
+	else {
 		shX = (msX-m_stDialogBoxInfo[9].sX)*m_pMapData->m_sMapSizeX/128;
 		shY = (msY-m_stDialogBoxInfo[9].sY)*m_pMapData->m_sMapSizeY/128;
 	}
 
-	if (m_cMapIndex == 11) town = 0;
-	else if (m_cMapIndex == 3) town = 1;
+	if (m_cMapIndex == 11) town = 0;      // Aresden
+	else if (m_cMapIndex == 3) town = 1;   // Elvine
+	else if (m_cMapIndex == 4) town = 2;   // Middleland
 	else return;
-	
-	for(int i = 0; i < 6; i++)
+
+	for(int i = 0; i < 5; i++)
 		if(shX > (recallPoints[town][i][0] - range) && shX < (recallPoints[town][i][0] + range) &&
 			shY > (recallPoints[town][i][1] - range) && shY < (recallPoints[town][i][1] + range)){
 				recallPoint = i + 1;

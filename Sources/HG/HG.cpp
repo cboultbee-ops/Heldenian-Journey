@@ -13302,7 +13302,9 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 			case 1:
 				if ( (cOwnerType == OWNERTYPE_PLAYER) && (sOwnerH == iClientH) )
 					if(!m_bRecallDamageTimer || (dwTime - caster->m_lastDamageTime) > 10000 || caster->IsGM()){
-						if (caster->m_nextRecallPoint != 0 && strcmp(caster->m_cMapName, sideMap[ caster->m_side ]) == 0){
+						if (caster->m_nextRecallPoint != 0 &&
+							(strcmp(caster->m_cMapName, sideMap[ caster->m_side ]) == 0 ||
+							 strcmp(caster->m_cMapName, "middleland") == 0)){
 							RequestTeleportHandler(iClientH, 3, caster->m_cMapName,
 								m_pMapList[caster->m_cMapIndex]->m_pInitialPoint[caster->m_nextRecallPoint].x,
 								m_pMapList[caster->m_cMapIndex]->m_pInitialPoint[caster->m_nextRecallPoint].y);
@@ -40585,7 +40587,7 @@ void CGame::RequestSetRecallPoint(int iClientH, char * pData, DWORD dwMsgSize)
 
 	recallPoint = *((char *)(pData + INDEX2_MSGTYPE + 2));
 
-	if (recallPoint < 1 && recallPoint > 5) return;
+	if (recallPoint < 1 || recallPoint > 5) return;
 	if (m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->m_pInitialPoint[recallPoint].x == -1 || 
 		m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->m_pInitialPoint[recallPoint].y == -1) return;
 

@@ -1,7 +1,11 @@
 [MAP-INFO]							
 
 map-location	=	middleland					
-initial-point	=	1	192	228			
+initial-point	=	1	192	228
+initial-point	=	2	100	70
+initial-point	=	3	400	100
+initial-point	=	4	100	400
+initial-point	=	5	350	400
 level-limit	=	20
 pk-mode = 0
 
@@ -155,7 +159,7 @@ strategic-point = 1   0    2     176  224
 strategic-point = 2   0    1     456  213
 strategic-point = 3   0    1     275  286
 
-// ³¬½Ã Æ÷ÀÎÆ®
+// ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Æ®
 max-fish   = 20
 fish-point = 0   35 241
 fish-point = 1   64 251
@@ -179,36 +183,36 @@ energy-sphere-goal-point     = 1 1 237 182 179 284
 
 //item-event_=_index____item_name_______________amount__TotalNumber_____month___day_____type____mob_list[Max:5]
 //
-//type_=_0_:_ÇØ´ç_¾ÆÀÌÅÛÀÌ_ÀÏ¹Ý_¾ÆÀÌÅÛ_»ý¼º°úÁ¤¿¡¼­_»ý¼ºµÇÁö_¾Ê´Â´Ù.
-//_______1_:_Item_Event¿¡_ÀÇÇØ¼­µµ_»ý¼ºµÇ°í_ÀÏ¹Ý_¾ÆÀÌÅÛ_»ý¼º°úÁ¤À»_ÅëÇØ¼­µµ_»ý¼ºµÈ´Ù.
-//_2003_09_08_~09_15_:_Ãß¼®ÀÌº¥Æ®
+//type_=_0_:_ï¿½Ø´ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½_ï¿½Ï¹ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½_ï¿½Ê´Â´ï¿½.
+//_______1_:_Item_Eventï¿½ï¿½_ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½Ç°ï¿½_ï¿½Ï¹ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½_ï¿½ï¿½ï¿½Ø¼ï¿½ï¿½ï¿½_ï¿½ï¿½ï¿½ï¿½ï¿½È´ï¿½.
+//_2003_09_08_~09_15_:_ï¿½ß¼ï¿½ï¿½Ìºï¿½Æ®
 
-item-event = 	1	¼ÛÆí		1	200		9	8		0		WereWolf Cyclops Stalker Zombie EOL
-item-event = 	2	¼ÛÆí		1	200		9	9		0		WereWolf Cyclops Stalker Zombie EOL
-item-event = 	3	¼ÛÆí		1	200		9	10		0		WereWolf Cyclops Stalker Zombie EOL
-item-event = 	4	¼ÛÆí		1	200		9	11		0		WereWolf Cyclops Stalker Zombie EOL
-item-event = 	5	¼ÛÆí		1	200		9	12		0		WereWolf Cyclops Stalker Zombie EOL
-item-event = 	6	¼ÛÆí		1	200		9	13		0		WereWolf Cyclops Stalker Zombie EOL
-item-event = 	7	¼ÛÆí		1	200		9	14		0		WereWolf Cyclops Stalker Zombie EOL
-item-event = 	8	¼ÛÆí		1	200		9	15		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	1	ï¿½ï¿½ï¿½ï¿½		1	200		9	8		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	2	ï¿½ï¿½ï¿½ï¿½		1	200		9	9		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	3	ï¿½ï¿½ï¿½ï¿½		1	200		9	10		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	4	ï¿½ï¿½ï¿½ï¿½		1	200		9	11		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	5	ï¿½ï¿½ï¿½ï¿½		1	200		9	12		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	6	ï¿½ï¿½ï¿½ï¿½		1	200		9	13		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	7	ï¿½ï¿½ï¿½ï¿½		1	200		9	14		0		WereWolf Cyclops Stalker Zombie EOL
+item-event = 	8	ï¿½ï¿½ï¿½ï¿½		1	200		9	15		0		WereWolf Cyclops Stalker Zombie EOL
 
-item-event = 	9	°¥ºñ¼¼Æ®	1	50		9	8		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	11	°¥ºñ¼¼Æ®	1	50		9	9		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	12	°¥ºñ¼¼Æ®	1	50		9	10		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	13	°¥ºñ¼¼Æ®	1	50		9	11		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	14	°¥ºñ¼¼Æ®	1	50		9	12		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	15	°¥ºñ¼¼Æ®	1	50		9	13		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	16	°¥ºñ¼¼Æ®	1	50		9	14		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	17	°¥ºñ¼¼Æ®	1	50		9	15		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	9	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	8		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	11	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	9		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	12	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	10		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	13	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	11		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	14	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	12		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	15	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	13		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	16	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	14		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	17	ï¿½ï¿½ï¿½ï¿½Æ®	1	50		9	15		0		WereWolf Cyclops Stalker Orge EOL
 
-item-event = 	18	¼ú		1	20		9	8		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	19	¼ú		1	20		9	9		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	20	¼ú		1	20		9	10		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	21	¼ú		1	20		9	11		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	22	¼ú		1	20		9	12		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	23	¼ú		1	20		9	13		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	24	¼ú		1	20		9	14		0		WereWolf Cyclops Stalker Orge EOL
-item-event = 	25	¼ú		1	20		9	15		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	18	ï¿½ï¿½		1	20		9	8		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	19	ï¿½ï¿½		1	20		9	9		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	20	ï¿½ï¿½		1	20		9	10		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	21	ï¿½ï¿½		1	20		9	11		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	22	ï¿½ï¿½		1	20		9	12		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	23	ï¿½ï¿½		1	20		9	13		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	24	ï¿½ï¿½		1	20		9	14		0		WereWolf Cyclops Stalker Orge EOL
+item-event = 	25	ï¿½ï¿½		1	20		9	15		0		WereWolf Cyclops Stalker Orge EOL
 
 
 [END-MAP-INFO]									
