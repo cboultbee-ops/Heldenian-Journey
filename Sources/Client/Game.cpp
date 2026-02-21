@@ -15264,6 +15264,7 @@ void CGame::DrawDialogBox_GuideMap(short msX, short msY, char cLB)
  //telescope.pak:  frames 1..31 <=> SPRID_INTERFACE_GUIDEMAP +1...+31 <=> m_cMapIndex 0..30
  //telescope1.pak: frames 1..3  <=> SPRID_INTERFACE_GUIDEMAP +36..+38 <=> m_cMapIndex 35..37 et +
 	if( m_cMapIndex < 0 ) return;
+	if( m_pMapData == NULL ) return;
 	if (m_cMapIndex >= 35)
 	{	m_iMaxMapIndex  = SPRID_INTERFACE_GUIDEMAP + m_cMapIndex +1;
 		m_iMinMapIndex  = SPRID_INTERFACE_GUIDEMAP + 35;
@@ -15299,6 +15300,7 @@ void CGame::DrawDialogBox_GuideMap(short msX, short msY, char cLB)
 		if( shY < 0 ) shY = 0;
 		if( shX > m_pMapData->m_sMapSizeX-128 ) shX = m_pMapData->m_sMapSizeX-128;
 		if( shY > m_pMapData->m_sMapSizeY-128 ) shY = m_pMapData->m_sMapSizeY-128;
+		if (m_pSprite[m_iMaxMapIndex] == NULL) return;
 		if (m_bDialogTrans) m_pSprite[m_iMaxMapIndex]->PutShiftTransSprite2(sX, sY, shX, shY, 0, m_dwCurTime );
 		else m_pSprite[m_iMaxMapIndex]->PutShiftSpriteFast(sX, sY, shX, shY, 0, m_dwCurTime );
 		
@@ -15344,7 +15346,8 @@ void CGame::DrawDialogBox_GuideMap(short msX, short msY, char cLB)
 		}
 
 	}else // Sans zoom
-	{	
+	{
+		if (m_pSprite[m_iMinMapIndex] == NULL) return;
 		if (m_bDialogTrans) m_pSprite[m_iMinMapIndex]->PutTransSprite2(sX, sY, m_iMinMapSquare, m_dwCurTime);
 		else m_pSprite[m_iMinMapIndex]->PutSpriteFastNoColorKey(sX, sY, m_iMinMapSquare, m_dwCurTime);
 		
