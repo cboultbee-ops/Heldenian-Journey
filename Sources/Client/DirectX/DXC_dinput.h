@@ -29,6 +29,7 @@ public:
 
 	short m_sX, m_sY, m_sZ;
 	short m_sMaxX, m_sMaxY;
+	float m_fMouseScale;    // Reciprocal of GPU uniform scale (default 1.0)
 
 private:
 	HWND m_hWnd;

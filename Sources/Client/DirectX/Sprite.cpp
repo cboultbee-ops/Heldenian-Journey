@@ -3032,10 +3032,27 @@ void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int
 			LoadToGPU();
 		}
 		if (m_bIsGPUTexture) {
-			// Convert color values to 0-1 range (original values are -255 to 255)
-			float colorR = sRed / 255.0f;
-			float colorG = sGreen / 255.0f;
-			float colorB = sBlue / 255.0f;
+			// Convert color values from DD pixel-format space to 0-1 range.
+			// sRed/sBlue are in 5-bit space (0-31), sGreen in 6-bit for RGB565 or 5-bit for RGB555.
+			float rMax = 31.0f;
+			float gMax = (m_pDDraw->m_cPixelFormat == 1 || m_pDDraw->m_cPixelFormat == 3) ? 63.0f : 31.0f;
+			float bMax = 31.0f;
+			float colorR = sRed / rMax;
+			float colorG = sGreen / gMax;
+			float colorB = sBlue / bMax;
+			// DEBUG: Log PutSpriteRGB values (once)
+			{
+				static int dbgCount = 0;
+				if (dbgCount < 20) {
+					FILE *fDbg = fopen("color_debug.txt", "a");
+					if (fDbg) {
+						fprintf(fDbg, "PutSpriteRGB GPU: sRGB=(%d,%d,%d) pixFmt=%d colorRGB=(%.3f,%.3f,%.3f)\n",
+							sRed, sGreen, sBlue, m_pDDraw->m_cPixelFormat, colorR, colorG, colorB);
+						fclose(fDbg);
+					}
+					dbgCount++;
+				}
+			}
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
 				m_wBitmapSizeX, m_wBitmapSizeY,

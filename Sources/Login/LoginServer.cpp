@@ -1680,7 +1680,10 @@ void CLoginServer::GetCharList(char* AccountName, char *CharList, DWORD * Size, 
 				else if(IsSame(field[f]->name, "ApprColor"))
 				{
 					dwp = (DWORD*)(CharList+1+(b*65)+41);
-					*dwp = atoi(myRow[b][f]);
+					*dwp = strtoul(myRow[b][f], NULL, 10);
+					char dbgTxt[200];
+					sprintf(dbgTxt, "(DEBUG-LOGIN) CharList ApprColor for slot %d: raw='%s' parsed=%lu (0x%08X)", b, myRow[b][f], *dwp, *dwp);
+					PutLogList(dbgTxt);
 				}
 				else if(IsSame(field[f]->name, "MapLoc")) SafeCopy(CharList+1+(b*65)+55, myRow[b][f]);
 			}
@@ -2309,7 +2312,13 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 		else if(IsSame(field[f]->name, "HairStyle"))        SendValue(Data, 31, BYTESIZE, atoi(myRow[f]));
 		else if(IsSame(field[f]->name, "HairColor"))        SendValue(Data, 32, BYTESIZE, atoi(myRow[f]));
 		else if(IsSame(field[f]->name, "Underwear"))        SendValue(Data, 33, BYTESIZE, atoi(myRow[f]));
-		else if(IsSame(field[f]->name, "ApprColor"))        SendValue(Data, 34, DWORDSIZE, atoi(myRow[f]));
+		else if(IsSame(field[f]->name, "ApprColor")) {
+			DWORD dwApprColor = strtoul(myRow[f], NULL, 10);
+			SendValue(Data, 34, DWORDSIZE, dwApprColor);
+			char dbgTxt[200];
+			sprintf(dbgTxt, "(DEBUG-LOGIN) EnterGame ApprColor: raw='%s' parsed=%lu (0x%08X)", myRow[f], dwApprColor, dwApprColor);
+			PutLogList(dbgTxt);
+		}
 		else if(IsSame(field[f]->name, "Nation"))           SafeCopy(Data+54, myRow[f], strlen(myRow[f]));
 		else if(IsSame(field[f]->name, "MapLoc"))                SafeCopy(Data+64, myRow[f], strlen(myRow[f]));
 		else if(IsSame(field[f]->name, "LocX"))             SendValue(Data, 74, WORDSIZE, atoi(myRow[f]));

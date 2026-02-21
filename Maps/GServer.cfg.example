@@ -1,0 +1,33 @@
+[CONFIG]
+
+game-server-name = Towns
+game-server-port = 3002
+
+game-server-address	= YOUR_IP_HERE
+world-server-name = WS1
+
+//Internal Ip If On Same Host As Login
+log-server-address  	= YOUR_IP_HERE
+
+log-server-port		= 4000
+
+website-script-address	= TBGS
+website-port		= 80
+
+//Router Support
+game-server-ext-address	= YOUR_IP_HERE
+log-server-ext-address 	= YOUR_IP_HERE
+
+
+// Server names and ports:
+//   Towns     = 3002
+//   Neutrals  = 3008
+//   Middleland = 3007
+//   Events    = 3001
+// Copy this file to each Maps/<server>/ directory and adjust
+// game-server-name, game-server-port, and [MAPS] section accordingly.
+
+[MAPS]
+
+game-server-map   = elvine
+game-server-map   = elvfarm

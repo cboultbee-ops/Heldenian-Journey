@@ -85,6 +85,10 @@ SUPER_ATTACK_SETTINGS = [
     ("super-attack-multiplier", "Super Attack Multiplier (%)", 0, 500, 100),
 ]
 
+ATTACK_SPEED_SETTINGS = [
+    ("attack-speed-multiplier", "Attack Speed Multiplier (%)", 50, 400, 100),
+]
+
 
 # --- Utility Functions ---
 
@@ -212,6 +216,9 @@ class ServerManager(tk.Tk):
         self.movement_vars = {}
         self.frequency_vars = {}
         self.super_attack_vars = {}
+        self.attack_speed_vars = {}
+        self.display_mode_var = tk.StringVar(value="windowed")
+        self.resolution_var = tk.StringVar(value="1280x960")
         self.logout_timer_var = tk.StringVar(value="10")
         self.instant_logout_var = tk.IntVar(value=0)
 
@@ -260,6 +267,7 @@ class ServerManager(tk.Tk):
 
         self._build_tab_server_settings()
         self._build_tab_gameplay_tuning()
+        self._build_tab_display()
         self._build_tab_quick_actions()
         self._build_tab_gm_commands()
 
@@ -373,6 +381,26 @@ class ServerManager(tk.Tk):
                       foreground="gray", font=("Segoe UI", 8)).pack(side="left")
             self.super_attack_vars[key] = var
 
+        # --- Attack Speed Section ---
+        atk_frame = ttk.LabelFrame(content, text="Attack Speed (server + client)", padding=8)
+        atk_frame.pack(fill="x", padx=5, pady=4)
+
+        ttk.Label(atk_frame,
+                  text="100 = normal. 200 = double speed. 400 = quad speed. Applies to all weapons.",
+                  foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
+
+        for key, label, lo, hi, default in ATTACK_SPEED_SETTINGS:
+            row = ttk.Frame(atk_frame)
+            row.pack(fill="x", pady=1)
+            ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
+            # Read from client cfg (GM.cfg) since it's written there too
+            combined_default = client_cfg.get(key, ref.get(key, str(default)))
+            var = tk.StringVar(value=combined_default)
+            ttk.Entry(row, textvariable=var, width=6).pack(side="left", padx=5)
+            ttk.Label(row, text=f"({lo}-{hi})  def: {default}",
+                      foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+            self.attack_speed_vars[key] = var
+
         # --- Movement Section ---
         move_frame = ttk.LabelFrame(content, text="Movement & Dash Speed (client)", padding=8)
         move_frame.pack(fill="x", padx=5, pady=4)
@@ -427,6 +455,86 @@ class ServerManager(tk.Tk):
             ttk.Label(row, text=f"({lo}-{hi})  def: {default}",
                       foreground="gray", font=("Segoe UI", 8)).pack(side="left")
             self.frequency_vars[key] = var
+
+
+    # ---- Tab: Display ----
+    def _build_tab_display(self):
+        tab = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(tab, text="Display")
+
+        client_cfg = read_cfg(CLIENT_CFG)
+
+        ttk.Label(tab, text="Client display settings. Saved to GM.cfg. Restart client to apply.",
+                  foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 8))
+
+        # --- Display Mode ---
+        mode_frame = ttk.LabelFrame(tab, text="Display Mode", padding=8)
+        mode_frame.pack(fill="x", pady=(0, 8))
+
+        self.display_mode_var.set(client_cfg.get("display-mode", "windowed"))
+        ttk.Radiobutton(mode_frame, text="Windowed",
+                        variable=self.display_mode_var, value="windowed",
+                        command=self._on_display_mode_change).pack(anchor="w", pady=2)
+        ttk.Radiobutton(mode_frame, text="Borderless Fullscreen",
+                        variable=self.display_mode_var, value="fullscreen",
+                        command=self._on_display_mode_change).pack(anchor="w", pady=2)
+
+        # --- Resolution ---
+        res_frame = ttk.LabelFrame(tab, text="Resolution (windowed mode)", padding=8)
+        res_frame.pack(fill="x", pady=(0, 8))
+
+        self.res_note_label = ttk.Label(res_frame,
+                  text="Select window size. Ignored in fullscreen (uses monitor native resolution).",
+                  foreground="gray", font=("Segoe UI", 8))
+        self.res_note_label.pack(anchor="w", pady=(0, 4))
+
+        RESOLUTIONS = [
+            "640x480",
+            "1280x960",
+            "1600x1200",
+            "1920x1080",
+            "1920x1440",
+            "2560x1440",
+        ]
+
+        self.resolution_var.set(client_cfg.get("resolution", "1280x960"))
+        row = ttk.Frame(res_frame)
+        row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Resolution", width=16, anchor="w").pack(side="left")
+        self.res_combo = ttk.Combobox(row, textvariable=self.resolution_var,
+                                       values=RESOLUTIONS, width=14, state="readonly")
+        self.res_combo.pack(side="left", padx=5)
+
+        # Ensure current value is in the list; if not, add it
+        current_res = self.resolution_var.get()
+        if current_res not in RESOLUTIONS:
+            self.res_combo["values"] = RESOLUTIONS + [current_res]
+
+        self._on_display_mode_change()  # Set initial state
+
+        # --- Save Button ---
+        btn_frame = ttk.Frame(tab)
+        btn_frame.pack(fill="x", pady=(12, 0))
+        ttk.Button(btn_frame, text="Save Display Settings",
+                   command=self._save_display_settings).pack(side="left", padx=3)
+
+    def _on_display_mode_change(self):
+        is_windowed = self.display_mode_var.get() == "windowed"
+        state = "readonly" if is_windowed else "disabled"
+        self.res_combo.config(state=state)
+
+    def _save_display_settings(self):
+        settings = {
+            "display-mode": self.display_mode_var.get(),
+            "resolution": self.resolution_var.get(),
+        }
+        write_cfg(CLIENT_CFG, settings)
+        mode = self.display_mode_var.get()
+        res = self.resolution_var.get()
+        if mode == "fullscreen":
+            self._log(f"Display: borderless fullscreen (saved to GM.cfg)")
+        else:
+            self._log(f"Display: windowed {res} (saved to GM.cfg)")
 
     def _on_instant_logout_toggle(self):
         if self.instant_logout_var.get():
@@ -829,7 +937,7 @@ class ServerManager(tk.Tk):
                 return
 
             self._log("Waiting 3s for Login to initialize...")
-            time.sleep(3)
+            time.sleep(1)
 
             for name in ["Towns", "Neutrals", "Middleland", "Events"]:
                 try:
@@ -887,7 +995,7 @@ class ServerManager(tk.Tk):
                 self._log(f"Failed to start Login: {e}")
                 return
 
-            time.sleep(3)
+            time.sleep(1)
 
             for name in ["Towns", "Neutrals", "Middleland", "Events"]:
                 try:
@@ -984,6 +1092,23 @@ class ServerManager(tk.Tk):
                     messagebox.showwarning("Invalid Value", f"{label} must be a number")
                     return
 
+        # Attack speed -> Settings.cfg AND GM.cfg
+        attack_speed_for_client = {}
+        for key, label, lo, hi, default in ATTACK_SPEED_SETTINGS:
+            val = self.attack_speed_vars[key].get().strip()
+            if val:
+                try:
+                    num = int(val)
+                    if num < lo or num > hi:
+                        messagebox.showwarning("Invalid Value",
+                                               f"{label} must be between {lo} and {hi}")
+                        return
+                    weapon_settings[key] = str(num)
+                    attack_speed_for_client[key] = str(num)
+                except ValueError:
+                    messagebox.showwarning("Invalid Value", f"{label} must be a number")
+                    return
+
         if weapon_settings:
             for name in ["Towns", "Neutrals", "Middleland", "Events"]:
                 path = SERVERS[name].get("settings")
@@ -993,6 +1118,8 @@ class ServerManager(tk.Tk):
 
         # Movement speeds -> GM.cfg
         client_settings = {}
+        # Include attack speed in client settings too
+        client_settings.update(attack_speed_for_client)
         for key, label, lo, hi, default in MOVEMENT_SETTINGS:
             val = self.movement_vars[key].get().strip()
             if val:

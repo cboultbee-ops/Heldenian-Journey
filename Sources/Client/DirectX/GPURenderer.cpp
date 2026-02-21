@@ -168,6 +168,11 @@ CGPURenderer::CGPURenderer()
     m_renderConfig.nativeHeight = 480;
     m_renderConfig.scaleX = 1.0f;
     m_renderConfig.scaleY = 1.0f;
+    m_renderConfig.viewportX = 0;
+    m_renderConfig.viewportY = 0;
+    m_renderConfig.viewportW = 640;
+    m_renderConfig.viewportH = 480;
+    m_renderConfig.uniformScale = 1.0f;
 
     // Reserve space for batching
     m_vertices.reserve(MAX_SPRITES_PER_BATCH * VERTICES_PER_SPRITE);
@@ -267,9 +272,12 @@ bool CGPURenderer::Init(HWND hWnd, int virtualWidth, int virtualHeight)
         return false;
     }
 
-    // Enable VSync to avoid tearing (if WGL_EXT_swap_control is available)
+    // Disable VSync — the software frame limiter (UpdateScreen, ~60 FPS) provides
+    // smooth pacing, and DWM handles tearing prevention for windowed/borderless apps.
+    // With VSync ON, SwapBuffers blocks up to 16ms which compounds with the frame
+    // limiter sleep, causing missed vblanks and frame rate drops to ~30 FPS.
     if (WGLEW_EXT_swap_control) {
-        wglSwapIntervalEXT(1);
+        wglSwapIntervalEXT(0);
     }
 
     // Get window dimensions for native resolution
@@ -281,6 +289,15 @@ bool CGPURenderer::Init(HWND hWnd, int virtualWidth, int virtualHeight)
     m_renderConfig.nativeHeight = height;
     m_renderConfig.scaleX = (float)width / (float)virtualWidth;
     m_renderConfig.scaleY = (float)height / (float)virtualHeight;
+
+    // Letterbox: use uniform scale to preserve 4:3 aspect ratio
+    float scale = (m_renderConfig.scaleX < m_renderConfig.scaleY)
+                  ? m_renderConfig.scaleX : m_renderConfig.scaleY;
+    m_renderConfig.uniformScale = scale;
+    m_renderConfig.viewportW = (int)(m_renderConfig.virtualWidth * scale);
+    m_renderConfig.viewportH = (int)(m_renderConfig.virtualHeight * scale);
+    m_renderConfig.viewportX = (width - m_renderConfig.viewportW) / 2;
+    m_renderConfig.viewportY = (height - m_renderConfig.viewportH) / 2;
 
     // Set up OpenGL state for 2D rendering
     glDisable(GL_DEPTH_TEST);
@@ -519,12 +536,16 @@ void CGPURenderer::BeginFrame()
     m_drawCmds.clear();
     m_currentTexture = 0;
 
-    // Set viewport to cover the native resolution
+    // Clear entire window to black (covers letterbox bars)
     glViewport(0, 0, m_renderConfig.nativeWidth, m_renderConfig.nativeHeight);
-
-    // Clear the screen to black at the start of each frame
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
+
+    // Set viewport to letterboxed game area
+    // OpenGL Y=0 is bottom, so flip Y offset
+    glViewport(m_renderConfig.viewportX,
+               m_renderConfig.nativeHeight - m_renderConfig.viewportY - m_renderConfig.viewportH,
+               m_renderConfig.viewportW, m_renderConfig.viewportH);
 }
 
 void CGPURenderer::EndFrame()
@@ -703,6 +724,13 @@ void CGPURenderer::Flush()
     m_drawCmds.clear();
 }
 
+void CGPURenderer::DrawPixel(int x, int y, float r, float g, float b)
+{
+    if (!m_bInitialized) return;
+    // Queue a 1x1 sprite using the white texture with BLEND_TEXT (uses uColorTint for color)
+    QueueSprite(m_glWhiteTexture, x, y, 0, 0, 1, 1, 1, 1, BLEND_TEXT, 1.0f, r, g, b);
+}
+
 void CGPURenderer::QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b)
 {
     // Queue two vertices for a line segment (drawn with GL_LINES)
@@ -781,19 +809,29 @@ void CGPURenderer::SetNativeResolution(int width, int height)
     m_renderConfig.nativeHeight = height;
     m_renderConfig.scaleX = (float)width / (float)m_renderConfig.virtualWidth;
     m_renderConfig.scaleY = (float)height / (float)m_renderConfig.virtualHeight;
+
+    // Letterbox: use uniform scale to preserve 4:3 aspect ratio
+    float scale = (m_renderConfig.scaleX < m_renderConfig.scaleY)
+                  ? m_renderConfig.scaleX : m_renderConfig.scaleY;
+    m_renderConfig.uniformScale = scale;
+    m_renderConfig.viewportW = (int)(m_renderConfig.virtualWidth * scale);
+    m_renderConfig.viewportH = (int)(m_renderConfig.virtualHeight * scale);
+    m_renderConfig.viewportX = (width - m_renderConfig.viewportW) / 2;
+    m_renderConfig.viewportY = (height - m_renderConfig.viewportH) / 2;
+
     UpdateProjectionMatrix();
 }
 
 void CGPURenderer::VirtualToNative(int vx, int vy, int& nx, int& ny)
 {
-    nx = (int)(vx * m_renderConfig.scaleX);
-    ny = (int)(vy * m_renderConfig.scaleY);
+    nx = (int)(vx * m_renderConfig.uniformScale) + m_renderConfig.viewportX;
+    ny = (int)(vy * m_renderConfig.uniformScale) + m_renderConfig.viewportY;
 }
 
 void CGPURenderer::NativeToVirtual(int nx, int ny, int& vx, int& vy)
 {
-    vx = (int)(nx / m_renderConfig.scaleX);
-    vy = (int)(ny / m_renderConfig.scaleY);
+    vx = (int)((nx - m_renderConfig.viewportX) / m_renderConfig.uniformScale);
+    vy = (int)((ny - m_renderConfig.viewportY) / m_renderConfig.uniformScale);
 }
 
 void CGPURenderer::Clear(float r, float g, float b, float a)

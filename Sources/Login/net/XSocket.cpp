@@ -38,19 +38,19 @@ XSocket::~XSocket()
 {
  register int i;
 
-	if (m_pRcvBuffer != NULL) delete m_pRcvBuffer;
-	if (m_pSndBuffer != NULL) delete m_pSndBuffer;
+	if (m_pRcvBuffer != NULL) delete[] m_pRcvBuffer;
+	if (m_pSndBuffer != NULL) delete[] m_pSndBuffer;
 
 	for (i = 0; i < XSOCKBLOCKLIMIT; i++)
-		if (m_pUnsentDataList[i] != NULL) delete m_pUnsentDataList[i];
+		if (m_pUnsentDataList[i] != NULL) delete[] m_pUnsentDataList[i];
 
 	_CloseConn();
 }
 //=============================================================================
 BOOL XSocket::bInitBufferSize(DWORD dwBufferSize)
 {
-	SAFEDELETE(m_pRcvBuffer);
-	SAFEDELETE(m_pSndBuffer);
+	SAFEDELETEARRAY(m_pRcvBuffer);
+	SAFEDELETEARRAY(m_pSndBuffer);
 
 	m_pRcvBuffer = new char[dwBufferSize+8];
 	if (m_pRcvBuffer == NULL) return FALSE;
@@ -336,7 +336,7 @@ int XSocket::_iSendUnsentData()
 		iRet = _iSend_ForInternalUse(m_pUnsentDataList[m_sHead], m_iUnsentDataSize[m_sHead]);
 
 		if (iRet == m_iUnsentDataSize[m_sHead]) {
-			SAFEDELETE(m_pUnsentDataList[m_sHead]);
+			SAFEDELETEARRAY(m_pUnsentDataList[m_sHead]);
 			m_iUnsentDataSize[m_sHead] = 0;
 			m_sHead++;
 			if (m_sHead >= m_iBlockLimit) m_sHead = 0;
@@ -540,8 +540,8 @@ int XSocket::iGetPeerAddress(char * pAddrString)
 	
 	iLen = sizeof(sockaddr);
 	iRet = getpeername(m_Sock, (struct sockaddr *)&sockaddr, &iLen);
-	strncpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr), 29);
-	pAddrString[29] = '\0';
+	strncpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr), 19);
+	pAddrString[19] = '\0';
 
 	return iRet;
 }

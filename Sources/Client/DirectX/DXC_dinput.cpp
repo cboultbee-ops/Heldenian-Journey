@@ -23,6 +23,7 @@ DXC_dinput::DXC_dinput()
 	m_cButtons[0] = 0;
 	m_cButtons[1] = 0;
 	m_cButtons[2] = 0;
+	m_fMouseScale = 1.0f;
 }
 
 DXC_dinput::~DXC_dinput()
@@ -132,9 +133,10 @@ void DXC_dinput::UpdateMouseState(short * pX, short * pY, short * pZ, char * pLB
 {
 	if (!m_bAcquired) return;
 
-	// Apply accumulated deltas
-	m_sX += (short)m_lDeltaX;
-	m_sY += (short)m_lDeltaY;
+	// Apply accumulated deltas, scaled by reciprocal of viewport scale
+	// This makes cursor movement match the visual scale on screen
+	m_sX += (short)(m_lDeltaX * m_fMouseScale);
+	m_sY += (short)(m_lDeltaY * m_fMouseScale);
 	m_lDeltaX = 0;
 	m_lDeltaY = 0;
 

@@ -65,6 +65,7 @@ public:
 	long    m_lFadeG[64][64],  m_lFadeRB[64][64];
 
 	BOOL m_bFullMode;
+	void SetFullMode(BOOL bFull) { m_bFullMode = bFull; }
 
 	LPDIRECTDRAW7		 m_lpDD4;
 	LPDIRECTDRAWSURFACE7 m_lpFrontB4, m_lpBackB4, m_lpBackB4flip;

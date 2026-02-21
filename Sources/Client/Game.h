@@ -912,6 +912,10 @@ public:
 	int  m_iWalkSpeed;
 	int  m_iRunSpeed;
 	int  m_iDashSpeed;
+	int  m_iAttackSpeedMultiplier;
+	BOOL m_bFullscreenMode;
+	int  m_iWindowWidth;
+	int  m_iWindowHeight;
 	char m_cRestartCount;
 	char m_cGameMode;
 	char m_cWhisperIndex;

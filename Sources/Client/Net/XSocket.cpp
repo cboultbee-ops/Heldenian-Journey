@@ -565,8 +565,8 @@ int XSocket::iGetPeerAddress(char * pAddrString)
 	
 	iLen = sizeof(sockaddr);
 	iRet = getpeername(m_Sock, (struct sockaddr *)&sockaddr, &iLen);
-	strncpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr), 29);
-	pAddrString[29] = '\0';
+	strncpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr), 19);
+	pAddrString[19] = '\0';
 
 	return iRet;
 }

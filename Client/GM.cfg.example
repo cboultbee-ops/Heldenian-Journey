@@ -1,0 +1,11 @@
+[CONFIG]
+
+log-server-address  = YOUR_IP_HERE
+log-server-port     = 4000
+game-server-mode	= LAN
+logout-timer		 = 1
+walk-speed		 = 70
+run-speed		 = 20
+dash-speed		 = 50
+display-mode		 = windowed
+resolution		 = 1280x960

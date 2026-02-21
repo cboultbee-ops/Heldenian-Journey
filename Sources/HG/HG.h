@@ -937,6 +937,7 @@ public:
 	int m_iMoveFreqMin;
 	int m_iMagicFreqMin;
 	int m_iSuperAttackMultiplier;
+	int m_iAttackSpeedMultiplier;
 	int m_bRecallDamageTimer;
 
 	short m_sMaxPlayerLevel;

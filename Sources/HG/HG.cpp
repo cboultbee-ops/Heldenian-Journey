@@ -175,6 +175,7 @@ CGame::CGame(HWND hWnd) : m_hWnd(hWnd)
 		m_iMoveFreqMin			= 0;
 		m_iMagicFreqMin			= 1500;
 		m_iSuperAttackMultiplier = 100;
+		m_iAttackSpeedMultiplier = 100;
 		m_bRecallDamageTimer = 1;
 		m_sCharSkillLimit		= 0;
 
@@ -4441,6 +4442,15 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
                cReadMode = 0;
                break;
 
+		 case 27:
+               m_iAttackSpeedMultiplier = atoi(token);
+               if (m_iAttackSpeedMultiplier < 50) m_iAttackSpeedMultiplier = 50;
+               if (m_iAttackSpeedMultiplier > 400) m_iAttackSpeedMultiplier = 400;
+               wsprintf(cTxt, "(*) Attack speed multiplier: (%d)%%", m_iAttackSpeedMultiplier);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
 			}
          } 
          else { 
@@ -4470,6 +4480,7 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
 			if (memcmp(token, "magic-frequency-min", 19) == 0)	cReadMode = 24;
 			if (memcmp(token, "super-attack-multiplier", 23) == 0) cReadMode = 25;
 			if (memcmp(token, "recall-damage-timer", 19) == 0) cReadMode = 26;
+			if (memcmp(token, "attack-speed-multiplier", 23) == 0) cReadMode = 27;
 
          } 
 
@@ -6934,7 +6945,7 @@ int CGame::iClientMotion_Attack_Handler(int iClientH, short sX, short sY, short 
 	m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->GetOwner(&sOwner, &cOwnerType, dX, dY);
 
 	if (sOwner != NULL) {
-		if ((wType != 0) && ((dwTime - m_pClientList[iClientH]->m_dwRecentAttackTime) > 100)) {
+		if ((wType != 0) && ((dwTime - m_pClientList[iClientH]->m_dwRecentAttackTime) > (DWORD)(39 * 100 / m_iAttackSpeedMultiplier))) {
 			if (m_pClientList[iClientH]->m_bIsInBuilding == FALSE) {
 				sItemIndex = m_pClientList[iClientH]->m_sItemEquipmentStatus[EQUIPPOS_TWOHAND];
 				if (sItemIndex != -1 && m_pClientList[iClientH]->m_pItemList[sItemIndex] != NULL) {

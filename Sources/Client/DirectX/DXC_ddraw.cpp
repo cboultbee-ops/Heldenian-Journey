@@ -45,11 +45,7 @@ DXC_ddraw::DXC_ddraw()
 	m_fScaleX       = 1.0f;
 	m_fScaleY       = 1.0f;
 
-#ifdef WINDOWED_MODE
-	m_bFullMode		= FALSE;
-#else
-	m_bFullMode		= TRUE;
-#endif
+	m_bFullMode		= FALSE; // Default windowed, overridden by GM.cfg
 
 }
 
@@ -155,6 +151,11 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 	m_lpBackB4->Unlock(NULL);
 
 	_TestPixelFormat();
+	// GPU mode: off-screen surface is 32-bit on modern Windows, so _TestPixelFormat
+	// won't match any 16-bit format. Default to RGB565 for color table initialization.
+	if (m_bUseGPU && m_cPixelFormat == 0) {
+		m_cPixelFormat = 1;
+	}
 	for (iS = 0; iS < 64; iS++)
 	for (iD = 0; iD < 64; iD++) {
 		m_lTransRB100[iD][iS] = _CalcMaxValue(iS, iD, 'R', 1, 1.0f);
@@ -614,8 +615,13 @@ void DXC_ddraw::DrawShadowBox(short sX, short sY, short dX, short dY, int iType)
 
 void DXC_ddraw::PutPixel(short sX, short sY, WORD wR, WORD wG, WORD wB)
 {
-	// GPU mode: back buffer is 32-bit, direct 16-bit pixel ops would corrupt memory
-	if (m_bUseGPU) return;
+	// GPU mode: delegate to GPU renderer instead of 16-bit back buffer writes
+	if (m_bUseGPU) {
+		if (m_pGPURenderer != NULL) {
+			m_pGPURenderer->DrawPixel(sX, sY, wR / 255.0f, wG / 255.0f, wB / 255.0f);
+		}
+		return;
+	}
 
  WORD * pDst;
 

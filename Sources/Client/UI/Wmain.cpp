@@ -171,6 +171,10 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 			int h = (int)(short)HIWORD(lParam);
 			if (w > 0 && h > 0) {
 				G_pGame->m_DDraw.m_pGPURenderer->SetNativeResolution(w, h);
+				// Update mouse scale to match new letterbox viewport
+				float scale = G_pGame->m_DDraw.m_pGPURenderer->GetRenderConfig().uniformScale;
+				if (scale > 0.0f)
+					G_pGame->m_DInput.m_fMouseScale = 1.0f / scale;
 			}
 		}
 		return DefWindowProc(hWnd, message, wParam, lParam);

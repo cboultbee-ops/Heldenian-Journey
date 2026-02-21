@@ -700,9 +700,35 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 		return FALSE;
 	}
 
+	m_DDraw.SetFullMode(m_bFullscreenMode);
+
+	// Apply window size before DDraw init so GPU renderer picks up the correct dimensions
+	// Only resize if settings differ from the initial 1280x960 created in InitInstance
+	if (m_bFullscreenMode) {
+		// Borderless fullscreen: cover entire monitor
+		int screenW = GetSystemMetrics(SM_CXSCREEN);
+		int screenH = GetSystemMetrics(SM_CYSCREEN);
+		SetWindowPos(m_hWnd, HWND_TOPMOST, 0, 0, screenW, screenH, SWP_SHOWWINDOW);
+	} else if (m_iWindowWidth != 1280 || m_iWindowHeight != 960) {
+		// Windowed: resize to configured resolution, centered
+		int cx = GetSystemMetrics(SM_CXSCREEN) / 2;
+		int cy = GetSystemMetrics(SM_CYSCREEN) / 2;
+		SetWindowPos(m_hWnd, NULL,
+			cx - m_iWindowWidth / 2, cy - m_iWindowHeight / 2,
+			m_iWindowWidth, m_iWindowHeight,
+			SWP_NOZORDER | SWP_SHOWWINDOW);
+	}
+
 	if (m_DDraw.bInit(m_hWnd) == FALSE)
 	{	MessageBox(m_hWnd, MSG_NOTIFY_DIRECTX7,"ERROR",MB_ICONEXCLAMATION | MB_OK);
 		return FALSE;
+	}
+
+	// Set mouse scale to match letterbox viewport scaling
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		float uniformScale = m_DDraw.m_pGPURenderer->GetRenderConfig().uniformScale;
+		if (uniformScale > 0.0f)
+			m_DInput.m_fMouseScale = 1.0f / uniformScale;
 	}
 
 	if (m_DInput.bInit(hWnd, hInst) == FALSE) {
@@ -743,6 +769,12 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 		m_pMapData->m_stFrame[iType][OBJECTMOVE].m_sFrameTime = (short)m_iWalkSpeed;
 		m_pMapData->m_stFrame[iType][OBJECTRUN].m_sFrameTime = (short)m_iRunSpeed;
 		m_pMapData->m_stFrame[iType][OBJECTATTACKMOVE].m_sFrameTime = (short)m_iDashSpeed;
+		// Apply attack speed multiplier: higher % = faster attacks (lower frame time)
+		if (m_iAttackSpeedMultiplier != 100) {
+			short sAtkTime = (short)(31 * 100 / m_iAttackSpeedMultiplier);
+			if (sAtkTime < 10) sAtkTime = 10;
+			m_pMapData->m_stFrame[iType][OBJECTATTACK].m_sFrameTime = sAtkTime;
+		}
 	}
 
 	ZeroMemory(m_cPlayerName, sizeof(m_cPlayerName));
@@ -4329,6 +4361,10 @@ void CGame::InitGameSettings()
 	m_iWalkSpeed = 70;
 	m_iRunSpeed  = 42;
 	m_iDashSpeed = 30;
+	m_iAttackSpeedMultiplier = 100;
+	m_bFullscreenMode = FALSE;
+	m_iWindowWidth = 1280;
+	m_iWindowHeight = 960;
 	m_dwLogOutCountTime = NULL;
 	m_iSuperAttackLeft = 0;
 	m_bSuperAttackMode = FALSE;
@@ -12782,8 +12818,16 @@ void CGame::LogResponseHandler(char * Data)
 				wp = (WORD *)cp;
 				m_pCharList[i]->m_sChr = *wp;
 				cp += 2;
-				ip = (int *)cp; 
+				ip = (int *)cp;
 				m_pCharList[i]->m_iApprColor = *ip;
+				// DEBUG: Log ApprColor from packet (path 1)
+				{
+					FILE *fDbg = fopen("color_debug.txt", "a");
+					if (fDbg) {
+						fprintf(fDbg, "Path1 CharList[%d] ApprColor = 0x%08X (raw = %d)\n", i, (unsigned int)*ip, *ip);
+						fclose(fDbg);
+					}
+				}
 				cp += 4;
 				wp = (WORD *)cp;
 				m_pCharList[i]->m_iYear = (int)*wp;
@@ -12898,7 +12942,15 @@ void CGame::LogResponseHandler(char * Data)
 				m_pCharList[i]->m_sChr = *wp;
 				cp += 2;
 				ip = (int *)cp;
-				m_pCharList[i]->m_iApprColor = *ip; 
+				m_pCharList[i]->m_iApprColor = *ip;
+				// DEBUG: Log ApprColor from packet (path 2)
+				{
+					FILE *fDbg = fopen("color_debug.txt", "a");
+					if (fDbg) {
+						fprintf(fDbg, "Path2 CharList[%d] ApprColor = 0x%08X (raw = %d)\n", i, (unsigned int)*ip, *ip);
+						fclose(fDbg);
+					}
+				}
 				cp += 4;
 				wp = (WORD *)cp;
 				m_pCharList[i]->m_iYear = (int)*wp;
@@ -13097,8 +13149,16 @@ void CGame::LogResponseHandler(char * Data)
 				m_pCharList[i]->m_sChr = *wp;
 				cp += 2;
 
-				ip = (int *)cp; 
+				ip = (int *)cp;
 				m_pCharList[i]->m_iApprColor = *ip;
+				// DEBUG: Log ApprColor from packet (path 3)
+				{
+					FILE *fDbg = fopen("color_debug.txt", "a");
+					if (fDbg) {
+						fprintf(fDbg, "Path3 CharList[%d] ApprColor = 0x%08X (raw = %d)\n", i, (unsigned int)*ip, *ip);
+						fclose(fDbg);
+					}
+				}
 				cp += 4;
 
 				wp = (WORD *)cp;
@@ -13380,6 +13440,27 @@ BOOL CGame::bReadLoginConfigFile(char * cFn)
 				if (m_iDashSpeed > 200) m_iDashSpeed = 200;
 				cReadMode = 0;
 				break;
+			case 8: // attack-speed-multiplier
+				m_iAttackSpeedMultiplier = atoi(token);
+				if (m_iAttackSpeedMultiplier < 50) m_iAttackSpeedMultiplier = 50;
+				if (m_iAttackSpeedMultiplier > 400) m_iAttackSpeedMultiplier = 400;
+				cReadMode = 0;
+				break;
+			case 9: // display-mode
+				if (memcmp(token, "fullscreen", 10) == 0 || memcmp(token, "FULLSCREEN", 10) == 0)
+					m_bFullscreenMode = TRUE;
+				else
+					m_bFullscreenMode = FALSE;
+				cReadMode = 0;
+				break;
+			case 10: // resolution
+				sscanf(token, "%dx%d", &m_iWindowWidth, &m_iWindowHeight);
+				if (m_iWindowWidth < 640) m_iWindowWidth = 640;
+				if (m_iWindowWidth > 3840) m_iWindowWidth = 3840;
+				if (m_iWindowHeight < 480) m_iWindowHeight = 480;
+				if (m_iWindowHeight > 2160) m_iWindowHeight = 2160;
+				cReadMode = 0;
+				break;
 			}
 		}else
 		{	if (memcmp(token, "log-server-address",18) == 0) cReadMode = 1;
@@ -13389,6 +13470,9 @@ BOOL CGame::bReadLoginConfigFile(char * cFn)
 			if (memcmp(token, "walk-speed",10) == 0)         cReadMode = 5;
 			if (memcmp(token, "run-speed",9) == 0)           cReadMode = 6;
 			if (memcmp(token, "dash-speed",10) == 0)         cReadMode = 7;
+			if (memcmp(token, "attack-speed-multiplier",23) == 0) cReadMode = 8;
+			if (memcmp(token, "display-mode",12) == 0)          cReadMode = 9;
+			if (memcmp(token, "resolution",10) == 0)            cReadMode = 10;
 		}
 		token = strtok( NULL, seps );
 	}
@@ -15282,6 +15366,7 @@ void CGame::DrawDialogBox_GuideMap(short msX, short msY, char cLB)
 		{	m_dwMonsterEventTime = 0;
 			m_sMonsterID = 0;
 		}
+
 	}else // Sans zoom
 	{	
 		if (m_bDialogTrans) m_pSprite[m_iMinMapIndex]->PutTransSprite2(sX, sY, m_iMinMapSquare, m_dwCurTime);
@@ -15325,7 +15410,36 @@ void CGame::DrawDialogBox_GuideMap(short msX, short msY, char cLB)
 		}else
 		{	m_dwMonsterEventTime = 0;
 			m_sMonsterID = 0;
-	}	}
+	}
+
+		// Recall point circles (unzoomed mode only, visible when Ctrl held)
+		if (m_bCtrlPressed && (m_cMapIndex == 11 || m_cMapIndex == 3 || m_cMapIndex == 4)) {
+			static const int s_recallPoints[3][5][2] = {
+				{{140,49}, {68,125}, {170,145}, {140,205}, {116,245}},
+				{{158,57}, {110,89}, {170,145}, {242,129}, {158,249}},
+				{{192,228}, {100,70}, {400,100}, {100,400}, {350,400}}
+			};
+			int town = (m_cMapIndex == 11) ? 0 : (m_cMapIndex == 3) ? 1 : 2;
+			WORD cR = 255, cG = 255, cB = 0;
+			if ((m_dwCurTime % 600) >= 400) { cR = 180; cG = 180; cB = 0; }
+			for (int rp = 0; rp < 5; rp++) {
+				int rpX = s_recallPoints[town][rp][0];
+				int rpY = s_recallPoints[town][rp][1];
+				int cx = sX + ((rpX * 128) / (m_pMapData->m_sMapSizeX));
+				int cy = sY + ((rpY * 128) / (m_pMapData->m_sMapSizeY));
+				int rad = 5, bx = rad, by = 0, err = 1 - rad;
+				while (bx >= by) {
+					m_DDraw.PutPixel(cx+bx, cy+by, cR, cG, cB); m_DDraw.PutPixel(cx-bx, cy+by, cR, cG, cB);
+					m_DDraw.PutPixel(cx+bx, cy-by, cR, cG, cB); m_DDraw.PutPixel(cx-bx, cy-by, cR, cG, cB);
+					m_DDraw.PutPixel(cx+by, cy+bx, cR, cG, cB); m_DDraw.PutPixel(cx-by, cy+bx, cR, cG, cB);
+					m_DDraw.PutPixel(cx+by, cy-bx, cR, cG, cB); m_DDraw.PutPixel(cx-by, cy-bx, cR, cG, cB);
+					by++;
+					if (err < 0) err += 2*by + 1;
+					else { bx--; err += 2*(by - bx) + 1; }
+				}
+			}
+		}
+	}
 
 	if( cLB != 0 ) return;
 	if( msX >= sX && msX < sX+szY && msY >= sY && msY < sY+szY )
@@ -17396,11 +17510,17 @@ void CGame::DrawDialogBox_GaugePannel()
 	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(23, 437,  12, iBarWidth, m_dwCurTime);
 
 	wsprintf(G_cTxt, "%d", m_iHP);
-	if (m_bIsPoisoned) {
-		PutString_SprNum(85, 441, G_cTxt, m_wR[5]*11, m_wG[5]*11, m_wB[5]*11);
-		PutString_SprFont3(35, 439, "Poisoned", m_wR[5]*8, m_wG[5]*8, m_wB[5]*8, TRUE, 2); 
+	{	// Center HP number on bar (bar starts X=23, width=101)
+		int iTextW = 0;
+		for (int i = 0; G_cTxt[i]; i++)
+			if (G_cTxt[i] >= '0' && G_cTxt[i] <= '9') iTextW += __cSpace2[G_cTxt[i] - '0'];
+		int iCenterX = 23 + (101 - iTextW) / 2;
+		if (m_bIsPoisoned) {
+			PutString_SprNum(iCenterX, 441, G_cTxt, m_wR[5]*11, m_wG[5]*11, m_wB[5]*11);
+			PutString_SprFont3(35, 439, "Poisoned", m_wR[5]*8, m_wG[5]*8, m_wB[5]*8, TRUE, 2);
+		}
+		else PutString_SprNum(iCenterX, 441, G_cTxt, 200, 100, 100);
 	}
-	else PutString_SprNum(80, 441, G_cTxt, 200, 100, 100);
 
 	//MP bar
 	iMaxPoint = m_stat[STAT_MAG]*2 + m_iLevel*2 + m_stat[STAT_INT]/2;
@@ -17410,7 +17530,13 @@ void CGame::DrawDialogBox_GaugePannel()
 	if( iBarWidth > 101 ) iBarWidth = 101;
 	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(23, 459,  12, iBarWidth, m_dwCurTime);
 	wsprintf(G_cTxt, "%d", m_iMP);
-	PutString_SprNum(80, 463, G_cTxt, 100, 100, 200);
+	{	// Center MP number on bar (bar starts X=23, width=101)
+		int iTextW = 0;
+		for (int i = 0; G_cTxt[i]; i++)
+			if (G_cTxt[i] >= '0' && G_cTxt[i] <= '9') iTextW += __cSpace2[G_cTxt[i] - '0'];
+		int iCenterX = 23 + (101 - iTextW) / 2;
+		PutString_SprNum(iCenterX, 463, G_cTxt, 100, 100, 200);
+	}
 
 	// SP bar
 	iMaxPoint = m_iLevel*2 + m_stat[STAT_STR]*2;
@@ -23803,7 +23929,13 @@ void CGame::UpdateScreen_OnSelectCharacter(short sX, short sY, short msX, short 
 			_tmp_sAppr2 = m_pCharList[i]->m_sAppr2;
 			_tmp_sAppr3 = m_pCharList[i]->m_sAppr3;
 			_tmp_sAppr4 = m_pCharList[i]->m_sAppr4;
-			_tmp_iApprColor = m_pCharList[i]->m_iApprColor; 
+			_tmp_iApprColor = m_pCharList[i]->m_iApprColor;
+			// DEBUG: Show ApprColor on character select screen
+			{
+				char cDbg[128];
+				wsprintf(cDbg, "ApprColor[%d] = 0x%08X detail=%d", i, m_pCharList[i]->m_iApprColor, m_cDetailLevel);
+				AddEventList(cDbg, 10);
+			}
 
 			ZeroMemory(_tmp_cName, sizeof(_tmp_cName));
 			memcpy(_tmp_cName, m_pCharList[i]->m_cName, 10);
@@ -25249,19 +25381,22 @@ void CGame::DlgBoxClick_SysMenu(short msX, short msY)
 	sX = m_stDialogBoxInfo[19].sX;
 	sY = m_stDialogBoxInfo[19].sY;
 	if ((msX >= sX + 120) && (msX <= sX + 150) && (msY >= sY + 63) && (msY <= sY + 74))
-	{	m_cDetailLevel = 0; 
+	{	m_cDetailLevel = 0;
+		WriteSettingsVar("DetailLevel", m_cDetailLevel);
 		AddEventList( NOTIFY_MSG_DETAIL_LEVEL_LOW, 10 );
 		PlaySound('E', 14, 5);
    	}
 
 	if ((msX >= sX + 151) && (msX <= sX + 200) && (msY >= sY + 63) && (msY <= sY + 74))
 	{	m_cDetailLevel = 1;
+		WriteSettingsVar("DetailLevel", m_cDetailLevel);
 		AddEventList( NOTIFY_MSG_DETAIL_LEVEL_MEDIUM, 10 );
 		PlaySound('E', 14, 5);
 	}
 
 	if ((msX >= sX + 201) && (msX <= sX + 234) && (msY >= sY + 63) && (msY <= sY + 74))
 	{	m_cDetailLevel = 2;
+		WriteSettingsVar("DetailLevel", m_cDetailLevel);
 		AddEventList( NOTIFY_MSG_DETAIL_LEVEL_HIGH, 10 );
 		PlaySound('E', 14, 5);
 	}
@@ -37848,7 +37983,7 @@ void CGame::DlgBoxClick_GuideMap(short msX, short msY)
 	short shY;
 	int recallPoint = 0;
 	int town;
-	int range = 25;
+	int range = 40;
 	int recallPoints[3][5][2] = {
 		{{140,49}, {68,125}, {170,145}, {140,205}, {116,245}}, //Aresden
 		{{158,57}, {110,89}, {170,145}, {242,129}, {158,249}}, //Elvine
@@ -37886,6 +38021,14 @@ void CGame::DlgBoxClick_GuideMap(short msX, short msY)
 	if(recallPoint != 0) {
 		bSendCommand(MSGID_REQUEST_SETRECALLPNT, NULL, NULL, recallPoint, NULL, NULL, NULL, NULL);
 		PlaySound('E', 14, 5);
+		char cMsg[96];
+		wsprintf(cMsg, "Recall point %d set at (%d,%d). Cast Recall to teleport.", recallPoint,
+			recallPoints[town][recallPoint-1][0], recallPoints[town][recallPoint-1][1]);
+		AddEventList(cMsg, 10);
+	} else {
+		char cMsg[96];
+		wsprintf(cMsg, "No recall point near (%d, %d). Click inside a yellow circle.", shX, shY);
+		AddEventList(cMsg, 10);
 	}
 }
 
@@ -37991,7 +38134,7 @@ void CGame::ActivateEquipmentSet(int setIndex)
 		if (m_sItemEquipmentStatus[equipPos] >= 0) {
 			int curItem = m_sItemEquipmentStatus[equipPos];
 			if (m_pItemList[curItem] != NULL &&
-				memcmp(m_pItemList[curItem]->m_cName, pSet->cItemName[slot], 20) == 0) {
+				strcmp(m_pItemList[curItem]->m_cName, pSet->cItemName[slot]) == 0) {
 				continue; // Already equipped
 			}
 		}
@@ -38000,7 +38143,7 @@ void CGame::ActivateEquipmentSet(int setIndex)
 		for (int i = 0; i < MAXITEMS; i++) {
 			if (m_pItemList[i] == NULL) continue;
 			if (m_bIsItemEquipped[i] == TRUE) continue;
-			if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[slot], 20) == 0 &&
+			if (strcmp(m_pItemList[i]->m_cName, pSet->cItemName[slot]) == 0 &&
 				m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[slot]) {
 				ItemEquipHandler((char)i);
 				iEquipped++;
@@ -38033,7 +38176,7 @@ void CGame::RestoreOriginalEquipment()
 		if (m_sItemEquipmentStatus[equipPos] >= 0) {
 			int curItem = m_sItemEquipmentStatus[equipPos];
 			if (m_pItemList[curItem] != NULL &&
-				memcmp(m_pItemList[curItem]->m_cName, m_stEquipSetBackup.cItemName[slot], 20) == 0) {
+				strcmp(m_pItemList[curItem]->m_cName, m_stEquipSetBackup.cItemName[slot]) == 0) {
 				continue;
 			}
 		}
@@ -38042,7 +38185,7 @@ void CGame::RestoreOriginalEquipment()
 		for (int i = 0; i < MAXITEMS; i++) {
 			if (m_pItemList[i] == NULL) continue;
 			if (m_bIsItemEquipped[i] == TRUE) continue;
-			if (memcmp(m_pItemList[i]->m_cName, m_stEquipSetBackup.cItemName[slot], 20) == 0 &&
+			if (strcmp(m_pItemList[i]->m_cName, m_stEquipSetBackup.cItemName[slot]) == 0 &&
 				m_pItemList[i]->m_cEquipPos == m_stEquipSetBackup.cEquipPos[slot]) {
 				ItemEquipHandler((char)i);
 				iEquipped++;

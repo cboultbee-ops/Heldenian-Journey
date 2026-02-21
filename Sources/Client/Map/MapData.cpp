@@ -28,7 +28,7 @@ CMapData::CMapData(class CGame * pGame)
 		m_stFrame[i][OBJECTDAMAGEMOVE].m_sFrameTime	= 50/SPEEDHAX_HIT;
 		m_stFrame[i][OBJECTRUN].m_sMaxFrame			= 7;
 		m_stFrame[i][OBJECTRUN].m_sFrameTime		= 42/SPEEDHAX_RUN;
-		m_stFrame[i][OBJECTATTACK].m_sFrameTime		= 78/SPEEDHAX_ATK;
+		m_stFrame[i][OBJECTATTACK].m_sFrameTime		= 31/SPEEDHAX_ATK;
 		m_stFrame[i][OBJECTATTACK].m_sMaxFrame		= 7;
 		m_stFrame[i][OBJECTATTACKMOVE].m_sMaxFrame	= 12;
 		m_stFrame[i][OBJECTATTACKMOVE].m_sFrameTime	= 30;

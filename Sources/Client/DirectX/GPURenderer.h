@@ -60,8 +60,14 @@ struct RenderConfig {
     int virtualHeight;      // Game logic resolution (default 480)
     int nativeWidth;        // Actual window/screen width
     int nativeHeight;       // Actual window/screen height
-    float scaleX;           // Scale factor X
-    float scaleY;           // Scale factor Y
+    float scaleX;           // Scale factor X (kept for compat)
+    float scaleY;           // Scale factor Y (kept for compat)
+    // Letterbox viewport (aspect-ratio-preserving)
+    int viewportX;          // Viewport X offset (black bar left)
+    int viewportY;          // Viewport Y offset (black bar top)
+    int viewportW;          // Viewport width
+    int viewportH;          // Viewport height
+    float uniformScale;     // min(scaleX, scaleY) — the actual scaling factor used
 };
 
 class CGPURenderer {
@@ -99,6 +105,9 @@ public:
 
     // Flush batched sprites to GPU
     void Flush();
+
+    // Pixel drawing (1x1 solid color, used for minimap dots/borders)
+    void DrawPixel(int x, int y, float r, float g, float b);
 
     // Line drawing (additive blend, used for lightning/thunder effects)
     void QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b);

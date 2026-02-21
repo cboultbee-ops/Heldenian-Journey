@@ -61,6 +61,12 @@ __pycache__/
 .cursor/
 .vscode/
 
+# Server configuration files (contain IPs, ports, credentials — use .example templates)
+Maps/*/GServer.cfg
+Login/LServer.cfg
+Client/GM.cfg
+Client/equipsets.cfg
+
 # Server logs
 Maps/*/Logs/
 Login/Logs/
