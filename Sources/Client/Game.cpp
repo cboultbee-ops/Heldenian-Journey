@@ -905,30 +905,6 @@ void CGame::Quit()
 void CGame::UpdateScreen()
 { 	G_dwGlobalTime = timeGetTime();
 
-	// Frame limiter - cap at ~60 FPS (16ms per frame) using QPC for sub-ms precision
-	static LARGE_INTEGER qpcFreq = {0};
-	static LARGE_INTEGER qpcLastFrame = {0};
-	static BOOL bTimerResSet = FALSE;
-	if (!bTimerResSet) {
-		timeBeginPeriod(1);
-		QueryPerformanceFrequency(&qpcFreq);
-		QueryPerformanceCounter(&qpcLastFrame);
-		bTimerResSet = TRUE;
-	}
-	LARGE_INTEGER qpcNow;
-	QueryPerformanceCounter(&qpcNow);
-	double dElapsedMs = (double)(qpcNow.QuadPart - qpcLastFrame.QuadPart) * 1000.0 / (double)qpcFreq.QuadPart;
-	if (dElapsedMs < 16.0) {
-		double dRemainMs = 16.0 - dElapsedMs;
-		if (dRemainMs > 3.0) Sleep((DWORD)(dRemainMs - 2.0));
-		// Spin-wait on QPC for final precision
-		do {
-			QueryPerformanceCounter(&qpcNow);
-			dElapsedMs = (double)(qpcNow.QuadPart - qpcLastFrame.QuadPart) * 1000.0 / (double)qpcFreq.QuadPart;
-		} while (dElapsedMs < 16.0);
-		G_dwGlobalTime = timeGetTime();
-	}
-	qpcLastFrame = qpcNow;
 	switch (m_cGameMode) {
 
 	case GAMEMODE_ONAGREEMENT:
