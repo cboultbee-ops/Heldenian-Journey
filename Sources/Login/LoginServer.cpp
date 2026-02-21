@@ -2283,9 +2283,8 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 	for(BYTE f = 0; f < NFields; f++)
 	{
 		field[f] = mysql_fetch_field(QueryResult);
-		//unused else if(IsSame(field[f]->name, "account_name"))     SafeCopy(AccountName, myRow[f]);
-	
-		 if(IsSame(field[f]->name, "CharID"))
+		if(IsSame(field[f]->name, "account_name"))     SafeCopy(AccountName, myRow[f]);
+		else if(IsSame(field[f]->name, "CharID"))
 		{
 			CharID = atoi(myRow[f]);
 			SendValue(Data, 0, DWORDSIZE, CharID);
@@ -2307,11 +2306,7 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 		else if(IsSame(field[f]->name, "HairStyle"))        SendValue(Data, 31, BYTESIZE, atoi(myRow[f]));
 		else if(IsSame(field[f]->name, "HairColor"))        SendValue(Data, 32, BYTESIZE, atoi(myRow[f]));
 		else if(IsSame(field[f]->name, "Underwear"))        SendValue(Data, 33, BYTESIZE, atoi(myRow[f]));
-		//m_pClientList[iClientH]->ApprColor = Retrive32DWordValue(cp, 34);
-	//m_pClientList[iClientH]->Appr1 = Retrive16WordValue(cp, 38);
-	//m_pClientList[iClientH]->Appr2 = Retrive16WordValue(cp, 42);
-	//m_pClientList[iClientH]->Appr3 = Retrive16WordValue(cp, 46);
-	//m_pClientList[iClientH]->Appr4 = Retrive16WordValue(cp, 50);
+		else if(IsSame(field[f]->name, "ApprColor"))        SendValue(Data, 34, DWORDSIZE, atoi(myRow[f]));
 		else if(IsSame(field[f]->name, "Nation"))           SafeCopy(Data+54, myRow[f], strlen(myRow[f]));
 		else if(IsSame(field[f]->name, "MapLoc"))                SafeCopy(Data+64, myRow[f], strlen(myRow[f]));
 		else if(IsSame(field[f]->name, "LocX"))             SendValue(Data, 74, WORDSIZE, atoi(myRow[f]));
@@ -2403,20 +2398,33 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 		SAFEFREERESULT(QueryResult);
 		return 0;
 	}
+	SAFEFREERESULT(QueryResult);  // Must free char_database result before any new query
 	if(AdminUserLevel > 0){
-		if(!IsGMAccount(AccountName, myConn)){
-			char log[200];
-			ZeroMemory(log, sizeof(log));
-			sprintf(log, "(ERROR) Character(%s) tries to enter in game as GM in a non-GM account!!!", CharName);
-			PutLogList(log, WARN_MSG, TRUE, HACK_LOGFILE);
-			SAFEFREERESULT(QueryResult);
-			return 0;
+		// Inline GM check — avoids nested function call that corrupts MYSQL connection state
+		char gmQuery[200], gmAccName[25];
+		ZeroMemory(gmQuery, sizeof(gmQuery));
+		ZeroMemory(gmAccName, sizeof(gmAccName));
+		MakeGoodName(gmAccName, AccountName);
+		sprintf(gmQuery, "SELECT `IsGMAccount` FROM `account_database` WHERE `name` = '%s' LIMIT 1;", gmAccName);
+		if(ProcessQuery(&myConn, gmQuery) != -1){
+			st_mysql_res *gmResult = mysql_store_result(&myConn);
+			if(gmResult != NULL){
+				MYSQL_ROW gmRow = mysql_fetch_row(gmResult);
+				if(gmRow == NULL || atoi(gmRow[0]) <= 0){
+					char log[200];
+					ZeroMemory(log, sizeof(log));
+					sprintf(log, "(ERROR) Character(%s) tries to enter in game as GM in a non-GM account!!!", CharName);
+					PutLogList(log, WARN_MSG, TRUE, HACK_LOGFILE);
+					mysql_free_result(gmResult);
+					return 0;
+				}
+				mysql_free_result(gmResult);
+			}
 		}
 	}
 	ZeroMemory(QueryConsult, sizeof(QueryConsult));
 	sprintf(QueryConsult, "SELECT `SkillID`, `SkillMastery`, `SkillSSN` FROM `skill` WHERE `CharID` = '%lu' LIMIT %u;", CharID, MAXSKILLS);
-	if(ProcessQuery(&myConn, QueryConsult) == -1) return 0; 
-	SAFEFREERESULT(QueryResult);
+	if(ProcessQuery(&myConn, QueryConsult) == -1) return 0;
 	QueryResult = mysql_store_result(&myConn);
 	NFields = (BYTE)mysql_num_fields(QueryResult);
 	NRows = (WORD)mysql_num_rows(QueryResult);
@@ -2707,20 +2715,20 @@ void CLoginServer::ConfirmCharEnterGame(char *Data, BYTE GSID)
 	}
 }
 //=============================================================================
-BOOL CLoginServer::IsGMAccount(char *AccountName, MYSQL myConn)
+BOOL CLoginServer::IsGMAccount(char *AccountName, MYSQL *myConn)
 {
 	char QueryConsult[200], GoodAccName[25];
 	MYSQL_ROW Row;
-	st_mysql_res *QueryResult = NULL; 
+	st_mysql_res *QueryResult = NULL;
 	int InsertResult;
 
 	ZeroMemory(QueryConsult, sizeof(QueryConsult));
 	ZeroMemory(GoodAccName, sizeof(GoodAccName));
 	MakeGoodName(GoodAccName, AccountName);
 	sprintf(QueryConsult, "SELECT `IsGMAccount` FROM `account_database` WHERE `name` = '%s' LIMIT 1;", GoodAccName);
-	InsertResult = ProcessQuery(&myConn, QueryConsult);
+	InsertResult = ProcessQuery(myConn, QueryConsult);
 	if(InsertResult == -1) return FALSE;
-	QueryResult = mysql_store_result(&myConn);
+	QueryResult = mysql_store_result(myConn);
 	if(InsertResult == 0)
 	{
 		Row = mysql_fetch_row(QueryResult);

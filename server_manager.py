@@ -261,6 +261,7 @@ class ServerManager(tk.Tk):
         self._build_tab_server_settings()
         self._build_tab_gameplay_tuning()
         self._build_tab_quick_actions()
+        self._build_tab_gm_commands()
 
     # ---- Tab 1: Server Settings ----
     def _build_tab_server_settings(self):
@@ -336,18 +337,6 @@ class ServerManager(tk.Tk):
         self.recall_timer_label.pack(anchor="w", padx=(20, 0))
         self._update_recall_timer_label()
 
-        # Logout toggle row
-        row_logout = ttk.Frame(toggle_frame)
-        row_logout.pack(fill="x", pady=(6, 1))
-        timer_val = client_cfg.get("logout-timer", "10")
-        self.logout_timer_var.set(timer_val)
-        self.instant_logout_var.set(1 if timer_val in ("0", "1") else 0)
-        ttk.Checkbutton(row_logout, text="Instant Logout (Testing)",
-                        variable=self.instant_logout_var,
-                        command=self._on_instant_logout_toggle).pack(side="left")
-        ttk.Label(row_logout, text="Sets timer to 1s (client-side, GM.cfg)",
-                  foreground="gray", font=("Segoe UI", 8)).pack(side="left", padx=8)
-
         # --- Combat Speed Section ---
         combat_frame = ttk.LabelFrame(content, text="Combat Speed (per-weapon minimums)", padding=8)
         combat_frame.pack(fill="x", padx=5, pady=4)
@@ -409,6 +398,17 @@ class ServerManager(tk.Tk):
         ttk.Entry(row_lt, textvariable=self.logout_timer_var, width=6).pack(side="left", padx=5)
         ttk.Label(row_lt, text="(1-60)  def: 10", foreground="gray",
                   font=("Segoe UI", 8)).pack(side="left")
+
+        # Instant logout checkbox (underneath timer entry)
+        timer_val = client_cfg.get("logout-timer", "10")
+        self.logout_timer_var.set(timer_val)
+        self.instant_logout_var.set(1 if timer_val in ("0", "1") else 0)
+        row_instant = ttk.Frame(move_frame)
+        row_instant.pack(fill="x", pady=(1, 4))
+        ttk.Label(row_instant, text="", width=24).pack(side="left")  # spacer to align with entry
+        ttk.Checkbutton(row_instant, text="Instant Logout (1s)",
+                        variable=self.instant_logout_var,
+                        command=self._on_instant_logout_toggle).pack(side="left", padx=5)
 
         # --- Frequency Checks Section ---
         freq_frame = ttk.LabelFrame(content, text="Speed Check Thresholds (server)", padding=8)
@@ -473,6 +473,299 @@ class ServerManager(tk.Tk):
         for label, cmd in actions:
             btn = ttk.Button(tab, text=label, command=cmd, width=30)
             btn.pack(pady=3, anchor="w")
+
+    # ---- Tab 4: GM Commands ----
+    def _build_tab_gm_commands(self):
+        tab = ttk.Frame(self.notebook, padding=0)
+        self.notebook.add(tab, text="GM Commands")
+
+        # Search bar at top (always visible)
+        search_frame = ttk.Frame(tab, padding=(10, 8, 10, 4))
+        search_frame.pack(fill="x")
+        ttk.Label(search_frame, text="Filter:").pack(side="left", padx=(0, 5))
+        self.gm_search_var = tk.StringVar()
+        self.gm_search_var.trace_add("write", self._filter_gm_commands)
+        search_entry = ttk.Entry(search_frame, textvariable=self.gm_search_var, width=30)
+        search_entry.pack(side="left", padx=(0, 8))
+        ttk.Label(search_frame, text="Type to search commands",
+                  foreground="gray", font=("Segoe UI", 8)).pack(side="left")
+
+        ttk.Separator(tab, orient="horizontal").pack(fill="x", padx=10)
+
+        # Scrollable text area
+        text_frame = ttk.Frame(tab)
+        text_frame.pack(fill="both", expand=True, padx=10, pady=(4, 10))
+
+        scrollbar = ttk.Scrollbar(text_frame, orient="vertical")
+        scrollbar.pack(side="right", fill="y")
+
+        self.gm_text = tk.Text(
+            text_frame, font=("Consolas", 10), wrap="word",
+            bg="#1e1e1e", fg="#cccccc", insertbackground="#cccccc",
+            state="disabled", yscrollcommand=scrollbar.set,
+            padx=10, pady=10, spacing1=1, spacing3=1,
+        )
+        self.gm_text.pack(fill="both", expand=True)
+        scrollbar.config(command=self.gm_text.yview)
+
+        # Configure text tags for formatting
+        self.gm_text.tag_configure("category", font=("Segoe UI", 11, "bold"),
+                                   foreground="#4fc3f7", spacing1=10, spacing3=4)
+        self.gm_text.tag_configure("subcategory", font=("Segoe UI", 9, "bold"),
+                                   foreground="#81c784", spacing1=6, spacing3=2)
+        self.gm_text.tag_configure("command", font=("Consolas", 10, "bold"),
+                                   foreground="#ffcc80")
+        self.gm_text.tag_configure("description", font=("Consolas", 9),
+                                   foreground="#aaaaaa")
+        self.gm_text.tag_configure("note", font=("Segoe UI", 9, "italic"),
+                                   foreground="#888888", lmargin1=20, lmargin2=20)
+        self.gm_text.tag_configure("separator", font=("Consolas", 8),
+                                   foreground="#555555")
+
+        # Store command data for filtering
+        self._gm_command_data = self._get_gm_commands()
+        self._render_gm_commands(self._gm_command_data)
+
+        # Bind mousewheel for scrolling
+        self.gm_text.bind("<Enter>", lambda e: self.gm_text.bind_all("<MouseWheel>",
+                          lambda ev: self.gm_text.yview_scroll(int(-1 * (ev.delta / 120)), "units")))
+        self.gm_text.bind("<Leave>", lambda e: self.gm_text.unbind_all("<MouseWheel>"))
+
+    def _get_gm_commands(self):
+        """Return GM command data as a list of (category, entries) tuples.
+        Each entry is (command_syntax, description) or a special tuple for notes."""
+        return [
+            ("Item & NPC Management", {
+                "note": "Requires AdminLevel >= 1",
+                "commands": [
+                    ("/createitem <item> <attr> <manuendu> <amount>",
+                     "Create an item (full syntax)"),
+                    ("/ci <item> <attr> <manuendu> <amount>",
+                     "Create an item (short version)"),
+                    ("/summon <npcname>",
+                     "Spawn an NPC or monster"),
+                    ("/unsummonall",
+                     "Remove all summoned NPCs"),
+                    ("/unsummonboss",
+                     "Remove summoned bosses"),
+                    ("/createfish <type>",
+                     "Spawn a fish"),
+                ],
+                "extra": [
+                    ("createitem attribute values:", [
+                        "0 = normal item",
+                        "1 = manufactured (manuendu = quality 1-200, 100=normal, 200=best)",
+                        "",
+                        "For non-manufactured items, attribute is a hex bitmask:",
+                        "  Bits 20-23 encode the prefix type:",
+                        "  1048576   (1<<20)  = Poisoning (green)",
+                        "  6291456   (6<<20)  = Ancient",
+                        "  8388608   (8<<20)  = Light",
+                        "  9437184   (9<<20)  = Sharp",
+                        "  10485760  (10<<20) = Strong",
+                        "",
+                        "Examples:",
+                        "  /ci GiantSword 1048576 0 1   Poisoning Giant Sword",
+                        "  /ci GiantSword 6291456 0 1   Ancient Giant Sword",
+                        "  /ci GiantSword 8388608 0 1   Light Giant Sword",
+                    ]),
+                ],
+            }),
+            ("Player Management", {
+                "note": "Requires AdminLevel >= 1",
+                "commands": [
+                    ("/who",
+                     "Show total online players"),
+                    ("/goto <mapname> <x> <y>",
+                     "Teleport yourself to location"),
+                    ("/teleport <player>  |  /tp <player>",
+                     "Teleport to a player"),
+                    ("/summonplayer <player>",
+                     "Bring a player to you"),
+                    ("/send <player> <map> <x> <y>",
+                     "Teleport a player somewhere"),
+                    ("/closeconn <player>",
+                     "Disconnect a player"),
+                    ("/disconnectall",
+                     "Disconnect all players"),
+                    ("/shutup <player> <minutes>",
+                     "Mute a player"),
+                    ("/checkrep <player>",
+                     "Check player reputation"),
+                    ("/checkip <player>",
+                     "Check player IP address"),
+                    ("/ban <player>",
+                     "Ban a player"),
+                ],
+            }),
+            ("Character Modification", {
+                "note": "Requires AdminLevel >= 1",
+                "commands": [
+                    ("/sethp <value>",
+                     "Set your HP"),
+                    ("/setmp <value>",
+                     "Set your MP"),
+                    ("/setmag <value>",
+                     "Set your Magic stat"),
+                    ("/polymorph <npcname>",
+                     "Transform into an NPC"),
+                    ("/setattackmode <mode>",
+                     "Change attack mode"),
+                    ("/rep+ <player> <amount>",
+                     "Increase player reputation"),
+                    ("/rep- <player> <amount>",
+                     "Decrease player reputation"),
+                ],
+            }),
+            ("GM Mode Toggles", {
+                "note": "Requires AdminLevel >= 1",
+                "commands": [
+                    ("/noaggro",
+                     "Toggle monster aggro on/off"),
+                    ("/invincible",
+                     "Toggle invincibility"),
+                    ("/setinvi  |  /invi",
+                     "Toggle invisibility"),
+                ],
+            }),
+            ("Server Events", {
+                "note": "AdminLevel requirements vary (noted per command)",
+                "commands": [
+                    ("/setforcerecalltime <minutes>",
+                     "Set forced recall timer"),
+                    ("/crusade",
+                     "Start crusade (AdminLevel >= 4)"),
+                    ("/apocalypse",
+                     "Start apocalypse (AdminLevel >= 4)"),
+                    ("/endapocalypse",
+                     "End apocalypse (AdminLevel >= 4)"),
+                    ("/heldenian",
+                     "Start heldenian (AdminLevel >= 4)"),
+                    ("/endheldenian",
+                     "End heldenian (AdminLevel >= 4)"),
+                    ("/energysphere",
+                     "Spawn energy sphere (AdminLevel >= 2)"),
+                    ("/reservefightzone",
+                     "Reserve fight zone"),
+                    ("/clearmap",
+                     "Clear map of all NPCs"),
+                    ("/mcount",
+                     "Count apocalypse monsters"),
+                ],
+            }),
+            ("Event System", {
+                "note": "Requires AdminLevel >= 1",
+                "commands": [
+                    ("/eventspell <params>",
+                     "Event: give spell"),
+                    ("/eventarmor",
+                     "Event: give armor"),
+                    ("/eventshield",
+                     "Event: give shield"),
+                    ("/eventchat",
+                     "Event: chat event"),
+                    ("/eventparty",
+                     "Event: party event"),
+                    ("/eventreset",
+                     "Event: reset events"),
+                    ("/eventtp",
+                     "Event: teleport event"),
+                    ("/eventillusion",
+                     "Event: illusion event"),
+                ],
+            }),
+            ("Player Commands", {
+                "note": "No admin level required -- available to all players",
+                "commands": [
+                    ("/afk",
+                     "Toggle AFK status"),
+                    ("/to <player>",
+                     "Whisper toggle"),
+                    ("/setpf <text>",
+                     "Set player profile"),
+                    ("/pf <player>",
+                     "View player profile"),
+                    ("/fi <player>",
+                     "Check if player is online"),
+                    ("/hold",
+                     "Hold summoned mob"),
+                    ("/tgt <target>",
+                     "Set summoned mob target"),
+                    ("/free",
+                     "Free summoned mob"),
+                    ("/ban <guildmember>",
+                     "Ban from guild (guild master only)"),
+                    ("/dissmiss <guildmember>",
+                     "Dismiss from guild"),
+                ],
+            }),
+        ]
+
+    def _render_gm_commands(self, data, filter_text=""):
+        """Render GM commands into the text widget."""
+        self.gm_text.config(state="normal")
+        self.gm_text.delete("1.0", "end")
+
+        filter_lower = filter_text.lower().strip()
+        any_match = False
+
+        for category_name, category_data in data:
+            commands = category_data.get("commands", [])
+            note = category_data.get("note", "")
+            extra = category_data.get("extra", [])
+
+            # If filtering, check if any command in this category matches
+            if filter_lower:
+                matching_cmds = [
+                    (cmd, desc) for cmd, desc in commands
+                    if filter_lower in cmd.lower() or filter_lower in desc.lower()
+                ]
+                matching_extra = []
+                for title, lines in extra:
+                    if filter_lower in title.lower() or any(filter_lower in l.lower() for l in lines):
+                        matching_extra.append((title, lines))
+                if not matching_cmds and not matching_extra and filter_lower not in category_name.lower():
+                    continue
+                if not matching_cmds and filter_lower not in category_name.lower():
+                    # Only extra matched, show all commands for context
+                    matching_cmds = commands
+            else:
+                matching_cmds = commands
+                matching_extra = extra
+
+            any_match = True
+
+            # Category header
+            self.gm_text.insert("end", f"\n{category_name}\n", "category")
+            if note:
+                self.gm_text.insert("end", f"  {note}\n", "note")
+            self.gm_text.insert("end", "  " + "-" * 60 + "\n", "separator")
+
+            # Commands
+            for cmd, desc in matching_cmds:
+                self.gm_text.insert("end", f"  {cmd:<45}", "command")
+                self.gm_text.insert("end", f"  {desc}\n", "description")
+
+            # Extra info sections (like createitem attribute values)
+            if not filter_lower:
+                matching_extra = extra
+            for title, lines in matching_extra:
+                self.gm_text.insert("end", f"\n  {title}\n", "subcategory")
+                for line in lines:
+                    self.gm_text.insert("end", f"    {line}\n", "note")
+
+            self.gm_text.insert("end", "\n")
+
+        if not any_match and filter_lower:
+            self.gm_text.insert("end", f"\n  No commands matching \"{filter_text.strip()}\"\n",
+                                "description")
+
+        self.gm_text.config(state="disabled")
+
+    def _filter_gm_commands(self, *args):
+        """Called when the search box text changes."""
+        filter_text = self.gm_search_var.get()
+        self._render_gm_commands(self._gm_command_data, filter_text)
 
     # ---- Log Area (always visible at bottom) ----
     def _build_log_area(self):

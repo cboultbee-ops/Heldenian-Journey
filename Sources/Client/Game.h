@@ -89,6 +89,8 @@
 
 #define MAXMAGICTYPE		100
 #define MAXSKILLTYPE		10
+#define MAXEQUIPSETS		3
+#define EQUIPSET_SLOTS		14  // matches MAXITEMEQUIPPOS minus NONE
 #define MAXWHETHEROBJECTS	600
 #define MAXBUILDITEMS		100
 #define MAXGAMEMSGS			300
@@ -220,6 +222,7 @@ public:
 	void bItemDrop_SellList(short msX, short msY);
 	void bItemDrop_ExchangeDialog(short msX, short msY);
 	void bItemDrop_Bank(short msX, short msY);
+	void bItemDrop_EquipSet(short msX, short msY);
 	void bItemDrop_ExternalScreen(char cItemID, short msX, short msY);
 	void CreateScreenShot();
 	void CrusadeWarResult(int iWinnerSide);
@@ -899,6 +902,32 @@ public:
 	//int m_iFeedBackCardIndex; // removed by Snoopy
 
 	short m_sItemEquipmentStatus[MAXITEMEQUIPPOS];
+
+	// Equipment Sets
+	struct stEquipmentSet {
+		bool bIsConfigured;
+		char cItemName[EQUIPSET_SLOTS][21];
+		char cEquipPos[EQUIPSET_SLOTS];
+		short sItemSprite[EQUIPSET_SLOTS];
+		short sItemSpriteFrame[EQUIPSET_SLOTS];
+		char  cItemColor[EQUIPSET_SLOTS];
+	};
+	stEquipmentSet m_stEquipSets[MAXEQUIPSETS];
+	stEquipmentSet m_stEquipSetBackup;
+	bool m_bEquipSetBackupSaved;
+	int m_iActiveEquipSet;
+	int m_iEquipSetTab;
+	void SaveCurrentEquipSet(int setIndex);
+	void ActivateEquipmentSet(int setIndex);
+	void RestoreOriginalEquipment();
+	void ClearEquipmentSet(int setIndex);
+	void SaveEquipSetsToFile();
+	void LoadEquipSetsFromFile();
+	void DrawDialogBox_EquipSet(int msX, int msY);
+	void DlgBoxClick_EquipSet(short msX, short msY);
+	bool m_bItemHiddenBySet[MAXITEMS];
+	void UpdateItemSetVisibility();
+
 	short m_sPlayerX, m_sPlayerY;
 	short m_sPlayerObjectID;
 	short m_sPlayerType;

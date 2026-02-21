@@ -316,7 +316,7 @@ CGame::CGame()
 	m_stDialogBoxInfo[2].sX = 380;
 	m_stDialogBoxInfo[2].sY = 210;
 	m_stDialogBoxInfo[2].sSizeX = 225;
-	m_stDialogBoxInfo[2].sSizeY = 185;
+	m_stDialogBoxInfo[2].sSizeY = 215;
 
 	//Magic Circle Dialog(F7)
 	m_stDialogBoxInfo[3].sX = 337;
@@ -593,6 +593,12 @@ CGame::CGame()
     m_stDialogBoxInfo[55].sY = 130;
     m_stDialogBoxInfo[55].sSizeX = 110;
    	m_stDialogBoxInfo[55].sSizeY = 36;
+
+	// Equipment Set Panel (left of inventory dialog 2 at 380,210)
+	m_stDialogBoxInfo[56].sX = 220;
+	m_stDialogBoxInfo[56].sY = 210;
+	m_stDialogBoxInfo[56].sSizeX = 155;
+	m_stDialogBoxInfo[56].sSizeY = 215;
 
 	m_bCtrlPressed  = FALSE;
 	m_bShiftPressed = FALSE;
@@ -2631,6 +2637,7 @@ void CGame::GameRecvMsgHandler(DWORD dwMsgSize, char * Data)
 
 	case MSGID_PLAYERITEMLISTCONTENTS:
 		InitItemList(Data);
+		LoadEquipSetsFromFile();
 		break;
 
 		case MSGID_PLAYERSKILLCONTENTS:
@@ -3909,6 +3916,9 @@ BOOL CGame::_bCheckDlgBoxClick(short msX, short msY)
 			case 43:
 				DlgBoxClick_FriendList(msX, msY);
 				break;
+			case 56:
+				DlgBoxClick_EquipSet(msX, msY);
+				break;
 			//case 55: //Quest Helper
 			//	DrawQuestHelper();
 			//	break;
@@ -3971,7 +3981,8 @@ BOOL CGame::bDlgBoxPress_Inventory(short msX, short msY)
 		cItemID = m_cItemOrder[MAXITEMS - 1 - i];
 
 		if (m_pItemList[cItemID] != NULL)
-		{	m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->_GetSpriteRect(sX + 32 + m_pItemList[cItemID]->m_sX,
+		{	if (m_bItemHiddenBySet[cItemID]) continue; // Hidden by equipment set
+			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->_GetSpriteRect(sX + 32 + m_pItemList[cItemID]->m_sX,
 			                                                   sY + 44 + m_pItemList[cItemID]->m_sY, m_pItemList[cItemID]->m_sSpriteFrame);
 			x1 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->m_rcBound.left;
 			y1 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->m_rcBound.top;
@@ -4075,6 +4086,10 @@ BOOL CGame::_bCheckDraggingItemRelease(short msX, short msY)
 
 			case 40:
 				bItemDrop_Slates();
+				break;
+
+			case 56:
+				bItemDrop_EquipSet(msX, msY);
 				break;
 			}
 			return TRUE;
@@ -4464,6 +4479,30 @@ void CGame::InitGameSettings()
 	m_iLogOutTimer = 11;
 	m_sLogOutStartX = 0;
 	m_sLogOutStartY = 0;
+
+	// Equipment Sets
+	m_iActiveEquipSet = -1;
+	m_iEquipSetTab = 0;
+	for (int es = 0; es < MAXEQUIPSETS; es++) {
+		m_stEquipSets[es].bIsConfigured = false;
+		for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+			ZeroMemory(m_stEquipSets[es].cItemName[sl], 21);
+			m_stEquipSets[es].cEquipPos[sl] = 0;
+			m_stEquipSets[es].sItemSprite[sl] = 0;
+			m_stEquipSets[es].sItemSpriteFrame[sl] = 0;
+			m_stEquipSets[es].cItemColor[sl] = 0;
+		}
+	}
+	for (int hi = 0; hi < MAXITEMS; hi++) m_bItemHiddenBySet[hi] = false;
+	m_bEquipSetBackupSaved = false;
+	m_stEquipSetBackup.bIsConfigured = false;
+	for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+		ZeroMemory(m_stEquipSetBackup.cItemName[sl], 21);
+		m_stEquipSetBackup.cEquipPos[sl] = 0;
+		m_stEquipSetBackup.sItemSprite[sl] = 0;
+		m_stEquipSetBackup.sItemSpriteFrame[sl] = 0;
+		m_stEquipSetBackup.cItemColor[sl] = 0;
+	}
 	m_iWalkSpeed = 70;
 	m_iRunSpeed  = 42;
 	m_iDashSpeed = 30;
@@ -15919,9 +15958,16 @@ void CGame::InitSkillList(char * Data)
 	cp += 2;
 	// Magic, Skill Mastery
 	for (i = 0; i < MAXMAGICTYPE; i++)
-	{	
+	{
 		m_cMagicMastery[i] = *cp;
 		cp++;
+	}
+
+	// Populate skill display levels from loaded mastery values
+	for (i = 0; i < MAXSKILLTYPE; i++)
+	{
+		if (m_pSkillCfgList[i] != NULL)
+			m_pSkillCfgList[i]->m_iLevel = (int)m_cSkillMastery[i];
 	}
 
 	//sp = (short *) cp ;
@@ -16320,6 +16366,9 @@ void CGame::DrawDialogBoxs(short msX, short msY, short msZ, char cLB)
 			break;
 		case 43:
 			DrawDialogBox_FriendList(msX,msY);
+			break;
+		case 56:
+			DrawDialogBox_EquipSet(msX, msY);
 			break;
 		case 50: // Snoopy: Resurection?
 			DrawDialogBox_Resurect(msX, msY);
@@ -18853,9 +18902,11 @@ void CGame::DrawDialogBox_Inventory(int msX, int msY)
 	sX = m_stDialogBoxInfo[2].sX;
 	sY = m_stDialogBoxInfo[2].sY;
 	DrawNewDialogBox(SPRID_INTERFACE_ND_INVENTORY, sX, sY, 0);
+	UpdateItemSetVisibility();
 	for (i = 0; i < MAXITEMS; i++)
 	if ((m_cItemOrder[i] != -1) && (m_pItemList[m_cItemOrder[i]] != NULL))
-	{	if (   ((m_stMCursor.cSelectedObjectType == SELECTEDOBJTYPE_ITEM)
+	{	if (m_bItemHiddenBySet[m_cItemOrder[i]]) continue; // Hidden by equipment set
+		if (   ((m_stMCursor.cSelectedObjectType == SELECTEDOBJTYPE_ITEM)
 			&& (m_stMCursor.sSelectedObjectID   ==	m_cItemOrder[i])) || (m_bIsItemEquipped[m_cItemOrder[i]] == TRUE) )
 		{}else
 		{	cItemColor = m_pItemList[m_cItemOrder[i]]->m_cItemColor;
@@ -18911,15 +18962,36 @@ void CGame::DrawDialogBox_Inventory(int msX, int msY)
 	// Item count and weight display
 	{	char cTxt[64];
 		int iItemCount = 0;
-		for (int j = 0; j < MAXITEMS; j++)
-			if (m_pItemList[j] != NULL) iItemCount++;
-		wsprintf(cTxt, "Items: %d / %d", iItemCount, MAXITEMS);
+		int iHiddenCount = 0;
+		for (int j = 0; j < MAXITEMS; j++) {
+			if (m_pItemList[j] != NULL) {
+				iItemCount++;
+				if (m_bItemHiddenBySet[j]) iHiddenCount++;
+			}
+		}
+		wsprintf(cTxt, "Items: %d / %d", iItemCount - iHiddenCount, MAXITEMS);
 		PutString2(sX + 10, sY + 190, cTxt, 255, 255, 0);
 
 		int iCurWeight = _iCalcTotalWeight() / 100;
 		int iMaxWeight = m_stat[STAT_STR] * 5 + m_iLevel * 5;
 		wsprintf(cTxt, "Weight: %d / %d", iCurWeight, iMaxWeight);
 		PutString2(sX + 10, sY + 202, cTxt, 255, 255, 0);
+	}
+
+	// Equipment Set tabs at top of inventory
+	for (int t = 0; t < MAXEQUIPSETS; t++) {
+		int tx = sX + 5 + t * 60;
+		int ty = sY + 3;
+		bool bActive = (m_bIsDialogEnabled[56] && m_iEquipSetTab == t);
+		bool bHover = (msX >= tx && msX <= tx + 56 && msY >= ty && msY <= ty + 14);
+		char cTabLabel[8];
+		wsprintf(cTabLabel, "Set %d", t + 1);
+		if (bActive)
+			PutAlignedString(tx, tx + 56, ty + 1, cTabLabel, 255, 255, 100);
+		else if (bHover)
+			PutAlignedString(tx, tx + 56, ty + 1, cTabLabel, 255, 255, 255);
+		else
+			PutAlignedString(tx, tx + 56, ty + 1, cTabLabel, 140, 140, 140);
 	}
 }
 
@@ -19215,16 +19287,8 @@ void CGame::DrawChatMsgBox(short sX, short sY, int iChatIndex, BOOL bIsPreDC)
 	switch (m_pChatMsgList[iChatIndex]->m_cType) {
 	case 41:
 	case 42:
-		// GPU fix: use PutString2 for magic spell names
-		iSize2 = 0;
-		for (i = 0; i < 100; i++)
-		if (cMsg[i] != 0)
-		if ((unsigned char)cMsg[i] >= 128) {
-			iSize2 += 5;
-			i++;
-		}
-		else iSize2 += 4;
-		PutString2(sX - iSize2, sY - 65 - iLoc, cMsg, 255, 80, 80);
+		// Spell name centered above character
+		PutAlignedString(sX - 100, sX + 100, sY - 72 - iLoc, cMsg, 255, 80, 80);
 		break;
 
 	case 21:
@@ -20112,6 +20176,24 @@ void CGame::DlgBoxClick_Inventory(short msX, short msY)
 {int i, sX, sY;
 	sX = m_stDialogBoxInfo[2].sX;
 	sY = m_stDialogBoxInfo[2].sY;
+
+	// Equipment Set tab clicks at top of inventory
+	for (int t = 0; t < MAXEQUIPSETS; t++) {
+		int tx = sX + 5 + t * 60;
+		int ty = sY + 3;
+		if (msX >= tx && msX <= tx + 56 && msY >= ty && msY <= ty + 14) {
+			if (m_bIsDialogEnabled[56] && m_iEquipSetTab == t) {
+				// Clicking active tab deselects it
+				DisableDialogBox(56);
+			} else {
+				m_iEquipSetTab = t;
+				EnableDialogBox(56, NULL, NULL, NULL);
+			}
+			PlaySound('E', 14, 5);
+			return;
+		}
+	}
+
 	if ((msX >= sX +23) && (msX <= sX +76) && (msY >= sY +172) && (msY <= sY +184))
 	{	if( m_iGizonItemUpgradeLeft == NULL )
 		{	m_iGizonItemUpgradeLeft = 0;
@@ -24409,41 +24491,20 @@ void CGame::OnKeyUp(WPARAM wParam)
 		m_bCtrlPressed = FALSE;
 		break;
 
-	case 65://'A'
-		if (m_bCtrlPressed && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus) )
-		{	if( m_bForceAttack )
-			{	m_bForceAttack = FALSE;
-				AddEventList( MSG_FORCEATTACK_OFF, 10 );
-			}else
-			{	m_bForceAttack = TRUE;
-				AddEventList( MSG_FORCEATTACK_ON, 10 );
-		}	}
+	case 65://'A' — Ctrl+A: Restore original equipment
+		if (m_bCtrlPressed && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus))
+			RestoreOriginalEquipment();
 		break;
 
-	case 68://'D'
-		if (m_bCtrlPressed == TRUE && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus) )
-		{	m_cDetailLevel++;
-			if( m_cDetailLevel > 2 ) m_cDetailLevel = 0;
-			switch( m_cDetailLevel ) {
-			case 0:
-				AddEventList( NOTIFY_MSG_DETAIL_LEVEL_LOW, 10 );
-				break;
-			case 1:
-				AddEventList( NOTIFY_MSG_DETAIL_LEVEL_MEDIUM, 10 );
-				break;
-			case 2:
-				AddEventList( NOTIFY_MSG_DETAIL_LEVEL_HIGH, 10 );
-				break;
-		}	}
+	case 68://'D' — Ctrl+D: Activate Equipment Set 2
+		if (m_bCtrlPressed && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus))
+			ActivateEquipmentSet(1);
 		break;
 
-	case 70: //'F'
-		if( m_bCtrlPressed )
-		{	LoadFriendList();
-			UpdateFriendsStatus();
-			EnableDialogBox(43, NULL, NULL, NULL); 
-			}
-			break;
+	case 70: //'F' — Ctrl+F: Activate Equipment Set 3
+		if (m_bCtrlPressed && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus))
+			ActivateEquipmentSet(2);
+		break;
 
 	case 72: // 'H' // Snoopy: Mimics VK_F1
 		if (m_bCtrlPressed && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus) )
@@ -24518,35 +24579,9 @@ void CGame::OnKeyUp(WPARAM wParam)
 		}	}
 		break;
 
-	case 83://'S'
-		if (m_bCtrlPressed == TRUE && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus) )
-		{	if (m_bMusicStat == TRUE) // Music Off
-			{	m_bMusicStat = FALSE;
-				if (m_bSoundFlag)
-				{	
-					if (m_pBGM != NULL)
-					{	m_pBGM->bStop();
-						delete m_pBGM;
-						m_pBGM = NULL;
-				}	}
-				AddEventList( NOTIFY_MSG_MUSIC_OFF, 10 );
-				break;
-			}else if( m_bSoundStat == TRUE )
-			{	m_pESound[38]->bStop();
-				m_bSoundStat = FALSE;
-				AddEventList( NOTIFY_MSG_SOUND_OFF, 10 );
-				break;
-			}else 	// Music On
-			{	if( m_bSoundFlag ) 
-				{	m_bMusicStat = TRUE;
-					AddEventList( NOTIFY_MSG_MUSIC_ON, 10 );
-				}
-				if( m_bSoundFlag ) 
-				{	m_bSoundStat = TRUE;
-					AddEventList( NOTIFY_MSG_SOUND_ON, 10 );
-				}
-				StartBGM();
-		}	}
+	case 83://'S' — Ctrl+S: Activate Equipment Set 1
+		if (m_bCtrlPressed && m_cGameMode == GAMEMODE_ONMAINGAME && (!m_bInputStatus))
+			ActivateEquipmentSet(0);
 		break;
 
 	case 84: //'T'
@@ -24815,6 +24850,7 @@ void CGame::OnKeyUp(WPARAM wParam)
 				// Log Out
 				if (m_cLogOutCount == -1) {
 					m_cLogOutCount = (char)m_iLogOutTimer;
+					m_dwLogOutCountTime = timeGetTime();
 					m_sLogOutStartX = m_sPlayerX;
 					m_sLogOutStartY = m_sPlayerY;
 				}
@@ -28038,6 +28074,7 @@ void CGame::DlbBoxDoubleClick_Inventory(short msX, short msY)
 	{	if (m_cItemOrder[MAXITEMS - 1 - i] == -1) continue;
 		cItemID = m_cItemOrder[MAXITEMS - 1 - i];
 		if (m_pItemList[cItemID] == NULL) continue;
+		if (m_bItemHiddenBySet[cItemID]) continue; // Hidden by equipment set
 
 		m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->_GetSpriteRect(sX + 32 + m_pItemList[cItemID]->m_sX, sY + 44 + m_pItemList[cItemID]->m_sY, m_pItemList[cItemID]->m_sSpriteFrame);
 		// Order
@@ -28576,10 +28613,19 @@ void CGame::DlgBoxClick_SysMenu(short msX, short msY)
 		else EnableDialogBox(9, 0, 0, 0, NULL);
 	}
 
+	// Friends List
+	if ((msX >= sX + 123) && (msX <= sX + 234) && (msY >= sY + 178) && (msY <= sY + 193))
+	{	LoadFriendList();
+		UpdateFriendsStatus();
+		EnableDialogBox(43, NULL, NULL, NULL);
+		PlaySound('E', 14, 5);
+	}
+
 	if (m_bForceDisconn) return;
 	if ((msX >= sX + LBTNPOSX) && (msX <= sX + LBTNPOSX + BTNSZX) && (msY >= sY + 225) && (msY <= sY + 225 + BTNSZY)) {
 		if( m_cLogOutCount == -1 ) {
 			m_cLogOutCount = (char)m_iLogOutTimer;
+			m_dwLogOutCountTime = timeGetTime();
 			m_sLogOutStartX = m_sPlayerX;
 			m_sLogOutStartY = m_sPlayerY;
 		} else {
@@ -28774,16 +28820,6 @@ void CGame::DrawObjectName(short sX, short sY, char * pName, int iStatus)
 			else bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQGUILDNAME, NULL, _tmp_wObjectID, iGuildIndex, NULL, NULL); 
 		}
 	}
-
-	strcpy(cTxt, sideName[side]);
-
-	if(side != NEUTRAL && !bPK)
-		strcat(cTxt, MSG_COMBATANT);
-
-	if(bPK)
-		strcat(cTxt, MSG_PK);
-
-	PutString2(sX, sY+14 +iAddY, cTxt, sR, sG, sB);
 
 }
 
@@ -36473,6 +36509,12 @@ void CGame::DrawDialogBox_SysMenu(short msX, short msY, char cLB)
 	if (m_bIsDialogEnabled[9]) PutString(sX + 99, sY + 180, DRAW_DIALOGBOX_SYSMENU_ON, RGB(255,255,255));
 	else PutString(sX + 98, sY + 180, DRAW_DIALOGBOX_SYSMENU_OFF, RGB(200,200,200));
 
+	// Friends List button
+	if ((msX >= sX + 123) && (msX <= sX + 234) && (msY >= sY + 178) && (msY <= sY + 193))
+		PutString(sX + 123, sY + 180, "Friends List", RGB(255,255,255));
+	else
+		PutString(sX + 123, sY + 180, "Friends List", RGB(45,25,25));
+
 	SYSTEMTIME SysTime;
 	GetLocalTime(&SysTime);
 	ZeroMemory(G_cTxt, sizeof(G_cTxt));
@@ -38159,6 +38201,7 @@ void CGame::NotifyMsg_ForceDisconn(char *Data)
 	//m_cLogOutCount = (char)*wpCount;
 	if( m_bIsProgramActive )
 	{	if( m_cLogOutCount < 0 || m_cLogOutCount > 5 ) m_cLogOutCount = 5;
+		m_dwLogOutCountTime = timeGetTime();
 		AddEventList(NOTIFYMSG_FORCE_DISCONN1, 10);
 	}else
 	{	delete m_pGSock;
@@ -44185,4 +44228,563 @@ void CGame::DlgBoxClick_GuideMap(short msX, short msY)
 		bSendCommand(MSGID_REQUEST_SETRECALLPNT, NULL, NULL, recallPoint, NULL, NULL, NULL, NULL);
 		PlaySound('E', 14, 5);
 	}
+}
+
+//=============================================================================
+// Equipment Set Functions
+//=============================================================================
+
+void CGame::SaveCurrentEquipSet(int setIndex)
+{
+	if (setIndex < 0 || setIndex >= MAXEQUIPSETS) return;
+	stEquipmentSet *pSet = &m_stEquipSets[setIndex];
+
+	// Clear the set first
+	for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+		ZeroMemory(pSet->cItemName[sl], 21);
+		pSet->cEquipPos[sl] = 0;
+		pSet->sItemSprite[sl] = 0;
+		pSet->sItemSpriteFrame[sl] = 0;
+		pSet->cItemColor[sl] = 0;
+	}
+
+	pSet->bIsConfigured = false;
+
+	// Copy currently equipped items (EQUIPPOS 1..13 map to slot 0..12)
+	for (int ep = 1; ep < MAXITEMEQUIPPOS; ep++) {
+		if (m_sItemEquipmentStatus[ep] >= 0) {
+			int itemIdx = m_sItemEquipmentStatus[ep];
+			if (m_pItemList[itemIdx] != NULL) {
+				int slot = ep - 1; // EQUIPPOS 1 -> slot 0
+				if (slot >= 0 && slot < EQUIPSET_SLOTS) {
+					memcpy(pSet->cItemName[slot], m_pItemList[itemIdx]->m_cName, 20);
+					pSet->cItemName[slot][20] = '\0';
+					pSet->cEquipPos[slot] = m_pItemList[itemIdx]->m_cEquipPos;
+					pSet->sItemSprite[slot] = m_pItemList[itemIdx]->m_sSprite;
+					pSet->sItemSpriteFrame[slot] = m_pItemList[itemIdx]->m_sSpriteFrame;
+					pSet->cItemColor[slot] = m_pItemList[itemIdx]->m_cItemColor;
+					pSet->bIsConfigured = true;
+				}
+			}
+		}
+	}
+
+	if (pSet->bIsConfigured) {
+		char cMsg[64];
+		wsprintf(cMsg, "Equipment Set %d saved.", setIndex + 1);
+		AddEventList(cMsg, 10);
+		SaveEquipSetsToFile();
+	} else {
+		AddEventList("No equipment to save.", 10);
+	}
+}
+
+void CGame::ActivateEquipmentSet(int setIndex)
+{
+	if (setIndex < 0 || setIndex >= MAXEQUIPSETS) return;
+	stEquipmentSet *pSet = &m_stEquipSets[setIndex];
+
+	if (!pSet->bIsConfigured) {
+		char cMsg[64];
+		wsprintf(cMsg, "Equipment Set %d is empty.", setIndex + 1);
+		AddEventList(cMsg, 10);
+		return;
+	}
+
+	// Save current equipment as backup before first set activation
+	if (!m_bEquipSetBackupSaved) {
+		m_stEquipSetBackup.bIsConfigured = false;
+		for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+			ZeroMemory(m_stEquipSetBackup.cItemName[sl], 21);
+			m_stEquipSetBackup.cEquipPos[sl] = 0;
+			m_stEquipSetBackup.sItemSprite[sl] = 0;
+			m_stEquipSetBackup.sItemSpriteFrame[sl] = 0;
+			m_stEquipSetBackup.cItemColor[sl] = 0;
+		}
+		for (int ep = 1; ep < MAXITEMEQUIPPOS; ep++) {
+			if (m_sItemEquipmentStatus[ep] >= 0) {
+				int itemIdx = m_sItemEquipmentStatus[ep];
+				if (m_pItemList[itemIdx] != NULL) {
+					int slot = ep - 1;
+					if (slot >= 0 && slot < EQUIPSET_SLOTS) {
+						memcpy(m_stEquipSetBackup.cItemName[slot], m_pItemList[itemIdx]->m_cName, 20);
+						m_stEquipSetBackup.cItemName[slot][20] = '\0';
+						m_stEquipSetBackup.cEquipPos[slot] = m_pItemList[itemIdx]->m_cEquipPos;
+						m_stEquipSetBackup.sItemSprite[slot] = m_pItemList[itemIdx]->m_sSprite;
+						m_stEquipSetBackup.sItemSpriteFrame[slot] = m_pItemList[itemIdx]->m_sSpriteFrame;
+						m_stEquipSetBackup.cItemColor[slot] = m_pItemList[itemIdx]->m_cItemColor;
+						m_stEquipSetBackup.bIsConfigured = true;
+					}
+				}
+			}
+		}
+		m_bEquipSetBackupSaved = true;
+	}
+
+	int iEquipped = 0;
+	for (int slot = 0; slot < EQUIPSET_SLOTS; slot++) {
+		if (pSet->cEquipPos[slot] == 0) continue;
+		if (strlen(pSet->cItemName[slot]) == 0) continue;
+
+		int equipPos = slot + 1; // slot 0 -> EQUIPPOS 1
+
+		// Check if the correct item is already equipped
+		if (m_sItemEquipmentStatus[equipPos] >= 0) {
+			int curItem = m_sItemEquipmentStatus[equipPos];
+			if (m_pItemList[curItem] != NULL &&
+				memcmp(m_pItemList[curItem]->m_cName, pSet->cItemName[slot], 20) == 0) {
+				continue; // Already equipped
+			}
+		}
+
+		// Find the item in inventory by name
+		for (int i = 0; i < MAXITEMS; i++) {
+			if (m_pItemList[i] == NULL) continue;
+			if (m_bIsItemEquipped[i] == TRUE) continue;
+			if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[slot], 20) == 0 &&
+				m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[slot]) {
+				ItemEquipHandler((char)i);
+				iEquipped++;
+				break;
+			}
+		}
+	}
+
+	m_iActiveEquipSet = setIndex;
+	char cMsg[64];
+	wsprintf(cMsg, "Equipment Set %d activated. (%d items)", setIndex + 1, iEquipped);
+	AddEventList(cMsg, 10);
+}
+
+void CGame::RestoreOriginalEquipment()
+{
+	if (!m_bEquipSetBackupSaved || !m_stEquipSetBackup.bIsConfigured) {
+		AddEventList("No original equipment to restore.", 10);
+		return;
+	}
+
+	int iEquipped = 0;
+	for (int slot = 0; slot < EQUIPSET_SLOTS; slot++) {
+		if (m_stEquipSetBackup.cEquipPos[slot] == 0) continue;
+		if (strlen(m_stEquipSetBackup.cItemName[slot]) == 0) continue;
+
+		int equipPos = slot + 1;
+
+		// Check if already equipped
+		if (m_sItemEquipmentStatus[equipPos] >= 0) {
+			int curItem = m_sItemEquipmentStatus[equipPos];
+			if (m_pItemList[curItem] != NULL &&
+				memcmp(m_pItemList[curItem]->m_cName, m_stEquipSetBackup.cItemName[slot], 20) == 0) {
+				continue;
+			}
+		}
+
+		// Find the item in inventory
+		for (int i = 0; i < MAXITEMS; i++) {
+			if (m_pItemList[i] == NULL) continue;
+			if (m_bIsItemEquipped[i] == TRUE) continue;
+			if (memcmp(m_pItemList[i]->m_cName, m_stEquipSetBackup.cItemName[slot], 20) == 0 &&
+				m_pItemList[i]->m_cEquipPos == m_stEquipSetBackup.cEquipPos[slot]) {
+				ItemEquipHandler((char)i);
+				iEquipped++;
+				break;
+			}
+		}
+	}
+
+	m_iActiveEquipSet = -1;
+	m_bEquipSetBackupSaved = false;
+	char cMsg[64];
+	wsprintf(cMsg, "Original equipment restored. (%d items)", iEquipped);
+	AddEventList(cMsg, 10);
+}
+
+void CGame::ClearEquipmentSet(int setIndex)
+{
+	if (setIndex < 0 || setIndex >= MAXEQUIPSETS) return;
+	m_stEquipSets[setIndex].bIsConfigured = false;
+	for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+		ZeroMemory(m_stEquipSets[setIndex].cItemName[sl], 21);
+		m_stEquipSets[setIndex].cEquipPos[sl] = 0;
+		m_stEquipSets[setIndex].sItemSprite[sl] = 0;
+		m_stEquipSets[setIndex].sItemSpriteFrame[sl] = 0;
+		m_stEquipSets[setIndex].cItemColor[sl] = 0;
+	}
+	char cMsg[64];
+	wsprintf(cMsg, "Equipment Set %d cleared.", setIndex + 1);
+	AddEventList(cMsg, 10);
+	SaveEquipSetsToFile();
+}
+
+void CGame::SaveEquipSetsToFile()
+{
+	FILE *fp;
+	fp = fopen("equipsets.cfg", "wt");
+	if (fp == NULL) return;
+
+	for (int s = 0; s < MAXEQUIPSETS; s++) {
+		stEquipmentSet *pSet = &m_stEquipSets[s];
+		fprintf(fp, "[Set%d]\n", s + 1);
+		fprintf(fp, "configured=%d\n", pSet->bIsConfigured ? 1 : 0);
+		for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+			if (pSet->cEquipPos[sl] != 0 && strlen(pSet->cItemName[sl]) > 0)
+				fprintf(fp, "slot%d=%s|%d|%d|%d|%d\n", sl, pSet->cItemName[sl],
+					(int)pSet->cEquipPos[sl], (int)pSet->sItemSprite[sl],
+					(int)pSet->sItemSpriteFrame[sl], (int)pSet->cItemColor[sl]);
+		}
+		fprintf(fp, "\n");
+	}
+	fclose(fp);
+}
+
+void CGame::LoadEquipSetsFromFile()
+{
+	FILE *fp;
+	fp = fopen("equipsets.cfg", "rt");
+	if (fp == NULL) return;
+
+	char cLine[256];
+	int iCurrentSet = -1;
+
+	while (fgets(cLine, sizeof(cLine), fp) != NULL) {
+		// Remove newline
+		int len = strlen(cLine);
+		while (len > 0 && (cLine[len-1] == '\n' || cLine[len-1] == '\r')) cLine[--len] = '\0';
+		if (len == 0) continue;
+
+		// Section header
+		if (cLine[0] == '[') {
+			if (memcmp(cLine, "[Set1]", 6) == 0) iCurrentSet = 0;
+			else if (memcmp(cLine, "[Set2]", 6) == 0) iCurrentSet = 1;
+			else if (memcmp(cLine, "[Set3]", 6) == 0) iCurrentSet = 2;
+			else iCurrentSet = -1;
+			continue;
+		}
+
+		if (iCurrentSet < 0 || iCurrentSet >= MAXEQUIPSETS) continue;
+
+		if (memcmp(cLine, "configured=", 11) == 0) {
+			m_stEquipSets[iCurrentSet].bIsConfigured = (atoi(cLine + 11) != 0);
+		}
+		else if (memcmp(cLine, "slot", 4) == 0) {
+			// Parse "slotN=ItemName|EquipPos|Sprite|Frame|Color"
+			int slotNum = atoi(cLine + 4);
+			if (slotNum < 0 || slotNum >= EQUIPSET_SLOTS) continue;
+			char *eq = strchr(cLine, '=');
+			if (eq == NULL) continue;
+			eq++; // skip '='
+			char *pipe = strchr(eq, '|');
+			if (pipe == NULL) continue;
+			*pipe = '\0';
+			int nameLen = strlen(eq);
+			if (nameLen > 20) nameLen = 20;
+			ZeroMemory(m_stEquipSets[iCurrentSet].cItemName[slotNum], 21);
+			memcpy(m_stEquipSets[iCurrentSet].cItemName[slotNum], eq, nameLen);
+			char *p1 = pipe + 1;
+			m_stEquipSets[iCurrentSet].cEquipPos[slotNum] = (char)atoi(p1);
+			// Parse optional sprite/frame/color fields
+			char *p2 = strchr(p1, '|');
+			if (p2 != NULL) {
+				p2++;
+				m_stEquipSets[iCurrentSet].sItemSprite[slotNum] = (short)atoi(p2);
+				char *p3 = strchr(p2, '|');
+				if (p3 != NULL) {
+					p3++;
+					m_stEquipSets[iCurrentSet].sItemSpriteFrame[slotNum] = (short)atoi(p3);
+					char *p4 = strchr(p3, '|');
+					if (p4 != NULL) {
+						p4++;
+						m_stEquipSets[iCurrentSet].cItemColor[slotNum] = (char)atoi(p4);
+					}
+				}
+			}
+		}
+	}
+	fclose(fp);
+}
+
+// Equipment set slot layout: maps EQUIPPOS (1-based) to visual grid position
+// Grid is 3 columns x 5 rows. -1 means not placed in grid.
+// Index = EQUIPPOS value (1..13), value = {col, row}
+static const struct { int col; int row; } s_EquipSlotGrid[] = {
+	{-1,-1},  // 0: NONE
+	{ 1, 0},  // 1: HEAD    (center, row 0)
+	{ 1, 1},  // 2: BODY    (center, row 1)
+	{ 1, 2},  // 3: ARMS    (center, row 2)
+	{ 1, 3},  // 4: PANTS   (center, row 3)
+	{ 1, 4},  // 5: BOOTS   (center, row 4)
+	{ 0, 1},  // 6: NECK    (left,   row 1)
+	{ 0, 2},  // 7: LHAND   (left,   row 2)
+	{ 2, 2},  // 8: RHAND   (right,  row 2)
+	{ 2, 2},  // 9: TWOHAND (shares RHAND slot)
+	{ 2, 3},  // 10: RFINGER (right,  row 3)
+	{ 0, 3},  // 11: LFINGER (left,   row 3)
+	{ 2, 1},  // 12: BACK   (right,  row 1)
+	{ 1, 1},  // 13: FULLBODY (shares BODY slot)
+};
+static const char *s_EquipSlotLabel[] = {
+	"", "Head", "Body", "Arms", "Legs", "Boots",
+	"Neck", "LH", "RH", "2H", "RRing", "LRing", "Back", "Full"
+};
+
+void CGame::UpdateItemSetVisibility()
+{
+	// Clear all flags
+	for (int i = 0; i < MAXITEMS; i++) m_bItemHiddenBySet[i] = false;
+
+	// For each set, for each slot, claim one matching unequipped inventory item
+	for (int s = 0; s < MAXEQUIPSETS; s++) {
+		stEquipmentSet *pSet = &m_stEquipSets[s];
+		if (!pSet->bIsConfigured) continue;
+		for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+			if (pSet->cEquipPos[sl] == 0) continue;
+			if (strlen(pSet->cItemName[sl]) == 0) continue;
+			// Find one matching unequipped, not-already-hidden item
+			for (int i = 0; i < MAXITEMS; i++) {
+				if (m_pItemList[i] == NULL) continue;
+				if (m_bIsItemEquipped[i] == TRUE) continue;
+				if (m_bItemHiddenBySet[i]) continue;
+				if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[sl], 20) == 0 &&
+					m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[sl]) {
+					m_bItemHiddenBySet[i] = true;
+					break;
+				}
+			}
+		}
+	}
+}
+
+void CGame::DrawDialogBox_EquipSet(int msX, int msY)
+{
+	short sX, sY;
+	char cTxt[64];
+	DWORD dwTime = m_dwCurTime;
+	sX = m_stDialogBoxInfo[56].sX;
+	sY = m_stDialogBoxInfo[56].sY;
+
+	// Dark background panel
+	m_DDraw.DrawShadowBox(sX, sY, sX + 155, sY + 215);
+	m_DDraw.DrawShadowBox(sX, sY, sX + 155, sY + 215);
+
+	// Title
+	wsprintf(cTxt, "Set %d", m_iEquipSetTab + 1);
+	PutAlignedString(sX, sX + 155, sY + 3, cTxt, 200, 200, 255);
+	PutAlignedString(sX, sX + 155, sY + 14, (char *)"Drop items here", 120, 120, 120);
+
+	stEquipmentSet *pSet = &m_stEquipSets[m_iEquipSetTab];
+
+	// Slot box dimensions
+	int slotW = 28, slotH = 28;
+	int colX[3] = { sX + 14, sX + 63, sX + 112 };
+	int rowY[5] = { sY + 28, sY + 60, sY + 92, sY + 124, sY + 156 };
+
+	// Draw each equipment slot box
+	for (int ep = 1; ep <= 13; ep++) {
+		int c = s_EquipSlotGrid[ep].col;
+		int r = s_EquipSlotGrid[ep].row;
+		if (c < 0) continue;
+
+		// TWOHAND (9) and FULLBODY (13) share slots with RHAND/BODY
+		// Only draw the shared slot once - skip if the primary slot has content
+		if (ep == EQUIPPOS_TWOHAND) {
+			// Skip drawing if RHAND already drawn with content
+			int rhSlot = EQUIPPOS_RHAND - 1;
+			if (pSet->cEquipPos[rhSlot] != 0 && strlen(pSet->cItemName[rhSlot]) > 0)
+				continue;
+		}
+		if (ep == EQUIPPOS_FULLBODY) {
+			int bodySlot = EQUIPPOS_BODY - 1;
+			if (pSet->cEquipPos[bodySlot] != 0 && strlen(pSet->cItemName[bodySlot]) > 0)
+				continue;
+		}
+
+		int bx = colX[c];
+		int by = rowY[r];
+		int slot = ep - 1;
+		bool bFilled = (pSet->cEquipPos[slot] != 0 && strlen(pSet->cItemName[slot]) > 0);
+		bool bHover = (msX >= bx && msX <= bx + slotW && msY >= by && msY <= by + slotH);
+
+		// Slot outline
+		int oR = 60, oG = 60, oB = 80;
+		if (bHover) { oR = 120; oG = 120; oB = 160; }
+		if (bFilled) { oR = 80; oG = 100; oB = 80; }
+		DrawLine(bx, by, bx + slotW, by, oR, oG, oB);
+		DrawLine(bx, by + slotH, bx + slotW, by + slotH, oR, oG, oB);
+		DrawLine(bx, by, bx, by + slotH, oR, oG, oB);
+		DrawLine(bx + slotW, by, bx + slotW, by + slotH, oR, oG, oB);
+
+		if (bFilled) {
+			// Draw item sprite icon
+			short sSpr = pSet->sItemSprite[slot];
+			short sFrame = pSet->sItemSpriteFrame[slot];
+			char cColor = pSet->cItemColor[slot];
+			if (sSpr > 0 && m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + sSpr] != NULL) {
+				if (cColor == 0)
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + sSpr]->PutSpriteFast(bx + slotW/2, by + slotH/2, sFrame, dwTime);
+				else
+					m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + sSpr]->PutSpriteRGB(bx + slotW/2, by + slotH/2, sFrame,
+						m_wR[cColor] - m_wR[0], m_wG[cColor] - m_wG[0], m_wB[cColor] - m_wB[0], dwTime);
+			}
+			// Tooltip on hover
+			if (bHover) {
+				PutAlignedString(sX, sX + 155, sY + 190, pSet->cItemName[slot], 255, 255, 200);
+			}
+		} else {
+			// Draw slot label
+			PutAlignedString(bx, bx + slotW, by + 9, (char *)s_EquipSlotLabel[ep], 60, 60, 70);
+		}
+	}
+
+	// Buttons at bottom
+	int btnY = sY + 195;
+
+	// Equip button
+	bool bEquipHover = (msX >= sX + 10 && msX <= sX + 72 && msY >= btnY && msY <= btnY + 16);
+	PutAlignedString(sX + 10, sX + 72, btnY, (char *)"Equip", 100, bEquipHover ? 255 : 180, bEquipHover ? 255 : 180);
+
+	// Clear button
+	bool bClrHover = (msX >= sX + 82 && msX <= sX + 145 && msY >= btnY && msY <= btnY + 16);
+	PutAlignedString(sX + 82, sX + 145, btnY, (char *)"Clear", bClrHover ? 255 : 180, bClrHover ? 100 : 100, bClrHover ? 100 : 100);
+}
+
+void CGame::DlgBoxClick_EquipSet(short msX, short msY)
+{
+	short sX = m_stDialogBoxInfo[56].sX;
+	short sY = m_stDialogBoxInfo[56].sY;
+	stEquipmentSet *pSet = &m_stEquipSets[m_iEquipSetTab];
+
+	int slotW = 28, slotH = 28;
+	int colX[3] = { sX + 14, sX + 63, sX + 112 };
+	int rowY[5] = { sY + 28, sY + 60, sY + 92, sY + 124, sY + 156 };
+
+	// Check clicks on equipment slot boxes — clicking a filled slot removes it
+	for (int ep = 1; ep <= 13; ep++) {
+		int c = s_EquipSlotGrid[ep].col;
+		int r = s_EquipSlotGrid[ep].row;
+		if (c < 0) continue;
+
+		int bx = colX[c];
+		int by = rowY[r];
+		if (msX >= bx && msX <= bx + slotW && msY >= by && msY <= by + slotH) {
+			int slot = ep - 1;
+			if (pSet->cEquipPos[slot] != 0 && strlen(pSet->cItemName[slot]) > 0) {
+				char cMsg[64];
+				wsprintf(cMsg, "Removed %s from Set %d", pSet->cItemName[slot], m_iEquipSetTab + 1);
+				ZeroMemory(pSet->cItemName[slot], 21);
+				pSet->cEquipPos[slot] = 0;
+				pSet->sItemSprite[slot] = 0;
+				pSet->sItemSpriteFrame[slot] = 0;
+				pSet->cItemColor[slot] = 0;
+				// Check if set is still configured
+				pSet->bIsConfigured = false;
+				for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+					if (pSet->cEquipPos[sl] != 0) { pSet->bIsConfigured = true; break; }
+				}
+				AddEventList(cMsg, 10);
+				SaveEquipSetsToFile();
+				PlaySound('E', 14, 5);
+			}
+			return;
+		}
+	}
+
+	int btnY = sY + 195;
+
+	// Equip button
+	if (msX >= sX + 10 && msX <= sX + 72 && msY >= btnY && msY <= btnY + 16) {
+		ActivateEquipmentSet(m_iEquipSetTab);
+		PlaySound('E', 14, 5);
+		return;
+	}
+
+	// Clear button
+	if (msX >= sX + 82 && msX <= sX + 145 && msY >= btnY && msY <= btnY + 16) {
+		ClearEquipmentSet(m_iEquipSetTab);
+		PlaySound('E', 14, 5);
+		return;
+	}
+}
+
+void CGame::bItemDrop_EquipSet(short msX, short msY)
+{
+	if (m_iEquipSetTab < 0 || m_iEquipSetTab >= MAXEQUIPSETS) return;
+	int itemIdx = m_stMCursor.sSelectedObjectID;
+	if (itemIdx < 0 || itemIdx >= MAXITEMS || m_pItemList[itemIdx] == NULL) return;
+
+	char cEquipPos = m_pItemList[itemIdx]->m_cEquipPos;
+	if (cEquipPos == EQUIPPOS_NONE) {
+		AddEventList("This item cannot be equipped.", 10);
+		return;
+	}
+
+	// Map equip position to slot index (EQUIPPOS 1-13 -> slot 0-12)
+	int slot = cEquipPos - 1;
+
+	// Special cases: TWOHAND shares RHAND area, FULLBODY shares BODY area
+	if (cEquipPos == EQUIPPOS_TWOHAND) slot = EQUIPPOS_TWOHAND - 1;  // slot 8
+	if (cEquipPos == EQUIPPOS_FULLBODY) slot = EQUIPPOS_FULLBODY - 1; // slot 12
+
+	if (slot < 0 || slot >= EQUIPSET_SLOTS) return;
+
+	stEquipmentSet *pSet = &m_stEquipSets[m_iEquipSetTab];
+
+	// Save item info to set slot
+	ZeroMemory(pSet->cItemName[slot], 21);
+	memcpy(pSet->cItemName[slot], m_pItemList[itemIdx]->m_cName, 20);
+	pSet->cItemName[slot][20] = '\0';
+	pSet->cEquipPos[slot] = cEquipPos;
+	pSet->sItemSprite[slot] = m_pItemList[itemIdx]->m_sSprite;
+	pSet->sItemSpriteFrame[slot] = m_pItemList[itemIdx]->m_sSpriteFrame;
+	pSet->cItemColor[slot] = m_pItemList[itemIdx]->m_cItemColor;
+	pSet->bIsConfigured = true;
+
+	// If TWOHAND, clear RHAND and LHAND individual slots
+	if (cEquipPos == EQUIPPOS_TWOHAND) {
+		int rhSlot = EQUIPPOS_RHAND - 1;
+		int lhSlot = EQUIPPOS_LHAND - 1;
+		ZeroMemory(pSet->cItemName[rhSlot], 21);
+		pSet->cEquipPos[rhSlot] = 0;
+		pSet->sItemSprite[rhSlot] = 0;
+		pSet->sItemSpriteFrame[rhSlot] = 0;
+		pSet->cItemColor[rhSlot] = 0;
+		ZeroMemory(pSet->cItemName[lhSlot], 21);
+		pSet->cEquipPos[lhSlot] = 0;
+		pSet->sItemSprite[lhSlot] = 0;
+		pSet->sItemSpriteFrame[lhSlot] = 0;
+		pSet->cItemColor[lhSlot] = 0;
+	}
+	// If equipping RHAND or LHAND, clear TWOHAND slot
+	if (cEquipPos == EQUIPPOS_RHAND || cEquipPos == EQUIPPOS_LHAND) {
+		int thSlot = EQUIPPOS_TWOHAND - 1;
+		ZeroMemory(pSet->cItemName[thSlot], 21);
+		pSet->cEquipPos[thSlot] = 0;
+		pSet->sItemSprite[thSlot] = 0;
+		pSet->sItemSpriteFrame[thSlot] = 0;
+		pSet->cItemColor[thSlot] = 0;
+	}
+	// If FULLBODY, clear BODY slot
+	if (cEquipPos == EQUIPPOS_FULLBODY) {
+		int bodySlot = EQUIPPOS_BODY - 1;
+		ZeroMemory(pSet->cItemName[bodySlot], 21);
+		pSet->cEquipPos[bodySlot] = 0;
+		pSet->sItemSprite[bodySlot] = 0;
+		pSet->sItemSpriteFrame[bodySlot] = 0;
+		pSet->cItemColor[bodySlot] = 0;
+	}
+	// If BODY, clear FULLBODY slot
+	if (cEquipPos == EQUIPPOS_BODY) {
+		int fbSlot = EQUIPPOS_FULLBODY - 1;
+		ZeroMemory(pSet->cItemName[fbSlot], 21);
+		pSet->cEquipPos[fbSlot] = 0;
+		pSet->sItemSprite[fbSlot] = 0;
+		pSet->sItemSpriteFrame[fbSlot] = 0;
+		pSet->cItemColor[fbSlot] = 0;
+	}
+
+	SaveEquipSetsToFile();
+
+	char cMsg[64];
+	wsprintf(cMsg, "Saved %s to Set %d", m_pItemList[itemIdx]->m_cName, m_iEquipSetTab + 1);
+	AddEventList(cMsg, 10);
+	PlaySound('E', 14, 5);
 }

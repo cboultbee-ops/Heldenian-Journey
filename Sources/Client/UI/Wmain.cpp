@@ -73,6 +73,7 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 
 			if (G_pGame->m_cLogOutCount == -1 || G_pGame->m_cLogOutCount > (char)G_pGame->m_iLogOutTimer) {
 				G_pGame->m_cLogOutCount = (char)G_pGame->m_iLogOutTimer;
+				G_pGame->m_dwLogOutCountTime = timeGetTime();
 				G_pGame->m_sLogOutStartX = G_pGame->m_sPlayerX;
 				G_pGame->m_sLogOutStartY = G_pGame->m_sPlayerY;
 			}
