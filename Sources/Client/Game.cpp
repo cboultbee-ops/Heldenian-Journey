@@ -15412,8 +15412,9 @@ void CGame::DrawDialogBox_GuideMap(short msX, short msY, char cLB)
 			m_sMonsterID = 0;
 	}
 
-		// Recall point circles (unzoomed mode only, visible when Ctrl held)
-		if (m_bCtrlPressed && (m_cMapIndex == 11 || m_cMapIndex == 3 || m_cMapIndex == 4)) {
+		// Recall point circles (unzoomed mode only, visible when Recall spell is being cast)
+		if (m_bIsGetPointingMode && m_iCastingMagicType == 12 &&
+			(m_cMapIndex == 11 || m_cMapIndex == 3 || m_cMapIndex == 4)) {
 			static const int s_recallPoints[3][5][2] = {
 				{{140,49}, {68,125}, {170,145}, {140,205}, {116,245}},
 				{{158,57}, {110,89}, {170,145}, {242,129}, {158,249}},
@@ -37977,7 +37978,8 @@ void CGame::SaveMuteList()
 
 void CGame::DlgBoxClick_GuideMap(short msX, short msY)
 {
-	if (m_bCtrlPressed == FALSE) return;
+	// Only active when Recall spell (ID 12) is being cast and waiting for target
+	if (!m_bIsGetPointingMode || m_iCastingMagicType != 12) return;
 
 	short shX;
 	short shY;
@@ -38019,15 +38021,14 @@ void CGame::DlgBoxClick_GuideMap(short msX, short msY)
 		}
 
 	if(recallPoint != 0) {
+		// Set the recall point, then complete the spell targeting self
 		bSendCommand(MSGID_REQUEST_SETRECALLPNT, NULL, NULL, recallPoint, NULL, NULL, NULL, NULL);
+		bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_MAGIC, NULL,
+			m_sPlayerX, m_sPlayerY, m_iPointCommandType, NULL);
+		m_bIsGetPointingMode = FALSE;
 		PlaySound('E', 14, 5);
-		char cMsg[96];
-		wsprintf(cMsg, "Recall point %d set at (%d,%d). Cast Recall to teleport.", recallPoint,
-			recallPoints[town][recallPoint-1][0], recallPoints[town][recallPoint-1][1]);
-		AddEventList(cMsg, 10);
-	} else {
-		char cMsg[96];
-		wsprintf(cMsg, "No recall point near (%d, %d). Click inside a yellow circle.", shX, shY);
+		char cMsg[64];
+		wsprintf(cMsg, "Recalling to point %d...", recallPoint);
 		AddEventList(cMsg, 10);
 	}
 }
