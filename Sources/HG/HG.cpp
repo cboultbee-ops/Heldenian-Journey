@@ -3550,7 +3550,7 @@ void CGame::InitPlayerData(int iClientH, char * pData, DWORD dwSize)
 
 	player->ValidateSkills(TRUE);
 
-	if ((player->m_iAdminUserLevel >= 1) && (player->m_iAdminUserLevel <= 4))
+	if ((player->m_iAdminUserLevel >= 2) && (player->m_iAdminUserLevel <= 4))
 	{
 		player->SetStatusFlag(STATUS_INVISIBILITY, TRUE);
 		player->m_GMFlags |= GMFLAG_INVENCIBLE | GMFLAG_NOAGGRO;
@@ -4700,11 +4700,7 @@ bool CGame::_bDecodePlayerDatafileContents(int iClientH, char * pData, DWORD dwS
 	m_pClientList[iClientH]->m_cHairStyle = bGetOffsetValue(pData, 31);
 	m_pClientList[iClientH]->m_cHairColor = bGetOffsetValue(pData, 32);
 	m_pClientList[iClientH]->m_cUnderwear = bGetOffsetValue(pData, 33);
-	//m_pClientList[iClientH]->ApprColor = Retrive32DWordValue(cp, 34);
-	//m_pClientList[iClientH]->Appr1 = Retrive16WordValue(cp, 38);
-	//m_pClientList[iClientH]->Appr2 = Retrive16WordValue(cp, 42);
-	//m_pClientList[iClientH]->Appr3 = Retrive16WordValue(cp, 46);
-	//m_pClientList[iClientH]->Appr4 = Retrive16WordValue(cp, 50);
+	m_pClientList[iClientH]->m_iApprColor = dwGetOffsetValue(pData, 34);
 	ZeroMemory(m_pClientList[iClientH]->m_cLocation, sizeof(m_pClientList[iClientH]->m_cLocation));
 	SafeCopy(m_pClientList[iClientH]->m_cLocation, pData+54, 10);
 	ZeroMemory(m_pClientList[iClientH]->m_cMapName, sizeof(m_pClientList[iClientH]->m_cMapName));
@@ -4879,6 +4875,12 @@ bool CGame::_bDecodePlayerDatafileContents(int iClientH, char * pData, DWORD dwS
 					m_pClientList[iClientH]->m_bIsItemEquipped[b] = TRUE;
 			}
 			if(m_pClientList[iClientH]->m_bIsItemEquipped[b] == TRUE && bEquipItemHandler(iClientH, b) == FALSE) m_pClientList[iClientH]->m_bIsItemEquipped[b] = FALSE;
+			// DEBUG: Log item color for equipped items
+			if (m_pClientList[iClientH]->m_bIsItemEquipped[b] == TRUE) {
+				wsprintf(cTxt, "(DEBUG) Equipped item[%d] '%s' color=%d attr=0x%08X",
+					b, item->m_cName, item->m_cItemColor, item->m_dwAttribute);
+				PutLogList(cTxt);
+			}
 			m_pClientList[iClientH]->m_ItemPosList[b].x = (int)wGetOffsetValue(pData, (IndexForItem+52));
 			m_pClientList[iClientH]->m_ItemPosList[b].y = (int)wGetOffsetValue(pData, (IndexForItem+54));
 			item->ItemUniqueID = ullGetOffsetValue(pData, (IndexForItem+56));
@@ -4961,7 +4963,12 @@ bool CGame::_bDecodePlayerDatafileContents(int iClientH, char * pData, DWORD dwS
 				}
 			}
 
-			bool bRet = m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->bIsValidLoc(m_pClientList[iClientH]->m_sX, m_pClientList[iClientH]->m_sY);
+			// DEBUG: Log final ApprColor after all items loaded
+		wsprintf(cTxt, "(DEBUG) Player '%s' final m_iApprColor = 0x%08X",
+			m_pClientList[iClientH]->m_cCharName, m_pClientList[iClientH]->m_iApprColor);
+		PutLogList(cTxt);
+
+		bool bRet = m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->bIsValidLoc(m_pClientList[iClientH]->m_sX, m_pClientList[iClientH]->m_sY);
 			if(bRet == FALSE)
 			{
 				if ((m_pClientList[iClientH]->m_sX != -1) || (m_pClientList[iClientH]->m_sY != -1))
@@ -32628,9 +32635,8 @@ void CGame::AdminOrder_CreateItem(int iClientH, char *pData, DWORD dwMsgSize)
 	if (m_pClientList[iClientH] == NULL) return;
 	if ((dwMsgSize)	<= 0) return;
 
-	if (m_pClientList[iClientH]->m_iAdminUserLevel < 4) {
-		if (m_pClientList[iClientH]->m_iAdminUserLevel != 0)
-			SendNotifyMsg(NULL, iClientH, NOTIFY_ADMINUSERLEVELLOW, NULL, NULL, NULL, NULL);
+	if (m_pClientList[iClientH]->m_iAdminUserLevel < 1) {
+		SendNotifyMsg(NULL, iClientH, NOTIFY_ADMINUSERLEVELLOW, NULL, NULL, NULL, NULL);
 		return;
 	}
 

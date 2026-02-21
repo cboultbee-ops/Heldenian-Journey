@@ -85,7 +85,7 @@ public:
 	void OnKeyUp(WPARAM wParam);
 	void ProcessClientLogout(char *Data, BOOL save, int type, BYTE GSID, MYSQL myConn);
 	void ConfirmCharEnterGame(char *Data, BYTE GSID);
-	BOOL IsGMAccount(char *AccountName, MYSQL myConn);
+	BOOL IsGMAccount(char *AccountName, MYSQL *myConn);
 	void SaveCharacter(char* Data, MYSQL myConn);
 	BYTE CheckDupItem(cItem *Item, MYSQL myConn, BOOL bBank);
 	void ProcessItemSave(cItem *Item, DWORD CharID, MYSQL myConn);

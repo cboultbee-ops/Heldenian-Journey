@@ -61,6 +61,7 @@ void CMessageHandler::GameRecvMsgHandler(DWORD dwMsgSize, char * Data)
 
 	case MSGID_PLAYERITEMLISTCONTENTS:
 		InitItemList(Data);
+		m_pGame->LoadEquipSetsFromFile();
 		break;
 
 		case MSGID_PLAYERSKILLCONTENTS:

@@ -51,9 +51,10 @@ ib_logfile*
 *.swp
 *~
 
-# Task files from code bot sessions
-HELBREATH_TASKS*.md
-GIT_SETUP.md
+# Task files, briefings, notes
+docs/
+__pycache__/
+*.pyc
 
 # Claude/Cursor/VSCode config (local editor settings)
 .claude/
