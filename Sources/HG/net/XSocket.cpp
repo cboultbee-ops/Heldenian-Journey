@@ -113,7 +113,6 @@ bool XSocket::bConnect(char * pAddr, int iPort, unsigned int uiMsg, bool addrIsU
 	u_long          arg;
 	int             iRet;
 	DWORD			 dwOpt;
-	struct hostent * hp;
 
 	if (m_cType == XSOCK_LISTENSOCK) return FALSE;
 	if (m_Sock  != INVALID_SOCKET) closesocket(m_Sock);
@@ -126,20 +125,26 @@ bool XSocket::bConnect(char * pAddr, int iPort, unsigned int uiMsg, bool addrIsU
 	ioctlsocket(m_Sock, FIONBIO, &arg);
 
 	memset(&saTemp,0,sizeof(saTemp));
+	saTemp.sin_family = AF_INET;
+	saTemp.sin_port = htons(iPort);
 	if (addrIsUrl){
-		hp = gethostbyname(pAddr);
-		if (hp) {
-			memcpy(&(saTemp.sin_addr),hp->h_addr, hp->h_length); 
-			saTemp.sin_family = hp->h_addrtype;
+		// Try numeric IP first, fall back to hostname resolution
+		saTemp.sin_addr.s_addr = inet_addr(pAddr);
+		if (saTemp.sin_addr.s_addr == INADDR_NONE) {
+			struct hostent *hp = gethostbyname(pAddr);
+			if (hp) {
+				memcpy(&(saTemp.sin_addr), hp->h_addr, hp->h_length);
+			} else {
+				closesocket(m_Sock);
+				m_Sock = INVALID_SOCKET;
+				return false;
+			}
 		}
-		else return false;
 	}
 	else
 	{
-		saTemp.sin_family = AF_INET;
 		saTemp.sin_addr.s_addr = inet_addr(pAddr);
 	}
-	saTemp.sin_port = htons(iPort);
 
 	if(WSAAsyncSelect(m_Sock, m_hWnd, uiMsg, FD_CONNECT | FD_READ | FD_WRITE | FD_CLOSE) == SOCKET_ERROR) {
 		m_WSAErr = WSAGetLastError();
@@ -159,7 +164,8 @@ bool XSocket::bConnect(char * pAddr, int iPort, unsigned int uiMsg, bool addrIsU
 	setsockopt(m_Sock, SOL_SOCKET, SO_RCVBUF, (const char FAR *)&dwOpt, sizeof(dwOpt));
 	setsockopt(m_Sock, SOL_SOCKET, SO_SNDBUF, (const char FAR *)&dwOpt, sizeof(dwOpt));
 
-	SafeCopy(m_pAddr, pAddr);
+	strncpy(m_pAddr, pAddr, sizeof(m_pAddr) - 1);
+	m_pAddr[sizeof(m_pAddr) - 1] = '\0';
 	m_iPortNum = iPort;
 
 	m_uiMsg = uiMsg;
@@ -563,7 +569,8 @@ int XSocket::iGetPeerAddress(char * pAddrString)
 
 	iLen = sizeof(sockaddr);
 	iRet = getpeername(m_Sock, (struct sockaddr *)&sockaddr, &iLen);
-	SafeCopy(pAddrString, (char *)inet_ntoa(sockaddr.sin_addr));
+	strncpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr), 29);
+	pAddrString[29] = '\0';
 
 	return iRet;
 }

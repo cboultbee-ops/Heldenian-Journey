@@ -24,6 +24,8 @@ void CALLBACK _TimerFunc(UINT wID, UINT wUser, DWORD dwUSer, DWORD dw1, DWORD dw
 MMRESULT _StartTimer(DWORD dwTime);
 void _StopTimer(MMRESULT timerid);
 void PutLogFileList(const char * cStr, char *FileName = NULL);
+void FlushLogFiles();
+void CloseLogFiles();
 //void PutLogList(char * cMsg, BYTE MsgLvl = NULL, bool PutOnFile = FALSE, char *FileName = NULL);
 void PutLogList(const char * cMsg);
 void PutLogList(const string msg);

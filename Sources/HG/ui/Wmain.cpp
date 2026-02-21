@@ -305,6 +305,8 @@ void OnDestroy()
 	delete g_game;
 	}
 
+	CloseLogFiles();
+
 	if (G_mmTimer != NULL) _StopTimer(G_mmTimer);
 	_TermWinsock();
 
@@ -400,17 +402,66 @@ void _StopTimer(MMRESULT timerid)
 	}
 }
 //=============================================================================
+#define LOG_CACHE_MAX 8
+
+static struct {
+	char  szFileName[260];
+	FILE *pFile;
+} g_logCache[LOG_CACHE_MAX];
+static int g_logCacheCount = 0;
+static bool g_logDirsCreated = false;
+
+static FILE * _GetCachedLogFile(const char *FileName, const char *mode)
+{
+	for (int i = 0; i < g_logCacheCount; i++) {
+		if (strcmp(g_logCache[i].szFileName, FileName) == 0 && g_logCache[i].pFile != NULL)
+			return g_logCache[i].pFile;
+	}
+	FILE *pFile = fopen(FileName, mode);
+	if (pFile == NULL) return NULL;
+	setvbuf(pFile, NULL, _IOLBF, 4096);
+	if (g_logCacheCount < LOG_CACHE_MAX) {
+		strncpy(g_logCache[g_logCacheCount].szFileName, FileName, sizeof(g_logCache[0].szFileName) - 1);
+		g_logCache[g_logCacheCount].szFileName[sizeof(g_logCache[0].szFileName) - 1] = '\0';
+		g_logCache[g_logCacheCount].pFile = pFile;
+		g_logCacheCount++;
+	}
+	return pFile;
+}
+
+void FlushLogFiles()
+{
+	for (int i = 0; i < g_logCacheCount; i++) {
+		if (g_logCache[i].pFile != NULL)
+			fflush(g_logCache[i].pFile);
+	}
+}
+
+void CloseLogFiles()
+{
+	for (int i = 0; i < g_logCacheCount; i++) {
+		if (g_logCache[i].pFile != NULL) {
+			fclose(g_logCache[i].pFile);
+			g_logCache[i].pFile = NULL;
+		}
+	}
+	g_logCacheCount = 0;
+}
+
 void PutLogFileList(const char * cStr, char *FileName)
 {
  FILE * pFile;
  char cBuffer[MAXLOGLINESIZE+100];
  SYSTEMTIME SysTime;
 
-        _mkdir("Logs");
-		if(strlen(cStr) > MAXLOGLINESIZE) return;
-        if(FileName == NULL) pFile = fopen(EVENT_LOGFILE, "at");
-        else if(IsSame(FileName, XSOCKET_LOGFILE)) pFile = fopen(FileName, "ab");
-		else pFile = fopen(FileName, "at");
+	if (!g_logDirsCreated) {
+		_mkdir("Logs");
+		g_logDirsCreated = true;
+	}
+	if(strlen(cStr) > MAXLOGLINESIZE) return;
+	if(FileName == NULL) pFile = _GetCachedLogFile(EVENT_LOGFILE, "at");
+	else if(IsSame(FileName, XSOCKET_LOGFILE)) pFile = _GetCachedLogFile(FileName, "ab");
+	else pFile = _GetCachedLogFile(FileName, "at");
 	if (pFile == NULL) return;
 
 	ZeroMemory(cBuffer, sizeof(cBuffer));
@@ -421,7 +472,6 @@ void PutLogFileList(const char * cStr, char *FileName)
 	strcat(cBuffer, "\n");
 
 	fwrite(cBuffer, 1, strlen(cBuffer), pFile);
-	fclose(pFile);
 }
 
 void Assertion(const char * assertion, const char * file, const uint32 line)

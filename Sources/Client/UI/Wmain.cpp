@@ -118,16 +118,26 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 			G_pGame->m_DInput.SetAcquire(TRUE);
 			G_pGame->m_bCtrlPressed = FALSE;
 			
-			if (G_pGame->bCheckImportantFile() == FALSE) 
-			{	MessageBox(G_pGame->m_hWnd, "File checksum error! Get Update again please!", "ERROR1", MB_ICONEXCLAMATION | MB_OK);
-				PostQuitMessage(0);
-				return 0;
-			}			
-			if (__FindHackingDll__("CRCCHECK") != 1) 
-			{	G_pGame->ChangeGameMode(GAMEMODE_ONQUIT);
-				return NULL;
-		}	}
+			// Anti-tamper checks disabled for rebuilt client
+			// if (G_pGame->bCheckImportantFile() == FALSE)
+			// {	MessageBox(G_pGame->m_hWnd, "File checksum error!", "ERROR1", MB_ICONEXCLAMATION | MB_OK);
+			//	PostQuitMessage(0);
+			//	return 0;
+			// }
+			// if (__FindHackingDll__("CRCCHECK") != 1)
+			// {	G_pGame->ChangeGameMode(GAMEMODE_ONQUIT);
+			//	return NULL;
+			// }
+		}
 		return DefWindowProc(hWnd, message, wParam, lParam);
+
+	case WM_INPUT:
+		G_pGame->m_DInput.OnRawInput(lParam);
+		return DefWindowProc(hWnd, message, wParam, lParam);
+
+	case WM_MOUSEWHEEL:
+		G_pGame->m_DInput.OnMouseWheel((short)HIWORD(wParam));
+		return 0;
 
 	case WM_SETCURSOR:
 		SetCursor(NULL);
@@ -185,27 +195,27 @@ int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	for (WORD i = 0; i < strlen(cRealName); i++)
 	if (cRealName[i] != NULL) cRealName[i]++;
 
-	hDll = LoadLibrary(cRealName);
-	if( hDll == NULL ) 
-	{	MessageBox(NULL, "don't find search.dll", "ERROR!", MB_OK);
-		return 0;
-	}
+	// CRC check via search.dll disabled — incompatible with rebuilt client
+	// hDll = LoadLibrary(cRealName);
+	// if( hDll == NULL )
+	// {	MessageBox(NULL, "don't find search.dll", "ERROR!", MB_OK);
+	//	return 0;
+	// }
 
 #ifdef USING_WIN_IME
 	HINSTANCE hRichDll = LoadLibrary( "Riched20.dll" );
 #endif
 
-	typedef int (MYPROC)(char *) ;
-	MYPROC *pFindHook; 
-	pFindHook = (MYPROC *) GetProcAddress(hDll, "__FindHackingDll__") ;
-
-	if (pFindHook== NULL) 
-	{	MessageBox(NULL, "can't find search.dll", "ERROR!", MB_OK);
-		return 0 ;
-	}else if ((*pFindHook)("CRCCHECK") != 1) 
-	{	return 0 ;
-	}
-	FreeLibrary(hDll);
+	// typedef int (MYPROC)(char *) ;
+	// MYPROC *pFindHook;
+	// pFindHook = (MYPROC *) GetProcAddress(hDll, "__FindHackingDll__") ;
+	// if (pFindHook== NULL)
+	// {	MessageBox(NULL, "can't find search.dll", "ERROR!", MB_OK);
+	//	return 0 ;
+	// }else if ((*pFindHook)("CRCCHECK") != 1)
+	// {	return 0 ;
+	// }
+	// FreeLibrary(hDll);
 
 #ifndef _DEBUG
 	if (OpenMutex(MUTEX_ALL_ACCESS, FALSE, "0543kjg3j31%") != NULL) {

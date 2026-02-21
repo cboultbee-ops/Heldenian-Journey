@@ -80,9 +80,6 @@
     <ClInclude Include="DirectX\DInput.h">
       <Filter>directx</Filter>
     </ClInclude>
-    <ClInclude Include="DirectX\DSound.h">
-      <Filter>directx</Filter>
-    </ClInclude>
     <ClInclude Include="DirectX\DXC_ddraw.h">
       <Filter>directx</Filter>
     </ClInclude>
@@ -141,6 +138,8 @@
       <Filter>lang</Filter>
     </ClInclude>
     <ClInclude Include="Game.h" />
+    <ClInclude Include="SoundManager.h" />
+    <ClInclude Include="MessageHandler.h" />
     <ClInclude Include="GlobalDef.h" />
     <ClInclude Include="GlobalVal.h" />
     <ClInclude Include="Misc.h" />
@@ -219,6 +218,8 @@
       <Filter>net</Filter>
     </ClCompile>
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="SoundManager.cpp" />
+    <ClCompile Include="MessageHandler.cpp" />
     <ClCompile Include="Misc.cpp" />
     <ClCompile Include="StrTok.cpp" />
   </ItemGroup>
@@ -227,9 +228,6 @@
       <Filter>lib</Filter>
     </Library>
     <Library Include="..\Shared\lib\DINPUT.LIB">
-      <Filter>lib</Filter>
-    </Library>
-    <Library Include="..\Shared\lib\DSOUND.LIB">
       <Filter>lib</Filter>
     </Library>
     <Library Include="..\Shared\lib\DXGUID.LIB">

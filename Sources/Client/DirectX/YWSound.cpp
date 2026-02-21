@@ -1,9 +1,8 @@
-// YWSound.cpp: implementation of the YWSound class.
+// YWSound.cpp: XAudio2 sound device wrapper (replaces DirectSound)
 //
 //////////////////////////////////////////////////////////////////////
 
 #include <windows.h>
-#include "dsound.h"
 #include "YWSound.h"
 
 //////////////////////////////////////////////////////////////////////
@@ -12,12 +11,21 @@
 
 YWSound::YWSound()
 {
-	m_lpDS = NULL;
+	m_pXAudio2 = NULL;
+	m_pMasterVoice = NULL;
 }
 
 YWSound::~YWSound()
 {
-	if(m_lpDS) m_lpDS->Release();
+	if (m_pMasterVoice) {
+		m_pMasterVoice->DestroyVoice();
+		m_pMasterVoice = NULL;
+	}
+	if (m_pXAudio2) {
+		m_pXAudio2->Release();
+		m_pXAudio2 = NULL;
+	}
+	CoUninitialize();
 }
 
 //////////////////////////////////////////////////////////////////////////////////
@@ -25,50 +33,25 @@ YWSound::~YWSound()
 //////////////////////////////////////////////////////////////////////////////////
 bool YWSound::Create(HWND hWnd)
 {
-	HRESULT rval;
-	LPDIRECTSOUNDBUFFER lpDsb;
-	DSBUFFERDESC dsbdesc;
-	WAVEFORMATEX wfm;
-
-	rval = DirectSoundCreate(NULL, &m_lpDS, NULL);
-	if(rval != DS_OK)
-	{
-		OutputDebugString("DirectSoundCreate error...\n");
+	HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+	if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+		OutputDebugString("CoInitializeEx error...\n");
 		return FALSE;
 	}
-	
-	rval = m_lpDS->SetCooperativeLevel(hWnd, DSSCL_PRIORITY);
-	if(rval != DS_OK)
-	{
-		OutputDebugString("DirectSoundCreate error...\n");
+
+	hr = XAudio2Create(&m_pXAudio2, 0, XAUDIO2_DEFAULT_PROCESSOR);
+	if (FAILED(hr)) {
+		OutputDebugString("XAudio2Create error...\n");
 		return FALSE;
 	}
-	
-	memset(&dsbdesc, 0, sizeof(DSBUFFERDESC));
-	dsbdesc.dwSize = sizeof(DSBUFFERDESC);
-	dsbdesc.dwFlags = DSBCAPS_PRIMARYBUFFER;
-	dsbdesc.dwBufferBytes = 0;
-	dsbdesc.lpwfxFormat = NULL;
 
-	memset(&wfm, 0, sizeof(WAVEFORMATEX));
-	wfm.wFormatTag = WAVE_FORMAT_PCM;
-	wfm.nChannels = 2;
-	wfm.nSamplesPerSec = 44100;
-	wfm.wBitsPerSample = 16;
-	wfm.nBlockAlign = wfm.wBitsPerSample / 8 *wfm.nChannels;
-	wfm.nAvgBytesPerSec = wfm.nSamplesPerSec * wfm.nBlockAlign;
-
-	rval = m_lpDS->CreateSoundBuffer(&dsbdesc, &lpDsb, NULL);
-	if (rval != DS_OK) return FALSE;
-	
-	lpDsb->SetFormat(&wfm);
-
-	rval = m_lpDS->SetCooperativeLevel(hWnd, DSSCL_NORMAL);
-	if(rval != DS_OK)
-	{
-		OutputDebugString("DirectSoundCreate error...\n");
+	hr = m_pXAudio2->CreateMasteringVoice(&m_pMasterVoice);
+	if (FAILED(hr)) {
+		OutputDebugString("CreateMasteringVoice error...\n");
+		m_pXAudio2->Release();
+		m_pXAudio2 = NULL;
 		return FALSE;
 	}
-	
+
 	return TRUE;
 }

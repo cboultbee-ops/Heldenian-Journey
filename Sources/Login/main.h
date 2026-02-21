@@ -12,6 +12,8 @@ DWORD	 Retrive32DWordValue(char * cp, DWORD offset);
 uint64   Retrive64DWordValue(char * cp, DWORD offset);
 void 	 SendValue(char * cp, DWORD offset, BYTE size, uint64 value);
 void	 PutLogFileList(char * cStr, char *FileName = NULL);
+void	 FlushLogFiles();
+void	 CloseLogFiles();
 void	 PutLogList(char * cMsg, BYTE MsgLvl = NULL, BOOL PutOnFile = NULL, char *FileName = NULL);
 void	 MakeGoodName(char *dest, char *source);
 void	 Delay(DWORD nTimeMs);

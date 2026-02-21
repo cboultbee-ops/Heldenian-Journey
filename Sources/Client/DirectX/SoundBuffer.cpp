@@ -1,12 +1,11 @@
-// SoundBuffer.cpp: implementation of the CSoundBuffer class.
+// SoundBuffer.cpp: XAudio2 sound buffer wrapper (replaces DirectSound buffer)
 //
 //////////////////////////////////////////////////////////////////////
 
 #include <windows.h>
 #include <stdio.h>
+#include <math.h>
 
-
-#include "dsound.h"
 #include "SoundBuffer.h"
 
 struct Waveheader
@@ -30,36 +29,22 @@ struct Waveheader
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 
-CSoundBuffer::CSoundBuffer(LPDIRECTSOUND lpDS, DSCAPS DSCaps, char * pWavFileName, BOOL bIsSingleLoad)
+CSoundBuffer::CSoundBuffer(IXAudio2* pXAudio2, char * pWavFileName, BOOL bIsSingleLoad)
 {
- int i;
-
-	m_lpDS		= lpDS;
-	m_DSCaps	= DSCaps;
+	m_pXAudio2 = pXAudio2;
 
 	ZeroMemory(m_cWavFileName, sizeof(m_cWavFileName));
 	strcpy(m_cWavFileName, pWavFileName);
 
-	if (bIsSingleLoad == TRUE) {
-		//m_lpDSB[0] = NULL;
-		//bCreateBuffer_LoadWavFileContents(0);
-	}
-	else {
-		/*
-		for (i = 0; i < MAXSOUNDBUFFERS; i++) {
-			m_lpDSB[i] = NULL;
-			bCreateBuffer_LoadWavFileContents(i);
-		}
-		*/
-	}
+	for (int i = 0; i < MAXSOUNDBUFFERS; i++) m_pVoice[i] = NULL;
 
-	for (i = 0; i < MAXSOUNDBUFFERS; i++) m_lpDSB[i] = NULL;
-	
+	m_pWavData = NULL;
+	m_dwWavDataSize = 0;
+	ZeroMemory(&m_wfx, sizeof(m_wfx));
+
 	m_cCurrentBufferIndex = 0;
 	m_bIsSingleLoad = bIsSingleLoad;
-
 	m_dwTime = NULL;
-
 	m_bIsLooping = FALSE;
 }
 
@@ -67,68 +52,67 @@ CSoundBuffer::~CSoundBuffer()
 {
 	for (int i = 0; i < MAXSOUNDBUFFERS; i++)
 	{
-		if (m_lpDSB[i] != NULL)
+		if (m_pVoice[i] != NULL)
 		{
-			m_lpDSB[i]->Release();
-			m_lpDSB[i] = NULL;
+			m_pVoice[i]->Stop(0);
+			m_pVoice[i]->DestroyVoice();
+			m_pVoice[i] = NULL;
 		}
 	}
+	delete[] m_pWavData;
+	m_pWavData = NULL;
 }
 
-BOOL CSoundBuffer::_bCreateSoundBuffer(char cBufferIndex, DWORD dwBufSize, DWORD dwFreq, DWORD dwBitsPerSample, DWORD dwBlkAlign, BOOL bStereo)
+BOOL CSoundBuffer::_LoadWavFile()
 {
-	PCMWAVEFORMAT pcmwf;
-	DSBUFFERDESC dsbdesc;
-	if (m_lpDSB[cBufferIndex] != NULL) return FALSE;
+	if (m_pWavData != NULL) return TRUE; // Already loaded
 
-	memset(&pcmwf, 0, sizeof(PCMWAVEFORMAT));
-	pcmwf.wf.wFormatTag         = WAVE_FORMAT_PCM;
-	pcmwf.wf.nChannels          = bStereo ? 2 : 1;
-	pcmwf.wf.nSamplesPerSec     = dwFreq;
-	pcmwf.wf.nBlockAlign        = (WORD)dwBlkAlign;
-	pcmwf.wf.nAvgBytesPerSec    = pcmwf.wf.nSamplesPerSec * pcmwf.wf.nBlockAlign;
-	pcmwf.wBitsPerSample        = (WORD)dwBitsPerSample;
-
-	memset(&dsbdesc, 0, sizeof(DSBUFFERDESC));
-	dsbdesc.dwSize              = sizeof(DSBUFFERDESC);
-	dsbdesc.dwFlags             = DSBCAPS_STATIC | DSBCAPS_GETCURRENTPOSITION2 | DSBCAPS_CTRLPAN | DSBCAPS_CTRLFREQUENCY | DSBCAPS_CTRLVOLUME;
-	dsbdesc.dwBufferBytes       = dwBufSize; 
-	dsbdesc.lpwfxFormat         = (LPWAVEFORMATEX)&pcmwf;
-
-	if (m_lpDS->CreateSoundBuffer(&dsbdesc, &m_lpDSB[cBufferIndex], NULL) != DS_OK) return FALSE;
-		
-	return TRUE;
-}
-
-BOOL CSoundBuffer::bCreateBuffer_LoadWavFileContents(char cBufferIndex)
-{
- FILE		*	pFile;
- Waveheader		Wavhdr;
- DWORD			dwSize;
- BOOL			bStereo;
-	
-	if (m_lpDSB[cBufferIndex] != NULL) return FALSE;
-
-	pFile = fopen(m_cWavFileName, "rb");
+	FILE * pFile = fopen(m_cWavFileName, "rb");
 	if (pFile == NULL) return FALSE;
-		
-	if (fread(&Wavhdr, sizeof(Wavhdr), 1, pFile) != 1) 
+
+	Waveheader Wavhdr;
+	if (fread(&Wavhdr, sizeof(Wavhdr), 1, pFile) != 1)
 	{
 		fclose(pFile);
 		return FALSE;
 	}
 
-	dwSize = Wavhdr.dwDSize;
-   	bStereo = Wavhdr.wChnls > 1 ? TRUE : FALSE;
-
-	if (_bCreateSoundBuffer(cBufferIndex, dwSize, Wavhdr.dwSRate, Wavhdr.BitsPerSample, Wavhdr.wBlkAlign, bStereo) == FALSE)
-	{
+	// Validate WAV header
+	if (memcmp(Wavhdr.RIFF, "RIFF", 4) != 0 || memcmp(Wavhdr.WAVE, "WAVE", 4) != 0) {
 		fclose(pFile);
-    	return FALSE;
+		return FALSE;
+	}
+	if (Wavhdr.dwSRate == 0 || Wavhdr.wBlkAlign == 0 || Wavhdr.BitsPerSample == 0) {
+		fclose(pFile);
+		return FALSE;
+	}
+	if (Wavhdr.dwDSize == 0 || Wavhdr.dwDSize > 50 * 1024 * 1024) { // Reject >50MB
+		fclose(pFile);
+		return FALSE;
 	}
 
-	if (!_LoadWavContents(cBufferIndex, pFile, dwSize, sizeof(Wavhdr))) 
-	{
+	m_dwWavDataSize = Wavhdr.dwDSize;
+
+	// Fill WAVEFORMATEX
+	ZeroMemory(&m_wfx, sizeof(m_wfx));
+	m_wfx.wFormatTag = WAVE_FORMAT_PCM;
+	m_wfx.nChannels = Wavhdr.wChnls;
+	m_wfx.nSamplesPerSec = Wavhdr.dwSRate;
+	m_wfx.wBitsPerSample = Wavhdr.BitsPerSample;
+	m_wfx.nBlockAlign = Wavhdr.wBlkAlign;
+	m_wfx.nAvgBytesPerSec = m_wfx.nSamplesPerSec * m_wfx.nBlockAlign;
+
+	// Load WAV data into heap buffer
+	m_pWavData = new BYTE[m_dwWavDataSize];
+	if (fseek(pFile, sizeof(Waveheader), SEEK_SET) != 0) {
+		delete[] m_pWavData;
+		m_pWavData = NULL;
+		fclose(pFile);
+		return FALSE;
+	}
+	if (fread(m_pWavData, m_dwWavDataSize, 1, pFile) != 1) {
+		delete[] m_pWavData;
+		m_pWavData = NULL;
 		fclose(pFile);
 		return FALSE;
 	}
@@ -137,154 +121,146 @@ BOOL CSoundBuffer::bCreateBuffer_LoadWavFileContents(char cBufferIndex)
 	return TRUE;
 }
 
-BOOL CSoundBuffer::_LoadWavContents(char cBufferIndex, FILE * pFile, DWORD dwSize, DWORD dwPos)
+BOOL CSoundBuffer::_CreateVoice(char cBufferIndex)
 {
- LPVOID  Data1;
- DWORD   dwData1Size;
- LPVOID  Data2;
- DWORD   dwData2Size;
- HRESULT rval;
-	
-	if (m_lpDSB[cBufferIndex] == NULL) return FALSE;
-	if (dwPos == 0xffffffff) return FALSE;
-	if (fseek(pFile, dwPos, SEEK_SET) != 0) return FALSE;
+	if (m_pXAudio2 == NULL || m_pWavData == NULL) return FALSE;
+	if (m_pVoice[cBufferIndex] != NULL) return FALSE;
 
-	rval = m_lpDSB[cBufferIndex]->Lock(0, dwSize, &Data1, &dwData1Size, &Data2, &dwData2Size, DSBLOCK_ENTIREBUFFER);
-	//DSBLOCK_FROMWRITECURSOR); // DSBLOCK_ENTIREBUFFER
-	if (rval != DS_OK) return FALSE;
+	HRESULT hr = m_pXAudio2->CreateSourceVoice(&m_pVoice[cBufferIndex], &m_wfx);
+	return SUCCEEDED(hr);
+}
 
-	if (dwData1Size > 0) 
-	if (fread(Data1, dwData1Size, 1, pFile) != 1) 
-		return FALSE;
-		
-	if (dwData2Size > 0) 
-	if (fread(Data2, dwData2Size, 1, pFile) != 1) 
-		return FALSE;
-	
-	rval = m_lpDSB[cBufferIndex]->Unlock(Data1, dwData1Size, Data2, dwData2Size);
-	if (rval != DS_OK) return FALSE;
- 
-	
-	m_lpDSB[cBufferIndex]->SetFrequency(DSBFREQUENCY_ORIGINAL);
+BOOL CSoundBuffer::Play(BOOL bLoop, long lPan, int iVol)
+{
+	if (m_pXAudio2 == NULL) return FALSE;
+
+	IXAudio2SourceVoice* voice = GetIdleVoice();
+	if (voice == NULL) return FALSE;
+
+	// Set volume (DS dB scale → XAudio2 linear)
+	SetVolume(iVol);
+
+	// Apply pan via output matrix (assume stereo output)
+	if (lPan != 0) {
+		XAUDIO2_VOICE_DETAILS voiceDetails;
+		voice->GetVoiceDetails(&voiceDetails);
+		UINT32 srcChannels = voiceDetails.InputChannels;
+
+		float fPan = (float)lPan / 10000.0f;
+		if (fPan < -1.0f) fPan = -1.0f;
+		if (fPan > 1.0f)  fPan = 1.0f;
+
+		float left  = (fPan <= 0.0f) ? 1.0f : (1.0f - fPan);
+		float right = (fPan >= 0.0f) ? 1.0f : (1.0f + fPan);
+
+		if (srcChannels == 1) {
+			float matrix[2] = { left, right };
+			voice->SetOutputMatrix(NULL, 1, 2, matrix);
+		} else if (srcChannels == 2) {
+			float matrix[4] = { left, 0.0f, 0.0f, right };
+			voice->SetOutputMatrix(NULL, 2, 2, matrix);
+		}
+	}
+
+	m_bIsLooping = bLoop;
+
+	// Stop and flush any existing playback
+	voice->Stop(0);
+	voice->FlushSourceBuffers();
+
+	// Submit buffer
+	XAUDIO2_BUFFER buf = {0};
+	buf.AudioBytes = m_dwWavDataSize;
+	buf.pAudioData = m_pWavData;
+	buf.Flags = XAUDIO2_END_OF_STREAM;
+	if (bLoop) buf.LoopCount = XAUDIO2_LOOP_INFINITE;
+
+	HRESULT hr = voice->SubmitSourceBuffer(&buf);
+	if (FAILED(hr)) return FALSE;
+
+	hr = voice->Start(0);
+	if (FAILED(hr)) return FALSE;
 
 	return TRUE;
 }
 
-
-BOOL CSoundBuffer::Play(BOOL bLoop, long lPan, int iVol)
+IXAudio2SourceVoice* CSoundBuffer::GetIdleVoice()
 {
- HRESULT rval;
- LPDIRECTSOUNDBUFFER Buffer = NULL;
- 
-	if(m_lpDS == NULL) return FALSE;
+	if (m_pXAudio2 == NULL) return NULL;
 
-	Buffer = GetIdleBuffer();
-	if(Buffer == NULL) return FALSE;
-	
-	SetVolume(iVol);
+	// Ensure WAV data is loaded (lazy load)
+	if (m_pWavData == NULL) {
+		if (!_LoadWavFile()) return NULL;
+	}
 
-	if (lPan < DSBPAN_LEFT) lPan = DSBPAN_LEFT;
-	else if (lPan > DSBPAN_RIGHT) lPan = DSBPAN_RIGHT; 
-	Buffer->SetPan(lPan);
+	if (m_pVoice[m_cCurrentBufferIndex] != NULL) {
+		XAUDIO2_VOICE_STATE state;
+		m_pVoice[m_cCurrentBufferIndex]->GetState(&state);
 
-	m_bIsLooping = bLoop;
-
-	if (bLoop == FALSE)
-		 rval = Buffer->Play(0, 0, 0);
-	else rval = Buffer->Play(0, 0, DSBPLAY_LOOPING );
-	if(rval != DS_OK) return FALSE;
-
-	return TRUE;
-} 
-
-
-LPDIRECTSOUNDBUFFER CSoundBuffer::GetIdleBuffer(void)
-{
- DWORD Status;
- HRESULT rval;
- LPDIRECTSOUNDBUFFER Buffer;
-	
-	Buffer = NULL;
-	if (m_lpDSB[m_cCurrentBufferIndex] != NULL) {
-		rval = m_lpDSB[m_cCurrentBufferIndex]->GetStatus(&Status);
-		if (rval < 0) Status = 0;
-
-		if (Status & DSBSTATUS_BUFFERLOST) {
-			m_lpDSB[m_cCurrentBufferIndex]->Release();
-			m_lpDSB[m_cCurrentBufferIndex] = NULL;
-			bCreateBuffer_LoadWavFileContents(m_cCurrentBufferIndex);
-		}
-		else if ((Status & DSBSTATUS_PLAYING) == DSBSTATUS_PLAYING) {
+		if (state.BuffersQueued > 0) {
+			// Currently playing
 			if (m_bIsSingleLoad == TRUE) {
-				m_lpDSB[m_cCurrentBufferIndex]->Stop();
-				m_lpDSB[m_cCurrentBufferIndex]->SetCurrentPosition(0);
-				Buffer = m_lpDSB[m_cCurrentBufferIndex];
+				m_pVoice[m_cCurrentBufferIndex]->Stop(0);
+				m_pVoice[m_cCurrentBufferIndex]->FlushSourceBuffers();
 				m_dwTime = timeGetTime();
-				return Buffer;
+				return m_pVoice[m_cCurrentBufferIndex];
 			}
-			
+
+			// Cycle to next voice
 			m_cCurrentBufferIndex++;
 			if (m_cCurrentBufferIndex >= MAXSOUNDBUFFERS) m_cCurrentBufferIndex = 0;
-			
-			if (m_lpDSB[m_cCurrentBufferIndex] != NULL) {
-				rval = m_lpDSB[m_cCurrentBufferIndex]->GetStatus(&Status);
-				if (rval < 0) Status = 0;
-				if (Status & DSBSTATUS_BUFFERLOST) {
-					m_lpDSB[m_cCurrentBufferIndex]->Release();
-					m_lpDSB[m_cCurrentBufferIndex] = NULL;
-					bCreateBuffer_LoadWavFileContents(m_cCurrentBufferIndex);
-				}
-				else if ((Status & DSBSTATUS_PLAYING) == DSBSTATUS_PLAYING) {
-					m_lpDSB[m_cCurrentBufferIndex]->Stop();
-					m_lpDSB[m_cCurrentBufferIndex]->SetCurrentPosition(0);
+
+			if (m_pVoice[m_cCurrentBufferIndex] != NULL) {
+				m_pVoice[m_cCurrentBufferIndex]->GetState(&state);
+				if (state.BuffersQueued > 0) {
+					m_pVoice[m_cCurrentBufferIndex]->Stop(0);
+					m_pVoice[m_cCurrentBufferIndex]->FlushSourceBuffers();
 				}
 			}
 			else {
-				bCreateBuffer_LoadWavFileContents(m_cCurrentBufferIndex);
+				_CreateVoice(m_cCurrentBufferIndex);
 			}
-			
-			//m_lpDSB[m_cCurrentBufferIndex]->Stop();
-			//m_lpDSB[m_cCurrentBufferIndex]->SetCurrentPosition(0);
 		}
-
-		Buffer = m_lpDSB[m_cCurrentBufferIndex];
 	}
 	else {
-		bCreateBuffer_LoadWavFileContents(m_cCurrentBufferIndex);
-		Buffer = m_lpDSB[m_cCurrentBufferIndex];
-	}	
+		_CreateVoice(m_cCurrentBufferIndex);
+	}
 
 	m_dwTime = timeGetTime();
-	return Buffer;
+	return m_pVoice[m_cCurrentBufferIndex];
 }
 
 void CSoundBuffer::SetVolume(LONG Volume)
 {
- int i;
+	// Convert DirectSound dB volume (-10000..0) to XAudio2 linear (0..1)
+	float fVol;
+	if (Volume <= -10000) fVol = 0.0f;
+	else if (Volume >= 0) fVol = 1.0f;
+	else fVol = powf(10.0f, (float)Volume / 2000.0f);
 
-	for (i = 0; i < MAXSOUNDBUFFERS; i++)
-	if (m_lpDSB[i] != NULL) m_lpDSB[i]->SetVolume(Volume);
+	for (int i = 0; i < MAXSOUNDBUFFERS; i++)
+		if (m_pVoice[i] != NULL) m_pVoice[i]->SetVolume(fVol);
 }
 
 void CSoundBuffer::bStop(BOOL bIsNoRewind)
 {
 	for (int i = 0; i < MAXSOUNDBUFFERS; i++)
 	{
-		if (m_lpDSB[i] != NULL)
+		if (m_pVoice[i] != NULL)
 		{
-			if( m_lpDSB[i]->Stop() != DS_OK ) return;
-			if (bIsNoRewind == FALSE) m_lpDSB[i]->SetCurrentPosition(0);
+			m_pVoice[i]->Stop(0);
+			if (bIsNoRewind == FALSE) m_pVoice[i]->FlushSourceBuffers();
 		}
 	}
 }
 
 void CSoundBuffer::_ReleaseSoundBuffer()
 {
- int i;
-
-	for (i = 0; i < MAXSOUNDBUFFERS; i++) 
-	if (m_lpDSB[i] != NULL) {
-		m_lpDSB[i]->Release();
-		m_lpDSB[i] = NULL;
+	for (int i = 0; i < MAXSOUNDBUFFERS; i++)
+	{
+		if (m_pVoice[i] != NULL) {
+			m_pVoice[i]->DestroyVoice();
+			m_pVoice[i] = NULL;
+		}
 	}
 }

@@ -41,20 +41,70 @@ void UpdateScreen()
 	}
 }
 //=============================================================================
+#define LOG_CACHE_MAX 8
+
+static struct {
+	char  szFileName[260];
+	FILE *pFile;
+} g_logCache[LOG_CACHE_MAX];
+static int g_logCacheCount = 0;
+static BOOL g_logDirsCreated = FALSE;
+
+static FILE * _GetCachedLogFile(const char *FileName, const char *mode)
+{
+	for (int i = 0; i < g_logCacheCount; i++) {
+		if (strcmp(g_logCache[i].szFileName, FileName) == 0 && g_logCache[i].pFile != NULL)
+			return g_logCache[i].pFile;
+	}
+	FILE *pFile = fopen(FileName, mode);
+	if (pFile == NULL) return NULL;
+	setvbuf(pFile, NULL, _IOLBF, 4096);
+	if (g_logCacheCount < LOG_CACHE_MAX) {
+		strncpy(g_logCache[g_logCacheCount].szFileName, FileName, sizeof(g_logCache[0].szFileName) - 1);
+		g_logCache[g_logCacheCount].szFileName[sizeof(g_logCache[0].szFileName) - 1] = '\0';
+		g_logCache[g_logCacheCount].pFile = pFile;
+		g_logCacheCount++;
+	}
+	return pFile;
+}
+
+void FlushLogFiles()
+{
+	for (int i = 0; i < g_logCacheCount; i++) {
+		if (g_logCache[i].pFile != NULL)
+			fflush(g_logCache[i].pFile);
+	}
+}
+
+void CloseLogFiles()
+{
+	for (int i = 0; i < g_logCacheCount; i++) {
+		if (g_logCache[i].pFile != NULL) {
+			fclose(g_logCache[i].pFile);
+			g_logCache[i].pFile = NULL;
+		}
+	}
+	g_logCacheCount = 0;
+}
+
 void PutLogFileList(char * cStr, char *FileName)
 {
 	char Txt[50], FName[100];
 	FILE * pFile;
 	char cBuffer[MAXLOGLINESIZE+100];
 	SYSTEMTIME SysTime;
+	BOOL bDateBased = FALSE;
 
 	if(strlen(cStr) > MAXLOGLINESIZE) return;
 	GetLocalTime(&SysTime);
 
-	_mkdir("Logs");
+	if (!g_logDirsCreated) {
+		_mkdir("Logs");
+		g_logDirsCreated = TRUE;
+	}
 
-	if(FileName == NULL) 
-		pFile = fopen("Events.log", "at");
+	if(FileName == NULL)
+		pFile = _GetCachedLogFile("Events.log", "at");
 	else if(IsSame(FileName, GM_LOGFILE)){
 		_mkdir("Logs/GM");
 		ZeroMemory(Txt, sizeof(Txt));
@@ -63,6 +113,7 @@ void PutLogFileList(char * cStr, char *FileName)
 		SafeCopy(FName, FileName);
 		strcat(FName, Txt);
 		pFile = fopen(FName, "at");
+		bDateBased = TRUE;
 	}
 	else if(IsSame(FileName, PLAYER_LOGFILE)){
 		_mkdir("Logs/Player");
@@ -72,6 +123,7 @@ void PutLogFileList(char * cStr, char *FileName)
 		SafeCopy(FName, FileName);
 		strcat(FName, Txt);
 		pFile = fopen(FName, "at");
+		bDateBased = TRUE;
 	}
 	else if(IsSame(FileName, ITEM_LOGFILE)){
 		_mkdir("Logs/Item");
@@ -81,6 +133,7 @@ void PutLogFileList(char * cStr, char *FileName)
 		SafeCopy(FName, FileName);
 		strcat(FName, Txt);
 		pFile = fopen(FName, "at");
+		bDateBased = TRUE;
 	}
 	else if(IsSame(FileName, CRUSADE_LOGFILE)){
 		_mkdir("Logs/Crusade");
@@ -90,12 +143,13 @@ void PutLogFileList(char * cStr, char *FileName)
 		SafeCopy(FName, FileName);
 		strcat(FName, Txt);
 		pFile = fopen(FName, "at");
+		bDateBased = TRUE;
 	}
 	else if(IsSame(FileName, XSOCKET_LOGFILE) || IsSame(FileName, GSPACKET_LOGFILE) || IsSame(FileName, CLIENTPACKET_LOGFILE) ||
-		IsSame(FileName, GSUNKNOWNMSG_LOGFILE) || IsSame(FileName, CLIENTUNKNOWNMSG_LOGFILE)) 
-		pFile = fopen(FileName, "ab");
-	else 
-		pFile = fopen(FileName, "at");
+		IsSame(FileName, GSUNKNOWNMSG_LOGFILE) || IsSame(FileName, CLIENTUNKNOWNMSG_LOGFILE))
+		pFile = _GetCachedLogFile(FileName, "ab");
+	else
+		pFile = _GetCachedLogFile(FileName, "at");
 
 	if (pFile == NULL) return;
 
@@ -106,7 +160,7 @@ void PutLogFileList(char * cStr, char *FileName)
 	strcat(cBuffer, "\n");
 
 	fwrite(cBuffer, 1, strlen(cBuffer), pFile);
-	fclose(pFile);
+	if (bDateBased) fclose(pFile);
 }
 //=============================================================================
 void PutLogList(char * cMsg, BYTE MsgLvl, BOOL PutOnFile, char *FileName)
@@ -223,6 +277,7 @@ void _StopTimer(MMRESULT timerid)
 void OnDestroy()
 {
 	SAFEDELETE(Server);
+	CloseLogFiles();
 	PostQuitMessage(0);
 }
 //=============================================================================

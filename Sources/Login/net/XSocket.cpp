@@ -143,7 +143,8 @@ BOOL XSocket::bConnect(char * pAddr, int iPort, unsigned int uiMsg)
 	setsockopt(m_Sock, SOL_SOCKET, SO_SNDBUF, (const char FAR *)&dwOpt, sizeof(dwOpt));
 
 
-	SafeCopy(m_pAddr, pAddr);
+	strncpy(m_pAddr, pAddr, sizeof(m_pAddr) - 1);
+	m_pAddr[sizeof(m_pAddr) - 1] = '\0';
 	m_iPortNum = iPort;
 
 	m_uiMsg = uiMsg;
@@ -377,11 +378,15 @@ int XSocket::iSendMsg(char * Data, DWORD dwSize, char cKey, BOOL log)
 	if(log){
         ZeroMemory(m_msgBuff, sizeof(m_msgBuff));
         ZeroMemory(dataBuff, sizeof(dataBuff));
-        wsprintf(m_msgBuff,"Msg [%lu] was sent = ", dwSize);
-        memcpy(dataBuff, Data, dwSize);
+        _snprintf(m_msgBuff, sizeof(m_msgBuff) - 1, "Msg [%lu] was sent = ", dwSize);
+        DWORD dwCopyLen = min(dwSize, sizeof(dataBuff) - 1);
+        memcpy(dataBuff, Data, dwCopyLen);
+        dataBuff[dwCopyLen] = '\0';
 
-        for(i = 0; i < dwSize; i++) if(dataBuff[i] == NULL) dataBuff[i] = ' ';
-        strcat(m_msgBuff, dataBuff);
+        for(i = 0; i < dwCopyLen; i++) if(dataBuff[i] == '\0') dataBuff[i] = ' ';
+        DWORD dwHdrLen = (DWORD)strlen(m_msgBuff);
+        strncpy(m_msgBuff + dwHdrLen, dataBuff, sizeof(m_msgBuff) - dwHdrLen - 1);
+        m_msgBuff[sizeof(m_msgBuff) - 1] = '\0';
         PutLogFileList(m_msgBuff, XSOCKET_LOGFILE);
 	}
     if (cKey != NULL) {//Encryption
@@ -535,7 +540,8 @@ int XSocket::iGetPeerAddress(char * pAddrString)
 	
 	iLen = sizeof(sockaddr);
 	iRet = getpeername(m_Sock, (struct sockaddr *)&sockaddr, &iLen);
-	strcpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr));
+	strncpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr), 29);
+	pAddrString[29] = '\0';
 
 	return iRet;
 }

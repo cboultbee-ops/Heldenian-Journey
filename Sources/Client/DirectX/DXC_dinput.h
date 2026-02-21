@@ -1,4 +1,4 @@
-// DXC_dinput.h: interface for the DXC_dinput class.
+// DXC_dinput.h: Mouse input via Raw Input API (replaces DirectInput 7)
 //
 //////////////////////////////////////////////////////////////////////
 
@@ -9,11 +9,9 @@
 #pragma once
 #endif // _MSC_VER >= 1000
 
-//#define INITGUID
 #include <windows.h>
-#include "dinput.h"
 
-class DXC_dinput  
+class DXC_dinput
 {
 public:
 	DXC_dinput();
@@ -22,10 +20,24 @@ public:
 	void SetAcquire(BOOL bFlag);
 	BOOL bInit(HWND hWnd, HINSTANCE hInst);
 
-	DIMOUSESTATE dims;
-	IDirectInput *           m_pDI;
-	IDirectInputDevice *     m_pMouse;
+	void SetBounds(short sMaxX, short sMaxY);
+
+	// Raw Input message handler - call from WndProc on WM_INPUT
+	void OnRawInput(LPARAM lParam);
+	// Mouse wheel handler - call from WndProc on WM_MOUSEWHEEL
+	void OnMouseWheel(short zDelta);
+
 	short m_sX, m_sY, m_sZ;
+	short m_sMaxX, m_sMaxY;
+
+private:
+	HWND m_hWnd;
+	BOOL m_bAcquired;
+	// Accumulated deltas from WM_INPUT, consumed by UpdateMouseState
+	long m_lDeltaX, m_lDeltaY;
+	short m_sWheelDelta;
+	// Button state from raw input (0x80 = pressed, 0 = released, matches DirectInput convention)
+	char m_cButtons[3];
 };
 
 #endif // !defined(AFX_DXC_DINPUT_H__639F0280_78D8_11D2_A8E6_00001C7030A6__INCLUDED_)

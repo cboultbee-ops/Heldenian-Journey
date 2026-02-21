@@ -180,7 +180,6 @@
     <ClInclude Include="DirectX\d3dtypes.h" />
     <ClInclude Include="DirectX\DDraw.h" />
     <ClInclude Include="DirectX\DInput.h" />
-    <ClInclude Include="DirectX\DSound.h" />
     <ClInclude Include="DirectX\DXC_ddraw.h" />
     <ClInclude Include="DirectX\DXC_dinput.h" />
     <ClInclude Include="DirectX\DXC_dsound.h" />
@@ -189,6 +188,8 @@
     <ClInclude Include="DirectX\GPURenderer.h" />
     <ClInclude Include="DirectX\ShaderManager.h" />
     <ClInclude Include="DirectX\SoundBuffer.h" />
+    <ClInclude Include="SoundManager.h" />
+    <ClInclude Include="MessageHandler.h" />
     <ClInclude Include="DirectX\SoundID.h" />
     <ClInclude Include="DirectX\Sprite.h" />
     <ClInclude Include="DirectX\SpriteID.h" />
@@ -227,6 +228,7 @@
     <ClCompile Include="DirectX\GPURenderer.cpp" />
     <ClCompile Include="DirectX\ShaderManager.cpp" />
     <ClCompile Include="DirectX\SoundBuffer.cpp" />
+    <ClCompile Include="SoundManager.cpp" />
     <ClCompile Include="DirectX\Sprite.cpp" />
     <ClCompile Include="DirectX\TileSpr.cpp" />
     <ClCompile Include="DirectX\YWSound.cpp" />
@@ -237,6 +239,7 @@
     <ClCompile Include="Net\Msg.cpp" />
     <ClCompile Include="Net\XSocket.cpp" />
     <ClCompile Include="Game.cpp" />
+    <ClCompile Include="MessageHandler.cpp" />
     <ClCompile Include="Misc.cpp">
       <Optimization Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">Disabled</Optimization>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -259,7 +262,6 @@
   <ItemGroup>
     <Library Include="..\Shared\lib\DDRAW.LIB" />
     <Library Include="..\Shared\lib\DINPUT.LIB" />
-    <Library Include="..\Shared\lib\DSOUND.LIB" />
     <Library Include="..\Shared\lib\DXGUID.LIB" />
     <Library Include="..\Shared\lib\search.lib" />
     <Library Include="..\Shared\lib\WINMM.LIB" />

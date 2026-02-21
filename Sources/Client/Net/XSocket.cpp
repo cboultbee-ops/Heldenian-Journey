@@ -121,20 +121,25 @@ BOOL XSocket::bBlockConnect(char * pAddr, int iPort, unsigned int uiMsg)
 	if (m_Sock  != INVALID_SOCKET) closesocket(m_Sock);
 
 	m_Sock = socket(AF_INET, SOCK_STREAM, 0);
-	if (m_Sock == INVALID_SOCKET) 
+	if (m_Sock == INVALID_SOCKET)
 		return FALSE;
-	
+
 	memset(&saTemp,0,sizeof(saTemp));
-	hp = gethostbyname(pAddr);
-	if (hp) {
-		memcpy(&(saTemp.sin_addr),hp->h_addr, hp->h_length); 
-		saTemp.sin_family = hp->h_addrtype;
-		saTemp.sin_port = htons(iPort);
+	saTemp.sin_family = AF_INET;
+	saTemp.sin_port = htons(iPort);
+	saTemp.sin_addr.s_addr = inet_addr(pAddr);
+	if (saTemp.sin_addr.s_addr == INADDR_NONE) {
+		// Not a numeric IP address, resolve hostname
+		hp = gethostbyname(pAddr);
+		if (hp) {
+			memcpy(&(saTemp.sin_addr), hp->h_addr, hp->h_length);
+		} else {
+			closesocket(m_Sock);
+			m_Sock = INVALID_SOCKET;
+			return FALSE;
+		}
 	}
-	else {
-		return FALSE;
-	}
-	
+
 	iRet = connect(m_Sock, (struct sockaddr *) &saTemp, sizeof(saTemp));
 	if (iRet == SOCKET_ERROR) {
 		if (WSAGetLastError() != WSAEWOULDBLOCK) {
@@ -147,7 +152,8 @@ BOOL XSocket::bBlockConnect(char * pAddr, int iPort, unsigned int uiMsg)
  	setsockopt(m_Sock, SOL_SOCKET, SO_RCVBUF, (const char FAR *)&dwOpt, sizeof(dwOpt));
  	setsockopt(m_Sock, SOL_SOCKET, SO_SNDBUF, (const char FAR *)&dwOpt, sizeof(dwOpt));
 
-	strcpy(m_pAddr, pAddr);
+	strncpy(m_pAddr, pAddr, sizeof(m_pAddr) - 1);
+	m_pAddr[sizeof(m_pAddr) - 1] = '\0';
 	m_iPortNum = iPort;
 
 	m_uiMsg = uiMsg;
@@ -192,7 +198,8 @@ BOOL XSocket::bConnect(char * pAddr, int iPort, unsigned int uiMsg)
  	setsockopt(m_Sock, SOL_SOCKET, SO_RCVBUF, (const char FAR *)&dwOpt, sizeof(dwOpt));
  	setsockopt(m_Sock, SOL_SOCKET, SO_SNDBUF, (const char FAR *)&dwOpt, sizeof(dwOpt));
 
-	strcpy(m_pAddr, pAddr);
+	strncpy(m_pAddr, pAddr, sizeof(m_pAddr) - 1);
+	m_pAddr[sizeof(m_pAddr) - 1] = '\0';
 	m_iPortNum = iPort;
 
 	m_uiMsg = uiMsg;
@@ -558,7 +565,8 @@ int XSocket::iGetPeerAddress(char * pAddrString)
 	
 	iLen = sizeof(sockaddr);
 	iRet = getpeername(m_Sock, (struct sockaddr *)&sockaddr, &iLen);
-	strcpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr));
+	strncpy(pAddrString, (const char *)inet_ntoa(sockaddr.sin_addr), 29);
+	pAddrString[29] = '\0';
 
 	return iRet;
 }

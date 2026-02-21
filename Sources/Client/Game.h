@@ -23,6 +23,8 @@
 #include <process.h>
 #include <direct.h>
 #include <set>
+#include <unordered_map>
+#include "SoundManager.h"
 
 #include "..\shared\common.h"
 #include "..\shared\NetMessages.h"
@@ -32,7 +34,6 @@
 #include "GlobalDef.h"
 #include "directx\DXC_ddraw.h"
 #include "directx\DXC_dinput.h"
-#include "directx\DSound.h"
 #include "directx\SoundBuffer.h"
 #include "directx\YWSound.h"
 #include "net\XSocket.h"
@@ -53,6 +54,8 @@
 #include "char\item\BuildItem.h"
 #include "char\item\ItemName.h"
 #include "char\Curse.h"
+#include "SoundManager.h"
+#include "MessageHandler.h"
 
 #ifdef USING_WIN_IME
 	#include <RICHEDIT.H>
@@ -145,15 +148,66 @@
 #define STAT_MAG					4
 #define STAT_CHR					5
 
+// Dialog box indices for m_stDialogBoxInfo[] / m_bIsDialogEnabled[] / m_cDialogBoxOrder[]
+enum DialogBoxType {
+	DIALOG_CHARACTER        = 1,   // Character info (F5) - stats / paperdoll
+	DIALOG_INVENTORY        = 2,   // Inventory (F6)
+	DIALOG_MAGIC            = 3,   // Magic circle (F7)
+	DIALOG_ITEMDROP         = 4,   // Item drop amount confirmation
+	DIALOG_15AGEMSG         = 5,   // Age < 15 warning
+	DIALOG_WARNINGMSG       = 6,   // "Battle area" warning
+	DIALOG_GUILDMENU        = 7,   // Guild management menu
+	DIALOG_GUILDOPERATION   = 8,   // Guild operation submenu
+	DIALOG_GUIDEMAP         = 9,   // Map guide / reference
+	DIALOG_CHAT             = 10,  // Chat history (F9)
+	DIALOG_SHOP             = 11,  // NPC shop
+	DIALOG_LEVELUPSETTING   = 12,  // Level-up stat distribution
+	DIALOG_CITYHALLMENU     = 13,  // City hall menu
+	DIALOG_BANK             = 14,  // Bank deposit / withdrawal
+	DIALOG_SKILL            = 15,  // Skill menu (F8)
+	DIALOG_MAGICSHOP        = 16,  // Magic shop (buy spells)
+	DIALOG_QUERYDROPAMOUNT  = 17,  // Query drop item amount
+	DIALOG_TEXT             = 18,  // Generic text display (NPC / quest)
+	DIALOG_SYSMENU          = 19,  // System menu (F12)
+	DIALOG_NPCACTIONQUERY   = 20,  // NPC "What do you want?" prompt
+	DIALOG_NPCTALK          = 21,  // NPC dialogue window
+	DIALOG_MAP              = 22,  // World map display
+	DIALOG_SELLORREPAIR     = 23,  // Sell or repair item
+	DIALOG_FISHING          = 24,  // Fishing minigame
+	DIALOG_SHUTDOWNMSG      = 25,  // Server shutdown notice
+	DIALOG_SKILLDLG         = 26,  // Manufacturing / crafting
+	DIALOG_EXCHANGE         = 27,  // Player trade exchange
+	DIALOG_QUEST            = 28,  // Quest info and rewards
+	DIALOG_GAUGEPANEL       = 29,  // HP / MP / SP bars
+	DIALOG_ICONPANEL        = 30,  // Quick action icon toolbar
+	DIALOG_SELLLIST         = 31,  // Items to sell list
+	DIALOG_PARTY            = 32,  // Party member info
+	DIALOG_CRUSADEJOB       = 33,  // Crusade job selection
+	DIALOG_ITEMUPGRADE      = 34,  // Item upgrade / enchantment
+	DIALOG_HELP             = 35,  // Help menu (F1)
+	DIALOG_COMMANDER        = 36,  // Crusade commander menu
+	DIALOG_CONSTRUCTOR      = 37,  // Crusade constructor menu
+	DIALOG_SOLDIER          = 38,  // Crusade soldier menu
+	DIALOG_SLATES           = 40,  // Slate crafting (v3.51+)
+	DIALOG_CONFIRMEXCHANGE  = 41,  // Confirm trade dialog
+	DIALOG_CHANGESTATSMAJ   = 42,  // Majestic stat changes (Angel)
+	DIALOG_FRIENDLIST       = 43,  // Friends list
+	DIALOG_RESURRECT        = 50,  // Resurrection confirmation
+	DIALOG_CMDHALLMENU      = 51,  // Guild hall commander menu
+	DIALOG_DKMENUARMOR      = 52,  // Dark Knight armor menu
+	DIALOG_DKMENUWEAPONS    = 53,  // Dark Knight weapons menu
+	DIALOG_COUNT            = 61   // Total dialog box slots
+};
 
 class CGame
 {
+	friend class CMessageHandler;
 public:
+	CMessageHandler m_MsgHandler;
+
 	void DrawPartyStats(int ix, int iy, int iFrame);
-	void Notify_PartyInfo(char * Data);
 	void DrawPartyStats();
 
-	void NotifyMsg_Heldenian(char * Data);
 	void DrawHeldenianStats();
 	void TimeStamp(char * pString);
 	BOOL m_bHappyHour;
@@ -188,8 +242,6 @@ public:
 	char cStateChange3;
 
 	int m_iTeleportMapCount;
-	void ResponseTeleportList(char * Data);
-	void ResponseChargedTeleport(char * Data);
 	void * operator new (size_t size)
 	{
 		return HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, size);
@@ -334,92 +386,11 @@ public:
 	void DlgBoxClick_Commander(int msX, int msY);
 	void DlgBoxClick_Constructor(int msX, int msY);
 	void DlgBoxClick_Soldier(int msX, int msY);
-	void NotifyMsgHandler(char * Data);
-	void NotifyMsg_GlobalAttackMode(char * Data);
-	void NotifyMsg_QuestReward(char * Data);
-	void NotifyMsg_QuestContents(char * Data);
-	void NotifyMsg_ItemColorChange(char * Data);
-	void NotifyMsg_DropItemFin_CountChanged(char * Data);
-	void NotifyMsg_CannotGiveItem(char * Data);
-	void NotifyMsg_GiveItemFin_CountChanged(char * Data);
-	void NotifyMsg_SetExchangeItem(char * Data);
-	void NotifyMsg_OpenExchageWindow(char * Data);
-	void NotifyMsg_DownSkillIndexSet(char * Data);
-	void NotifyMsg_AdminInfo(char * Data);
-	void NotifyMsg_WhetherChange(char * Data);
-	void NotifyMsg_FishChance(char * Data);
-	void NotifyMsg_EventFishMode(char * Data);
-	void NotifyMsg_NoticeMsg(char * Data);
-	void NotifyMsg_RatingPlayer(char * Data);
-	void NotifyMsg_CannotRating(char * Data);
-	void NotifyMsg_PlayerShutUp(char * Data);
-	void NotifyMsg_TimeChange(char * Data);
-	void NotifyMsg_Hunger(char * Data);
-	void NotifyMsg_PlayerProfile(char * Data);
-	void NotifyMsg_WhisperMode(BOOL bActive, char * Data);
-	void NotifyMsg_PlayerStatus(BOOL bOnGame, char * Data);
-	void NotifyMsg_Range(char * Data);
-	void NotifyMsg_ItemRepaired(char * Data);
-	void NotifyMsg_RepairItemPrice(char * Data);
-	void NotifyMsg_CannotRepairItem(char * Data);
-	void NotifyMsg_CannotSellItem(char * Data);
-	void NotifyMsg_SellItemPrice(char * Data);
-	void NotifyMsg_ShowMap(char * Data);
-	void NotifyMsg_SkillUsingEnd(char * Data);
-	void NotifyMsg_TotalUsers(char * Data);
-	void NotifyMsg_EventStart(char * Data);
-	void NotifyMsg_EventStarting(char * Data);
-	void NotifyMsg_Casualties(char * Data);	
-	void NotifyMsg_RelicInAltar(char * Data);
-	void NotifyMsg_RelicGrabbed(char * Data);
-	void NotifyMsg_CTRWinner(char * Data);
-	void NotifyMsg_MagicEffectOff(char * Data);
-	void NotifyMsg_MagicEffectOn(char * Data);
-	void NotifyMsg_SetItemCount(char * Data);
-	void NotifyMsg_ItemDepleted_EraseItem(char * Data);
-	void NotifyMsg_ServerChange(char * Data);
-	void NotifyMsg_Skill(char * Data);
-	void NotifyMsg_DropItemFin_EraseItem(char * Data);
-	void NotifyMsg_GiveItemFin_EraseItem(char * Data);
-	void NotifyMsg_EnemyKillReward(char * Data);
-	void NotifyMsg_PKcaptured(char * Data);
-	void NotifyMsg_PKpenalty(char * Data);
-	void NotifyMsg_ItemToBank(char * Data);
-	void NotifyMsg_ItemLifeSpanEnd(char * Data);
-	void NotifyMsg_ItemReleased(char * Data);
-	void NotifyMsg_LevelUp(char * Data);
-	void NotifyMsg_SettingSuccess(char * Data); // CLEROTH - LU
-	void NotifyMsg_MP(char * Data);
-	void NotifyMsg_SP(char * Data);
-	void NotifyMsg_SkillTrainSuccess(char * Data);
-	void NotifyMsg_MagicStudyFail(char * Data);
-	void NotifyMsg_MagicStudySuccess(char * Data);
-	void NotifyMsg_DismissGuildsMan(char * Data);
-	void NotifyMsg_NewGuildsMan(char * Data);
-	void NotifyMsg_CannotJoinMoreGuildsMan(char * Data);
-	void NotifyMsg_GuildDisbanded(char * Data);
-	void NotifyMsg_Exp(char * Data);
-	void NotifyMsg_Killed(char * Data);
-	void NotifyMsg_HP(char * Data);
-	void NotifyMsg_ItemPurchased(char * Data);
-	void NotifyMsg_DismissGuildReject(char * Data);
-	void NotifyMsg_DismissGuildApprove(char * Data);
-	void NotifyMsg_JoinGuildReject(char * Data);
-	void NotifyMsg_JoinGuildApprove(char * Data);
-	void NotifyMsg_QueryDismissGuildPermission(char * Data);
-	void NotifyMsg_QueryJoinGuildPermission(char * Data);
-	void NotifyMsg_ItemObtained(char * Data);
-	void NotifyMsg_ForceDisconn(char * Data);
-	void NotifyMsg_BanGuildMan(char * Data);
-	void NotifyMsg_FriendOnGame(char * Data);
-
-	void ResponsePanningHandler(char * Data);
 	void _CalcSocketClosed();
 	void UpdateScreen_OnSelectServer();
 	void StartInputString(int sX, int sY, unsigned char iLen, char * pBuffer, BOOL bIsHide = FALSE);
 	void _SetIlusionEffect(int iOwnerH);
 	int _iGetFOE(int iStatus);
-	void NoticementHandler(char * Data);
 	void GetItemName(char * cItemName, DWORD dwAttribute, char *pStr1, char *pStr2, char *pStr3);
 	void GetItemName(class CItem * pItem, char * pStr1, char * pStr2, char * pStr3);
 	void _InitOnCreateNewCharacter();
@@ -463,7 +434,6 @@ public:
 	void UpdateScreen_OnChangePassword();
 	void UpdateScreen_OnLoading_Progress();
 	void UpdateScreen_OnVersionNotMatch();
-	void NpcTalkHandler(char * Data);
 	int  _iGetWeaponSkillType();
 	void SetCameraShakingEffect(short sDist, int iMul = 0);
 	BOOL bDlgBoxPress_SkillDlg(short msX, short msY);
@@ -483,7 +453,6 @@ public:
 	int _iCalcTotalWeight();
 	void DrawVersion(BOOL bAuthor = FALSE);
 	BOOL _bIsItemOnHand();
-	void DynamicObjectHandler(char * Data);
 	BOOL _bCheckItemByType(char cType);
 	void _DrawBlackRect(int iSize);
 	void DrawNpcName(   short sX, short sY, short sOwnerType, int iStatus);
@@ -501,8 +470,6 @@ public:
 	void DlbBoxDoubleClick_GuideMap(short msX, short msY);
 	BOOL _bCheckDlgBoxDoubleClick(short msX, short msY);
 	void EraseItem(char cItemID);
-	void RetrieveItemHandler(char * Data);
-	void CivilRightAdmissionHandler(char * Data);
 	void _Draw_CharacterBody(short sX, short sY, short sType);
 	void ClearContents_OnSelectCharacter();
 	void ClearContents_OnCreateNewAccount();
@@ -523,19 +490,13 @@ public:
 	void SetItemCount(char * pItemName, DWORD dwCount);
 	void _ShiftGuildOperationList();
 	void _PutGuildOperationList(char * pName, char cOpMode);
-	void DisbandGuildResponseHandler(char * Data);
-	void InitPlayerCharacteristics(char * Data);
-	void CreateNewGuildResponseHandler(char * Data);
 	void _GetHairColorRGB(int iColorType , int * pR, int * pG, int * pB);
 	void InitGameSettings();
-	void CommonEventHandler(char * Data);
 	BOOL _bCheckDraggingItemRelease(short msX, short msY);
 	void _SetItemOrder(char cWhere, char cItemID);
 	int iGetTopDialogBoxIndex();
 	void DisableDialogBox(int iBoxID);
 	void EnableDialogBox(int iBoxID, int cType, int sV1, int sV2, char * pString = NULL);
-	void InitItemList(char * Data);
-	void InitSkillList(char * Data);
 	int _iCheckDlgBoxFocus(short msX, short msY, char cButtonSide);
 	void GetPlayerTurn();
 	BOOL __fastcall DrawObject_OnDead(int indexX, int indexY, int sX, int sY, BOOL bTrans, DWORD dwTime, int msX, int msY);
@@ -555,7 +516,6 @@ public:
 	void DrawBackground(short sDivX, short sModX, short sDivY, short sModY);
 	void DrawChatMsgBox(short sX, short sY, int iChatIndex, BOOL bIsPreDC);
 	void ReleaseTimeoverChatMsg();
-	void ChatMsgHandler(char * Data);
 	void ReleaseUnusedSprites();
 	BOOL bReadIp();
 	void OnKeyUp(WPARAM wParam);
@@ -574,14 +534,8 @@ public:
 	void LogResponseHandler(char * Data);
 	void OnLogSocketEvent(WPARAM wParam, LPARAM lParam);
 	void OnTimer();
-	void LogEventHandler(char * Data);
 	void _ReadMapData(short sPivotX, short sPivotY, char * Data);
-	void MotionEventHandler(char * Data);
-	void InitDataResponseHandler(char * Data);
-	void InitPlayerResponseHandler(char * Data);
 	void ConnectionEstablishHandler(char cWhere);
-	void MotionResponseHandler(char * Data);
-	void GameRecvMsgHandler(DWORD dwMsgSize, char * Data);
 	void DrawObjects(short sPivotX, short sPivotY, short sDivX, short sDivY, short sModX, short sModY, short msX, short msY);
 	BOOL bSendCommand(DWORD dwMsgID, WORD wCommand, char cDir, int iV1, int iV2, int iV3, char * pString, int iV4 = NULL); 
 	char cGetNextMoveDir(short sX, short sY, short dstX, short dstY, BOOL bMoveCheck = FALSE, BOOL isMIM = FALSE);
@@ -593,7 +547,6 @@ public:
 	void Quit();
 	BOOL bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine);
 
-	void ReserveFightzoneResponseHandler(char * Data);
 	int _iGetAttackType();
 	BOOL __bDecodeBuildItemContents(char * pBuffer);
 	int _iGetBankItemCount();
@@ -723,11 +676,7 @@ public:
 		int iCost;
 	} m_stTeleportList[20];
 
-	class YWSound m_DSound;
-	class CSoundBuffer *	m_pCSound[MAXSOUNDEFFECTS];
-	class CSoundBuffer *	m_pMSound[MAXSOUNDEFFECTS];
-	class CSoundBuffer *	m_pESound[MAXSOUNDEFFECTS];
-	class CSoundBuffer *    m_pBGM;
+	CSoundManager m_SoundMgr;
 	class DXC_ddraw  m_DDraw;
 	class DXC_dinput m_DInput;
 	class CMisc      m_Misc;
@@ -740,9 +689,9 @@ public:
 	class CMsg    * m_pChatMsgList[MAXCHATMSGS];
 	class CMsg    * m_pChatScrollList[MAXCHATSCROLLMSGS];
 	class CMsg    * m_pWhisperMsg[MAXWHISPERMSG];
-	class CEffect * m_pEffectList[MAXEFFECTS];
+	std::vector<CEffect *> m_pEffectList;  // Dynamic effect pool (replaces fixed MAXEFFECTS array)
 	class CItem   * m_pItemList[MAXITEMS];
-	class CItem   * m_pBankList[MAXBANKITEMS];
+	std::vector<CItem*> m_pBankList;  // Dense bank storage (replaces fixed MAXBANKITEMS array)
 	class CMagic * m_pMagicCfgList[MAXMAGICTYPE];
 	class CSkill * m_pSkillCfgList[MAXSKILLTYPE];
 	class CMsg * m_pMsgTextList[TEXTDLGMAXLINES];
@@ -790,8 +739,10 @@ public:
 	BOOL m_bZoomMap;
 	BOOL m_bIsProgramActive;
 	int m_bCommandAvailable;//was BOOL
-	BOOL m_bSoundFlag;
-	BOOL m_bSoundStat, m_bMusicStat; // On/Off
+	// Sound state accessors — delegates to m_SoundMgr for compatibility
+	// m_bSoundFlag moved to m_SoundMgr.m_bSoundFlag
+	BOOL & m_bSoundStat  = m_SoundMgr.m_bSoundStat;
+	BOOL & m_bMusicStat  = m_SoundMgr.m_bMusicStat;
 	int m_bIsItemEquipped[MAXITEMS];//was BOOL
 	int m_bIsItemDisabled[MAXITEMS];//was BOOL
 	int m_bIsGetPointingMode;//was BOOL
@@ -973,7 +924,8 @@ public:
 	char m_cWorldServerName[32];
 	char m_cDetailLevel;
 	char m_cMenuDir, m_cMenuDirCnt, m_cMenuFrame;
-	char m_cSoundVolume, m_cMusicVolume;
+	char & m_cSoundVolume = m_SoundMgr.m_cSoundVolume;
+	char & m_cMusicVolume = m_SoundMgr.m_cMusicVolume;
 	char m_cWhetherEffectType;
 	char m_cWhetherStatus;
 	char m_cIlusionOwnerType;

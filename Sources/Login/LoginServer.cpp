@@ -366,13 +366,16 @@ BOOL CLoginServer::ReadProgramConfigFile(char * cFn)
 	char szHostName[255];
 	gethostname(szHostName, 255);
 	struct hostent *host_entry;
-	host_entry=gethostbyname(szHostName);
-	char * szLocalIP;
 	int port = 5656;
 	char cTxt[120];
 
-	szLocalIP = inet_ntoa (*(struct in_addr *)*host_entry->h_addr_list);
-	strcpy(ListenAddress, szLocalIP);
+	host_entry = gethostbyname(szHostName);
+	if (host_entry != NULL && host_entry->h_addr_list[0] != NULL) {
+		strncpy(ListenAddress, inet_ntoa(*(struct in_addr *)*host_entry->h_addr_list), sizeof(ListenAddress) - 1);
+		ListenAddress[sizeof(ListenAddress) - 1] = '\0';
+	} else {
+		ListenAddress[0] = '\0';
+	}
 	GateServerPort = port;
 
 	if(strlen(ListenAddress) == 0 || ListenPort <= 0 || mySqlPort <= 0 || GateServerPort <= 0 || strlen(mySqlAddress) == 0)
