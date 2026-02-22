@@ -355,6 +355,13 @@ public:
 	int  m_iGMPanelInputMode;    // 0=none, 1=monster, 2=item, 3=teleport, 4=summonplayer, 5=sethp, 6=setmp, 7=polymorph
 	int  m_iGMPanelTab;          // 0=Commands, 1=Spawn, 2=Items, 3=Teleport
 	int  m_iGMPanelScroll;       // Scroll offset for current tab
+	int  m_iGMPanelCreatureFilter; // Creature category filter (-1=All)
+	int  m_iGMPanelItemCategory;   // Selected item category (0-14)
+	int  m_iGMPanelItemSelected;   // Selected item index (-1=browse mode)
+	int  m_iGMPanelItemPrefix;     // Prefix type (ITEMSTAT 0=none, 1-11)
+	int  m_iGMPanelItemStat2;      // Secondary stat type (ITEMSTAT2 0=none, 1-12)
+	int  m_iGMPanelItemStat2Val;   // Secondary stat value (1-15)
+	int  m_iGMPanelItemAmount;     // Item amount (1-100)
 
 	// Slates - Alastor
 	void bItemDrop_Slates();

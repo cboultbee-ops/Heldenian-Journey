@@ -1084,11 +1084,12 @@ void CGame::OnGameSocketEvent(WPARAM wParam, LPARAM lParam)
 
 	case XSOCKEVENT_SOCKETCLOSED:
 		MapChangeLog("GSOCK_CLOSED gameMode=%d", (int)m_cGameMode);
-		if (m_cGameMode == GAMEMODE_ONWAITINGINITDATA) {
-			// Socket closed during cross-server teleport wait.
-			// Don't show "Connection Lost" — stay on the wait screen
-			// so the user can press ESC after 7s to return to menu.
-			MapChangeLog("GSOCK_CLOSED during teleport wait");
+		if (m_cGameMode == GAMEMODE_ONWAITINGINITDATA ||
+			m_cGameMode == GAMEMODE_ONWAITINGRESPONSE ||
+			m_cGameMode == GAMEMODE_ONCONNECTING) {
+			// Socket closed during cross-server teleport (old server disconnecting).
+			// Don't show "Connection Lost" — the client is transitioning to new server.
+			MapChangeLog("GSOCK_CLOSED during server change (mode=%d), suppressed", (int)m_cGameMode);
 			delete m_pGSock;
 			m_pGSock = NULL;
 			break;
@@ -15115,6 +15116,7 @@ int CGame::_iCheckDlgBoxFocus(short msX, short msY, char cButtonSide)
 					break;
 
 				case 53:
+				case DIALOG_GMPANEL: // 54
 					m_stMCursor.cSelectedObjectType	= SELECTEDOBJTYPE_DLGBOX;
 					m_stMCursor.sSelectedObjectID   = cDlgID;
 					break;
@@ -26164,12 +26166,19 @@ BOOL CGame::bCheckLocalChatCommand(char * pMsg)
 	{	if (m_bIsDialogEnabled[DIALOG_GMPANEL] == FALSE) {
 			m_stDialogBoxInfo[DIALOG_GMPANEL].sX = 140;
 			m_stDialogBoxInfo[DIALOG_GMPANEL].sY = 30;
-			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX = 320;
-			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY = 400;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX = 360;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY = 480;
 			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
 			m_iGMPanelInputMode = 0;
 			m_iGMPanelTab = 0;
 			m_iGMPanelScroll = 0;
+			m_iGMPanelCreatureFilter = -1;
+			m_iGMPanelItemCategory = 0;
+			m_iGMPanelItemSelected = -1;
+			m_iGMPanelItemPrefix = 0;
+			m_iGMPanelItemStat2 = 0;
+			m_iGMPanelItemStat2Val = 1;
+			m_iGMPanelItemAmount = 1;
 			EnableDialogBox(DIALOG_GMPANEL, NULL, NULL, NULL);
 		} else {
 			DisableDialogBox(DIALOG_GMPANEL);
@@ -38585,8 +38594,230 @@ void CGame::bItemDrop_EquipSet(short msX, short msY)
 
 
 // ============================================================================
-// GM Panel (DIALOG_GMPANEL = 54)
+// GM Panel Phase 2 — Data-Driven (DIALOG_GMPANEL = 54)
 // ============================================================================
+
+// --- Static creature data (from Npc.cfg) ---
+struct GMCreature { const char* name; int category; };
+static const char* g_GMCreatureCatNames[] = {
+	"All", "Animals", "Undead", "Orcs", "Golems", "Giants",
+	"Demons", "Beasts", "Pixies", "Guards", "NPCs", "Bosses", "Trainers"
+};
+static const int g_GMCreatureCatCount = 13; // includes "All" at index 0
+
+static const GMCreature g_GMCreatures[] = {
+	{"Slime",0},{"Giant-Frog",0},{"Rabbit",0},{"Cat",0},{"Giant-Ant",0},{"Rudolph",0},{"Crops",0},{"DireBoar",0},
+	{"Skeleton",1},{"Zombie",1},{"Liche",1},{"Stalker",1},{"Ghost",1},{"Vampire",1},{"Scarecrow",1},
+	{"Orc",2},{"Orc-Mage",2},{"MasterMage-Orc",2},{"Dark-Elf",2},
+	{"Stone-Golem",3},{"Clay-Golem",3},{"Ice-Golem",3},
+	{"Cyclops",4},{"Mountain-Giant",4},{"Ettin",4},{"Orge",4},{"Troll",4},{"Centaurus",4},{"Minotaurs",4},
+	{"Demon",5},{"Barlog",5},{"Hellbound",5},{"Hellclaw",5},{"Abaddon",5},{"Gagoyle",5},
+	{"WereWolf",6},{"Tigerworm",6},{"Wyvern",6},{"Fire-Wyvern",6},{"Beholder",6},{"Giant-Crayfish",6},
+	{"Giant-Lizard",6},{"Claw-Turtle",6},{"Tentocle",6},{"Giant-Plant",6},{"Cannibal-Plant",6},
+	{"Frost",6},{"Nizie",6},{"Unicorn",6},{"Amphis",6},{"Scorpion",6},
+	{"Fire-Pixie",7},{"Ice-Pixie",7},{"Earth-Pixie",7},{"Air-Pixie",7},
+	{"Guard-Aresden",8},{"Guard-Elvine",8},{"Guard-Istria",8},{"Guard-Neutral",8},{"GuardB-Aresden",8},{"GuardB-Elvine",8},
+	{"ShopKeeper-W",9},{"Gandlf",9},{"Howard",9},{"Perry",9},{"McGaffin",9},{"Devlin",9},
+	{"Dummy",9},{"Attack-Dummy",9},{"Energy-Sphere",9},{"Tom",9},{"William",9},{"Kennedy",9},
+	{"ManaStone",9},{"GHKABS",9},{"Gail",9},{"Sorceress",9},{"Diana",9},{"WilliamB",9},
+	{"gate-a",9},{"gate-e",9},{"gate-i",9},
+	{"ATK-Aresden",10},{"ATK-Evline",10},{"ATK-Istria",10},{"Elf-Aresden",10},{"Elf-Elvine",10},{"Elf-Istria",10},
+	{"DSK-Aresden",10},{"DSK-Elvine",10},{"DSK-Istria",10},{"HBT-Aresden",10},{"HBT-Elvine",10},{"HBT-Istria",10},
+	{"CT-Aresden",10},{"CT-Elvine",10},{"CT-Istria",10},{"Bar-Aresden",10},{"Bar-Elvine",10},{"Bar-Istria",10},
+	{"AGC-Aresden",10},{"AGC-Elvine",10},{"AGC-Istria",10},{"Sor-Aresden",10},{"Sor-Elvine",10},
+	{"AGT-Aresden",11},{"AGT-Elvine",11},{"AGT-Istria",11},{"CGT-Aresden",11},{"CGT-Elvine",11},{"CGT-Istria",11},
+	{"MS-Aresden",11},{"MS-Elvine",11},{"MS-Istria",11},{"DT-Aresden",11},{"DT-Elvine",11},{"DT-Istria",11},
+	{"ESG-Aresden",11},{"ESG-Elvine",11},{"ESG-Istria",11},{"GMG-Aresden",11},{"GMG-Elvine",11},{"GMG-Istria",11},
+	{"LWB-Aresden",11},{"LWB-Elvine",11},{"LWB-Istria",11},{"GHK",11},{"TK",11},{"BG",11},
+	{"YB-Aresden",11},{"YB-Elvine",11},{"YB-Istria",11},{"CP-Aresden",11},{"CP-Elvine",11},{"CP-Istria",11},
+	{"AG-Aresden",11},{"AG-Elvine",11},
+};
+static const int g_GMCreatureCount = sizeof(g_GMCreatures) / sizeof(g_GMCreatures[0]);
+
+// --- Static item data (from Items/*.cfg) ---
+struct GMItem { const char* name; int category; };
+static const char* g_GMItemCatNames[] = {
+	"Weapons","Armor","Bows","Rings","Necklaces","Scrolls",
+	"Potions","Wands","Manuals","Minerals","Food","Dyes","Farming","Parts","Misc"
+};
+static const int g_GMItemCatCount = 15;
+
+static const GMItem g_GMItems[] = {
+	// Weapons (0)
+	{"Dagger",0},{"Dagger(S.C)",0},{"Dagger(Swd.breaker)",0},{"Dagger+1",0},{"KightDagger",0},
+	{"Dirk",0},{"ShortSword",0},{"ShortSword+1",0},{"ShortSword(S.C)",0},
+	{"MainGauche",0},{"MainGauche+1",0},{"MainGauche(S.C)",0},
+	{"Gradius",0},{"Gradius+1",0},{"LongSword",0},{"LongSword+1",0},{"LongSword+2",0},
+	{"Excaliber",0},{"LongSword(S.C)",0},{"Sabre",0},{"Sabre+1",0},{"Sabre+2",0},
+	{"Scimitar",0},{"Scimitar+1",0},{"Scimitar+2",0},{"Falchion",0},{"Falchion+1",0},{"Falchion+2",0},
+	{"Esterk",0},{"Esterk+1",0},{"Esterk+2",0},{"Rapier",0},{"Rapier+1",0},{"Rapier+2",0},
+	{"TemplerSword",0},{"BroadSword",0},{"BroadSword+1",0},{"BroadSword+2",0},{"BroadSword(S.C)",0},
+	{"BastadSword",0},{"BastadSword+1",0},{"BastadSword+2",0},{"BastadSword(S.C)",0},
+	{"Claymore",0},{"Claymore+1",0},{"Claymore+2",0},{"Claymore(S.C)",0},
+	{"GreatSword",0},{"GreatSword+1",0},{"GreatSword+2",0},{"GreatSword(S.C)",0},
+	{"Flameberge",0},{"Flameberge+1",0},{"Flameberge+2",0},{"Flameberge(S.C)",0},
+	{"LightAxe",0},{"LightAxe+1",0},{"LightAxe+2",0},
+	{"Tomahoc",0},{"Tomahoc+1",0},{"Tomahoc+2",0},
+	{"SexonAxe",0},{"SexonAxe+1",0},{"SexonAxe+2",0},
+	{"DoubleAxe",0},{"DoubleAxe+1",0},{"DoubleAxe+2",0},
+	{"WarAxe",0},{"WarAxe+1",0},{"WarAxe+2",0},{"4BladeGoldenAxe",0},
+	{"Hammer",0},{"BattleAxe",0},{"BattleHammer",0},{"BlackShadowSword",0},{"BarbarianHammer",0},
+	{"KnightRapier",0},{"KnightGreatSword",0},{"KnightFlameberge",0},{"KnightWarAxe",0},
+	{"GoldenAxe(LLF)",0},{"Flameberge+3(LLF)",0},
+	{"XelimaBlade",0},{"XelimaAxe",0},{"XelimaRapier",0},
+	{"SwordofMedusa",0},{"SwordofIceElemental",0},{"GiantSword",0},{"DemonSlayer",0},
+	{"BloodSword",0},{"BloodAxe",0},{"BloodRapier",0},
+	{"StormBringer",0},{"The_Devastator",0},{"DarkExecutor",0},{"LightingBlade",0},
+	{"KlonessBlade",0},{"KlonessAxe",0},{"KlonessEsterk",0},{"GiantBattleHammer",0},
+	{"DKRapier",0},{"DKGreatSword",0},{"DKFlameberg",0},{"DKGiantSword",0},{"BlackKnightTemple",0},
+	// Armor (1)
+	{"AresdenHeroCape",1},{"ElvineHeroCape",1},{"Cape",1},
+	{"aHeroHelm(M)",1},{"aHeroHelm(W)",1},{"eHeroHelm(M)",1},{"eHeroHelm(W)",1},
+	{"aHeroCap(M)",1},{"aHeroCap(W)",1},{"eHeroCap(M)",1},{"eHeroCap(W)",1},
+	{"aHeroArmor(M)",1},{"aHeroArmor(W)",1},{"eHeroArmor(M)",1},{"eHeroArmor(W)",1},
+	{"aHeroRobe(M)",1},{"aHeroRobe(W)",1},{"eHeroRobe(M)",1},{"eHeroRobe(W)",1},
+	{"aHeroHauberk(M)",1},{"aHeroHauberk(W)",1},{"eHeroHauberk(M)",1},{"eHeroHauberk(W)",1},
+	{"aHeroLeggings(M)",1},{"aHeroLeggings(W)",1},{"eHeroLeggings(M)",1},{"eHeroLeggings(W)",1},
+	{"AresdenHeroCape+1",1},{"ElvineHeroCape+1",1},{"Cape+1",1},
+	{"Shoes",1},{"LongBoots",1},{"SantaCostume(M)",1},{"SantaCostume(W)",1},
+	{"Shirt(M)",1},{"Hauberk(M)",1},{"LeatherArmor(M)",1},{"ChainMail(M)",1},{"ScaleMail(M)",1},{"PlateMail(M)",1},
+	{"Trousers(M)",1},{"KneeTrousers(M)",1},{"ChainHose(M)",1},{"PlateLeggings(M)",1},
+	{"Chemise(W)",1},{"Shirt(W)",1},{"Hauberk(W)",1},{"Bodice(W)",1},{"LongBodice(W)",1},
+	{"LeatherArmor(W)",1},{"ChainMail(W)",1},{"ScaleMail(W)",1},{"PlateMail(W)",1},
+	{"Skirt(W)",1},{"Trousers(W)",1},{"KneeTrousers(W)",1},{"ChainHose(W)",1},{"PlateLeggings(W)",1},
+	{"Tunic(M)",1},{"Robe(M)",1},{"Robe(W)",1},
+	{"Helm(M)",1},{"FullHelm(M)",1},{"Helm(W)",1},{"FullHelm(W)",1},
+	{"KnightPlateMail(M)",1},{"KnightPlateMail(W)",1},{"KnightPlateLeg(M)",1},{"KnightPlateLeg(W)",1},
+	{"KnightFullHelm(M)",1},{"KnightFullHelm(W)",1},
+	{"WizardHauberk(M)",1},{"WizardHauberk(W)",1},
+	{"WizMagicWand(MS20)",1},{"WizMagicWand(MS10)",1},{"WizardRobe(M)",1},{"WizardRobe(W)",1},
+	{"KnightHauberk(M)",1},{"KnightHauberk(W)",1},
+	{"Horned-Helm(M)",1},{"Wings-Helm(M)",1},{"Wizard-Cap(M)",1},{"Wizard-Hat(M)",1},
+	{"Horned-Helm(W)",1},{"Wings-Helm(W)",1},{"Wizard-Cap(W)",1},{"Wizard-Hat(W)",1},
+	{"DKFullHelm(M)",1},{"DKHauberk(M)",1},{"DKPlateMail(M)",1},{"DKLeggings(M)",1},
+	{"DKFullHelm(W)",1},{"DKHauberk(W)",1},{"DKPlateMail(W)",1},{"DKLeggings(W)",1},
+	{"DMHat(M)",1},{"DMHauberk(M)",1},{"DMRobe(M)",1},{"DMChainMail(M)",1},{"DMLeggings(M)",1},
+	{"DMHat(W)",1},{"DMHauberk(W)",1},{"DMRobe(W)",1},{"DMChainMail(W)",1},{"DMLeggings(W)",1},
+	{"MerienShield",1},{"MerienPlateMailM",1},{"MerienPlateMailW",1},{"GM-Shield",1},
+	{"WoodShield",1},{"LeatherShield",1},{"TargeShield",1},{"ScootermShield",1},
+	{"BlondeShield",1},{"IronShield",1},{"LagiShield",1},{"KnightShield",1},{"TowerShield",1},
+	// Bows (2)
+	{"ShortBow",2},{"LongBow",2},{"Fire-Bow",2},{"Direction-Bow",2},{"CompositeBow",2},{"DarkElfBow",2},{"Arrow",2},{"PoisonArrow",2},
+	// Rings (3)
+	{"GoldRing",3},{"SilverRing",3},{"PlatinumRing",3},{"LuckyGoldRing",3},
+	{"EmeraldRing",3},{"SapphireRing",3},{"RubyRing",3},{"MemorialRing",3},{"ThirdMemorialRing",3},
+	{"RingoftheXelima",3},{"RingoftheAbaddon",3},{"RingofOgrepower",3},{"RingofDemonpower",3},
+	{"RingofWizard",3},{"RingofMage",3},{"RingofGrandMage",3},{"RingofArcmage",3},{"RingofDragonpower",3},
+	{"MaginDiamond",3},{"MaginRuby",3},{"MagicEmerald",3},{"MagicSapphire",3},
+	{"AngelicPendant(STR)",3},{"AngelicPendant(DEX)",3},{"AngelicPendant(INT)",3},{"AngelicPendant(MAG)",3},
+	// Necklaces (4)
+	{"GoldNecklace",4},{"SilverNecklace",4},
+	{"KnecklaceOfLightPro",4},{"KnecklaceOfFirePro",4},{"KnecklaceOfPoisonPro",4},
+	{"KnecklaceOfSufferent",4},{"KnecklaceOfMedusa",4},{"KnecklaceOfIcePro",4},
+	{"KnecklaceOfIceEle",4},{"KnecklaceOfAirEle",4},{"KnecklaceOfEfreet",4},
+	{"NecklaceOfBeholder",4},{"NecklaceOfStoneGol",4},{"NecklaceOfLiche",4},
+	{"NecklaceOfMerien",4},{"NecklaceOfKloness",4},{"NecklaceOfXelima",4},
+	{"MagicNecklace(RM10)",4},{"MagicNecklace(DM+1)",4},{"MagicNecklace(MS10)",4},
+	{"MagicNecklace(DF+10)",4},{"MagicNecklace(DF+15)",4},{"MagicNecklace(DF+20)",4},
+	{"MagicNecklace(DF+25)",4},{"MagicNecklace(DF+30)",4},
+	{"MagicNecklace(DM+2)",4},{"MagicNecklace(DM+3)",4},{"MagicNecklace(DM+4)",4},{"MagicNecklace(DM+5)",4},
+	{"MagicNecklace(MS12)",4},{"MagicNecklace(MS14)",4},{"MagicNecklace(MS16)",4},{"MagicNecklace(MS18)",4},
+	{"MagicNecklace(RM15)",4},{"MagicNecklace(RM20)",4},{"MagicNecklace(RM25)",4},{"MagicNecklace(RM30)",4},
+	// Scrolls (5)
+	{"RecallScroll",5},{"InvisibilityScroll",5},{"DetectInviScroll",5},
+	{"BleedingIslandTicket",5},{"GuildAdmissionTicket",5},{"GuildSecessionTicket",5},{"LuckyPrizeTicket",5},
+	{"SummonScroll(SOR)",5},{"SummonScroll(ATK)",5},{"SummonScroll(ELF)",5},
+	{"SummonScroll(DSK)",5},{"SummonScroll(HBT)",5},{"SummonScroll(BAR)",5},
+	{"ArenaTicket",5},{"ArenaTicket(2)",5},{"ArenaTicket(3)",5},{"ArenaTicket(4)",5},
+	{"ArenaTicket(5)",5},{"ArenaTicket(6)",5},{"ArenaTicket(7)",5},{"ArenaTicket(8)",5},{"ArenaTicket(9)",5},
+	// Potions (6)
+	{"RedPotion",6},{"BigRedPotion",6},{"BluePotion",6},{"BigBluePotion",6},
+	{"GreenPotion",6},{"BigGreenPotion",6},{"DilutionPotion",6},
+	{"HairColorPotion",6},{"HairStylePotion",6},{"SkinColorPotion",6},
+	{"InvisibilityPotion",6},{"SexChangePotion",6},{"OgrePotion",6},{"UnderWearPotion",6},
+	{"AresdenMinePotion",6},{"ElvineMinePotion",6},{"UnfreezePotion",6},
+	{"SuperRedPotion",6},{"SuperBluePotion",6},{"SuperGreenPotion",6},
+	{"RedCandy",6},{"BlueCandy",6},{"GreenCandy",6},{"PowerGreenPotion",6},
+	// Wands (7)
+	{"MagicWand(MS20)",7},{"MagicWand(MS10)",7},{"MagicWand(MS0)",7},
+	{"DMMagicStaff",7},{"DMMagicWand",7},{"BlackMageTemple",7},{"MagicWand(M.Shield)",7},
+	{"MagicWand(MS30-LLF)",7},{"BerserkWand(MS.20)",7},{"BerserkWand(MS.10)",7},
+	{"KlonessWand(MS.20)",7},{"KlonessWand(MS.10)",7},{"ResurWand(MS.20)",7},{"ResurWand(MS.10)",7},
+	// Manuals (8)
+	{"PretendCorpseManual",8},{"ArcheryManual",8},{"ShieldManual",8},{"LongSwordManual",8},
+	{"FencingManual",8},{"FishingManual",8},{"AxeManual",8},{"MagicResistManual",8},
+	{"AlchemyManual",8},{"MiningManual",8},{"ManufacturingManual",8},{"HammerAttackManual",8},
+	{"WandAttackManual",8},{"FarmingManual",8},{"HandAttackManual",8},{"ShortSwordManual",8},
+	{"IceStormManual",8},{"MassFireStrikeManual",8},{"BloodyShockW.Manual",8},
+	{"CancelManual",8},{"E.S.W.Manual",8},{"I.M.CManual",8},
+	// Minerals (9)
+	{"Diamond",9},{"Ruby",9},{"Sapphire",9},{"Emerald",9},{"GoldNugget",9},{"Coal",9},
+	{"SilverNugget",9},{"IronOre",9},{"Crystal",9},{"IronIngot",9},
+	{"SuperCoal",9},{"UltraCoal",9},{"GoldIngot",9},{"SilverIngot",9},{"BlondeIngot",9},
+	{"MithralIngot",9},{"BlondeStone",9},{"Mithral",9},
+	{"DiamondWare",9},{"RubyWare",9},{"SapphireWare",9},{"EmeraldWare",9},{"CrystalWare",9},
+	// Food (10)
+	{"Baguette",10},{"Meat",10},{"Fish",10},{"RedFish",10},{"GreenFish",10},{"YellowFish",10},
+	{"RedCarp",10},{"GreenCarp",10},{"GoldCarp",10},{"CrucianCarp",10},
+	{"BlueSeaBream",10},{"Salmon",10},{"RedSeaBream",10},{"GrayMullet",10},
+	// Dyes (11)
+	{"Dye(Indigo)",11},{"Dye(Crimson-Red)",11},{"Dye(Brown)",11},{"Dye(Gold)",11},
+	{"Dye(Green)",11},{"Dye(Gray)",11},{"Dye(Aqua)",11},{"Dye(Pink)",11},
+	{"Dye(Violet)",11},{"Dye(Blue)",11},{"Dye(Tan)",11},{"Dye(Khaki)",11},
+	{"Dye(Yellow)",11},{"Dye(Red)",11},{"Dye(Black)",11},{"DecolorationPotion",11},
+	{"ArmorDye(Indigo)",11},{"ArmorDye(CrimsonRed)",11},{"ArmorDye(Gold)",11},
+	{"ArmorDye(Aqua)",11},{"ArmorDye(Pink)",11},{"ArmorDye(Violet)",11},
+	{"ArmorDye(Blue)",11},{"ArmorDye(Khaki)",11},{"ArmorDye(Yellow)",11},{"ArmorDye(Red)",11},
+	// Farming (12)
+	{"SeedBag(WaterMelon)",12},{"SeedBag(Pumpkin)",12},{"SeedBag(Garlic)",12},{"SeedBag(Barley)",12},
+	{"SeedBag(Carrot)",12},{"SeedBag(Radish)",12},{"SeedBag(Corn)",12},{"SeedBag(CBellflower)",12},
+	{"SeedBag(Melone)",12},{"SeedBag(Tommato)",12},{"SeedBag(Grapes)",12},{"SeedBag(BlueGrapes)",12},
+	{"SeedBag(Mushroom)",12},{"SeedBag(Ginseng)",12},
+	{"WaterMelon",12},{"Pumpkin",12},{"Garlic",12},{"Barley",12},{"Carrot",12},{"Radish",12},
+	{"Corn",12},{"ChineseBellflower",12},{"Melone",12},{"Tommato",12},{"Grapes",12},{"BlueGrapes",12},{"Mushroom",12},
+	// Parts (13)
+	{"SnakeMeat",13},{"SnakeSkin",13},{"SnakeTeeth",13},{"SnakeTongue",13},
+	{"AntLeg",13},{"AntFeeler",13},
+	{"CyclopsEye",13},{"CyclopsHandEdge",13},{"CyclopsHeart",13},{"CyclopsMeat",13},{"CyclopsLeather",13},
+	{"HelboundHeart",13},{"HelboundLeather",13},{"HelboundTail",13},{"HelboundTeeth",13},{"HelboundClaw",13},{"HelboundTongue",13},
+	{"LumpofClay",13},{"OrcMeat",13},{"OrcLeather",13},{"OrcTeeth",13},
+	{"OgreHair",13},{"OgreHeart",13},{"OgreMeat",13},{"OgreLeather",13},{"OgreTeeth",13},{"OgreClaw",13},
+	{"ScorpionPincers",13},{"ScorpionMeat",13},{"ScorpionSting",13},{"ScorpionSkin",13},
+	{"SkeletonBones",13},{"SlimeJelly",13},{"StoneGolemPiece",13},
+	{"TrollHeart",13},{"TrollMeat",13},{"TrollLeather",13},{"TrollClaw",13},
+	{"DemonEye",13},{"DemonHeart",13},{"DemonMeat",13},{"DemonLeather",13},
+	{"UnicornHeart",13},{"UnicornHorn",13},{"UnicornMeat",13},{"UnicornLeather",13},
+	{"WerewolfHeart",13},{"WerewolfNail",13},{"WerewolfMeat",13},{"WerewolfTail",13},{"WerewolfTeeth",13},{"WerewolfLeather",13},{"WerewolfClaw",13},
+	// Misc (14)
+	{"Gold",14},{"Map",14},{"FishingRod",14},{"AlchemyBowl",14},{"PickAxe",14},{"Hoe",14},
+	{"ManufacturingHammer",14},{"CraftingVessel",14},
+	{"AresdenFlag(Master)",14},{"ElvineFlag(Master)",14},{"AresdenFlag",14},{"ElvineFlag",14},
+	{"Bouquette",14},{"FlowerBasket",14},{"Flowerpot",14},{"ZemstoneofSacrifice",14},
+	{"GreenBall",14},{"RedBall",14},{"YellowBall",14},{"BlueBall",14},{"PearlBall",14},
+	{"StoneOfXelima",14},{"StoneOfMerien",14},{"Songpyon",14},{"Ginseng",14},{"BeefRibSet",14},{"Wine",14},
+	{"5000GoldPocket",14},{"10000GoldPocket",14},{"50000GoldPocket",14},{"100000GoldPocket",14},{"1000000GoldPocket",14},
+	{"AcientTablet",14},{"AcientTablet(LU)",14},{"AcientTablet(LD)",14},{"AcientTablet(RU)",14},{"AcientTablet(RD)",14},
+};
+static const int g_GMItemCount = sizeof(g_GMItems) / sizeof(g_GMItems[0]);
+
+// --- Prefix names (ITEMSTAT enum) ---
+struct GMPrefix { int type; const char* name; };
+static const GMPrefix g_GMPrefixes[] = {
+	{0,"(None)"},{1,"Critical"},{2,"Poisoning"},{3,"Righteous"},
+	{5,"Agile"},{6,"Light"},{7,"Sharp"},{8,"Strong"},
+	{9,"Ancient"},{10,"Special"},{11,"Mana Conv"},
+};
+static const int g_GMPrefixCount = 11;
+
+// --- Secondary stat names (ITEMSTAT2 enum) ---
+struct GMStat2 { int type; const char* name; };
+static const GMStat2 g_GMStat2s[] = {
+	{0,"(None)"},{1,"PsnRes"},{2,"HitProb"},{3,"Def"},
+	{4,"HPRec"},{5,"SPRec"},{6,"MPRec"},{7,"MR"},
+	{8,"PA"},{9,"MA"},{10,"CAD"},{11,"EXP"},{12,"Gold"},
+};
+static const int g_GMStat2Count = 13;
+
 
 void CGame::DrawDialogBox_GMPanel(int msX, int msY)
 {
@@ -38597,6 +38828,14 @@ void CGame::DrawDialogBox_GMPanel(int msX, int msY)
 
 	if (!m_DDraw.m_bUseGPU || !m_DDraw.m_pGPURenderer) return;
 	CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
+
+	// Handle mouse wheel scrolling for this dialog
+	short msZ = m_DInput.m_sZ;
+	if (msZ != 0 && msX >= sX && msX <= sX + szX && msY >= sY && msY <= sY + szY) {
+		m_iGMPanelScroll -= msZ / 30;
+		if (m_iGMPanelScroll < 0) m_iGMPanelScroll = 0;
+		m_DInput.m_sZ = 0;
+	}
 
 	// Background
 	gpu->DrawFilledRect(sX, sY, szX, szY, 0.0f, 0.0f, 0.05f, 0.88f);
@@ -38621,32 +38860,47 @@ void CGame::DrawDialogBox_GMPanel(int msX, int msY)
 	int tabY = sY + 22;
 	int tabH = 18;
 	int tabW = szX / 4;
-	static char tabNames[4][12] = {"Commands", "Spawn", "Items", "Teleport"};
+	char tabNames[4][12] = {"Commands", "Spawn", "Items", "Teleport"};
 	for (int t = 0; t < 4; t++) {
 		int tx = sX + t * tabW;
-		if (t == m_iGMPanelTab) {
+		if (t == m_iGMPanelTab)
 			gpu->DrawFilledRect(tx, tabY, tabW, tabH, 0.12f, 0.12f, 0.2f, 1.0f);
-		} else if (msX >= tx && msX < tx + tabW && msY >= tabY && msY < tabY + tabH) {
+		else if (msX >= tx && msX < tx + tabW && msY >= tabY && msY < tabY + tabH)
 			gpu->DrawFilledRect(tx, tabY, tabW, tabH, 0.08f, 0.08f, 0.15f, 0.9f);
-		}
-		// Tab text
 		int r = (t == m_iGMPanelTab) ? 255 : 150;
 		int g = (t == m_iGMPanelTab) ? 255 : 150;
 		int b = (t == m_iGMPanelTab) ? 220 : 180;
 		PutAlignedString(tx, tx + tabW, tabY + 2, tabNames[t], r, g, b);
 	}
-	// Tab underline
 	gpu->DrawFilledRect(sX, tabY + tabH, szX, 1, 0.3f, 0.3f, 0.5f, 0.8f);
 
-	int btnY = tabY + tabH + 6;
-	int btnH = 20;
-	int pad = 3;
+	int contentY = tabY + tabH + 4;
+	int contentH = szY - (contentY - sY) - 4;
 	int btnLeft = sX + 8;
 	int btnRight = sX + szX - 8;
+	int contentW = btnRight - btnLeft;
+
+	// Helper macros
+	#define GM_BTN(label, y) \
+		if (msX >= btnLeft && msX <= btnRight && msY >= (y) && msY <= (y) + 16) { \
+			gpu->DrawFilledRect(btnLeft, (y), contentW, 16, 0.15f, 0.15f, 0.25f, 0.7f); \
+			PutAlignedString(sX, sX + szX, (y) + 1, (char*)(label), 255, 255, 200); \
+		} else { \
+			PutAlignedString(sX, sX + szX, (y) + 1, (char*)(label), 180, 180, 220); \
+		}
+
+	#define GM_LBTN(label, x1, x2, y) \
+		if (msX >= (x1) && msX <= (x2) && msY >= (y) && msY <= (y) + 14) { \
+			gpu->DrawFilledRect((x1), (y), (x2)-(x1), 14, 0.15f, 0.15f, 0.25f, 0.7f); \
+			PutString((x1)+2, (y)+1, (char*)(label), RGB(255,255,200)); \
+		} else { \
+			PutString((x1)+2, (y)+1, (char*)(label), RGB(180,180,220)); \
+		}
 
 	// === INPUT MODE OVERLAY ===
 	if (m_iGMPanelInputMode > 0) {
-		gpu->DrawFilledRect(btnLeft, btnY, szX - 16, 18, 0.1f, 0.1f, 0.15f, 1.0f);
+		int iy = contentY;
+		gpu->DrawFilledRect(btnLeft, iy, contentW, 18, 0.1f, 0.1f, 0.15f, 1.0f);
 		char cLabel[80];
 		switch (m_iGMPanelInputMode) {
 		case 1: wsprintf(cLabel, "Summon: %s_", m_cGMPanelInput); break;
@@ -38658,133 +38912,325 @@ void CGame::DrawDialogBox_GMPanel(int msX, int msY)
 		case 7: wsprintf(cLabel, "Polymorph: %s_", m_cGMPanelInput); break;
 		default: wsprintf(cLabel, "> %s_", m_cGMPanelInput); break;
 		}
-		PutAlignedString(btnLeft + 4, btnRight, btnY + 2, cLabel, 255, 255, 200);
-		btnY += 22;
+		PutAlignedString(btnLeft + 4, btnRight, iy + 2, cLabel, 255, 255, 200);
+		iy += 22;
 
-		if (msX >= btnLeft && msX <= btnLeft + 55 && msY >= btnY && msY <= btnY + 16)
-			PutAlignedString(btnLeft, btnLeft + 55, btnY, "[Send]", 100, 255, 100);
+		if (msX >= btnLeft && msX <= btnLeft + 55 && msY >= iy && msY <= iy + 16)
+			PutAlignedString(btnLeft, btnLeft + 55, iy, "[Send]", 100, 255, 100);
 		else
-			PutAlignedString(btnLeft, btnLeft + 55, btnY, "[Send]", 150, 255, 150);
+			PutAlignedString(btnLeft, btnLeft + 55, iy, "[Send]", 150, 255, 150);
 
-		if (msX >= btnLeft + 65 && msX <= btnLeft + 130 && msY >= btnY && msY <= btnY + 16)
-			PutAlignedString(btnLeft + 65, btnLeft + 130, btnY, "[Cancel]", 255, 100, 100);
+		if (msX >= btnLeft + 65 && msX <= btnLeft + 130 && msY >= iy && msY <= iy + 16)
+			PutAlignedString(btnLeft + 65, btnLeft + 130, iy, "[Cancel]", 255, 100, 100);
 		else
-			PutAlignedString(btnLeft + 65, btnLeft + 130, btnY, "[Cancel]", 200, 150, 150);
+			PutAlignedString(btnLeft + 65, btnLeft + 130, iy, "[Cancel]", 200, 150, 150);
+
 		return;
 	}
 
-	// Helper: draw a button with hover highlight
-	#define GM_BTN(label, y) \
-		if (msX >= btnLeft && msX <= btnRight && msY >= (y) && msY <= (y) + btnH - 2) { \
-			gpu->DrawFilledRect(btnLeft, (y), szX - 16, btnH - 2, 0.15f, 0.15f, 0.25f, 0.7f); \
-			PutAlignedString(sX, sX + szX, (y) + 2, label, 255, 255, 200); \
-		} else { \
-			PutAlignedString(sX, sX + szX, (y) + 2, label, 180, 180, 220); \
-		}
-
-	#define GM_SEPARATOR(y) \
-		gpu->DrawFilledRect(sX + 20, (y), szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.6f); \
-		(y) += 6
+	int btnH = 18;
+	int pad = 2;
 
 	switch (m_iGMPanelTab) {
-	case 0: // === COMMANDS TAB ===
-		PutString(btnLeft, btnY, "- Toggles -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Toggle Invisibility", btnY); btnY += btnH + pad;
-		GM_BTN("Toggle Invincible", btnY); btnY += btnH + pad;
-		GM_BTN("Toggle No Aggro", btnY); btnY += btnH + pad;
-		GM_BTN("Toggle Observer Mode", btnY); btnY += btnH + pad;
-
-		GM_SEPARATOR(btnY);
-		PutString(btnLeft, btnY, "- Stats -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Set HP", btnY); btnY += btnH + pad;
-		GM_BTN("Set MP", btnY); btnY += btnH + pad;
-		GM_BTN("Polymorph", btnY); btnY += btnH + pad;
-
-		GM_SEPARATOR(btnY);
-		PutString(btnLeft, btnY, "- Map -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Unsummon All", btnY); btnY += btnH + pad;
-		GM_BTN("Unsummon Bosses", btnY); btnY += btnH + pad;
-		GM_BTN("Clear Map", btnY); btnY += btnH + pad;
-		GM_BTN("Disconnect All", btnY); btnY += btnH + pad;
-		break;
-
-	case 1: // === SPAWN TAB ===
-		PutString(btnLeft, btnY, "- Summon Creature -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Summon (type name)", btnY); btnY += btnH + pad;
-
-		GM_SEPARATOR(btnY);
-		PutString(btnLeft, btnY, "- Quick Summon -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Slime", btnY); btnY += btnH + pad;
-		GM_BTN("Skeleton", btnY); btnY += btnH + pad;
-		GM_BTN("Orc", btnY); btnY += btnH + pad;
-		GM_BTN("Troll", btnY); btnY += btnH + pad;
-		GM_BTN("Ogre", btnY); btnY += btnH + pad;
-		GM_BTN("Cyclops", btnY); btnY += btnH + pad;
-		GM_BTN("Demon", btnY); btnY += btnH + pad;
-		GM_BTN("Unicorn", btnY); btnY += btnH + pad;
-		GM_BTN("Werewolf", btnY); btnY += btnH + pad;
-		GM_BTN("Hellclaw", btnY); btnY += btnH + pad;
-		GM_BTN("Tigerworm", btnY); btnY += btnH + pad;
-		GM_BTN("Rudolph", btnY); btnY += btnH + pad;
-		break;
-
-	case 2: // === ITEMS TAB ===
-		PutString(btnLeft, btnY, "- Create Item -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Create Item (type name)", btnY); btnY += btnH + pad;
-
-		GM_SEPARATOR(btnY);
-		PutString(btnLeft, btnY, "- Quick Items -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Gold(10000)", btnY); btnY += btnH + pad;
-		GM_BTN("ZemstoneofSacrifice", btnY); btnY += btnH + pad;
-		GM_BTN("SwordofMedusa", btnY); btnY += btnH + pad;
-		GM_BTN("GiantSword", btnY); btnY += btnH + pad;
-		GM_BTN("StormBringer", btnY); btnY += btnH + pad;
-		GM_BTN("Excalibur", btnY); btnY += btnH + pad;
-		GM_BTN("KlonessAxe", btnY); btnY += btnH + pad;
-		GM_BTN("PlateMail", btnY); btnY += btnH + pad;
-		GM_BTN("AncientTablet(STR)", btnY); btnY += btnH + pad;
-		GM_BTN("MagicNecklace(DM)", btnY); btnY += btnH + pad;
-		GM_BTN("SuperHP", btnY); btnY += btnH + pad;
-		GM_BTN("SuperMP", btnY); btnY += btnH + pad;
-		break;
-
-	case 3: // === TELEPORT TAB ===
-		PutString(btnLeft, btnY, "- Teleport -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Teleport (map x y)", btnY); btnY += btnH + pad;
-		GM_BTN("Goto Player", btnY); btnY += btnH + pad;
-		GM_BTN("Summon Player", btnY); btnY += btnH + pad;
-
-		GM_SEPARATOR(btnY);
-		PutString(btnLeft, btnY, "- Quick Teleport -", RGB(140, 140, 180));
-		btnY += 16;
-
-		GM_BTN("Elvine", btnY); btnY += btnH + pad;
-		GM_BTN("Aresden", btnY); btnY += btnH + pad;
-		GM_BTN("Middleland", btnY); btnY += btnH + pad;
-		GM_BTN("BtlField1", btnY); btnY += btnH + pad;
-		GM_BTN("Druncncity", btnY); btnY += btnH + pad;
-		GM_BTN("Arena", btnY); btnY += btnH + pad;
+	case 0: { // === COMMANDS TAB ===
+		int y = contentY;
+		PutString(btnLeft, y, "- Toggles -", RGB(140, 140, 180)); y += 16;
+		GM_BTN("Toggle Invisibility", y); y += btnH + pad;
+		GM_BTN("Toggle Invincible", y); y += btnH + pad;
+		GM_BTN("Toggle No Aggro", y); y += btnH + pad;
+		GM_BTN("Toggle Observer Mode", y); y += btnH + pad;
+		gpu->DrawFilledRect(sX + 20, y, szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 6;
+		PutString(btnLeft, y, "- Stats -", RGB(140, 140, 180)); y += 16;
+		GM_BTN("Set HP", y); y += btnH + pad;
+		GM_BTN("Set MP", y); y += btnH + pad;
+		GM_BTN("Polymorph", y); y += btnH + pad;
+		gpu->DrawFilledRect(sX + 20, y, szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 6;
+		PutString(btnLeft, y, "- Map -", RGB(140, 140, 180)); y += 16;
+		GM_BTN("Unsummon All", y); y += btnH + pad;
+		GM_BTN("Unsummon Bosses", y); y += btnH + pad;
+		GM_BTN("Clear Map", y); y += btnH + pad;
+		GM_BTN("Disconnect All", y); y += btnH + pad;
 		break;
 	}
 
+	case 1: { // === SPAWN TAB — Scrollable creature list ===
+		int y = contentY;
+
+		// Category filter bar — 2 rows of buttons
+		int catBtnW = contentW / 5;
+		// Row 1: All, Animals, Undead, Orcs, Golems
+		for (int c = 0; c < 5 && c < g_GMCreatureCatCount; c++) {
+			int bx = btnLeft + c * catBtnW;
+			int filter = c - 1; // -1=All, 0=Animals, 1=Undead, 2=Orcs, 3=Golems
+			BOOL sel = (m_iGMPanelCreatureFilter == filter);
+			if (sel) gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.2f, 0.15f, 0.35f, 0.9f);
+			else if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14)
+				gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.12f, 0.12f, 0.2f, 0.7f);
+			PutString(bx + 2, y + 1, (char*)g_GMCreatureCatNames[c], sel ? RGB(255,255,200) : RGB(150,150,180));
+		}
+		y += 15;
+		// Row 2: Giants, Demons, Beasts, Pixies, Guards
+		for (int c = 5; c < 10 && c < g_GMCreatureCatCount; c++) {
+			int bx = btnLeft + (c - 5) * catBtnW;
+			int filter = c - 1; // 4=Giants, 5=Demons, 6=Beasts, 7=Pixies, 8=Guards
+			BOOL sel = (m_iGMPanelCreatureFilter == filter);
+			if (sel) gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.2f, 0.15f, 0.35f, 0.9f);
+			else if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14)
+				gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.12f, 0.12f, 0.2f, 0.7f);
+			PutString(bx + 2, y + 1, (char*)g_GMCreatureCatNames[c], sel ? RGB(255,255,200) : RGB(150,150,180));
+		}
+		y += 15;
+		// Row 3: NPCs, Bosses, Trainers
+		for (int c = 10; c < g_GMCreatureCatCount; c++) {
+			int bx = btnLeft + (c - 10) * catBtnW;
+			int filter = c - 1; // 9=NPCs, 10=Bosses, 11=Trainers
+			BOOL sel = (m_iGMPanelCreatureFilter == filter);
+			if (sel) gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.2f, 0.15f, 0.35f, 0.9f);
+			else if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14)
+				gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.12f, 0.12f, 0.2f, 0.7f);
+			PutString(bx + 2, y + 1, (char*)g_GMCreatureCatNames[c], sel ? RGB(255,255,200) : RGB(150,150,180));
+		}
+		y += 17;
+		gpu->DrawFilledRect(sX + 4, y, szX - 8, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 3;
+
+		// Build filtered list
+		int filteredIdx[200];
+		int filteredCount = 0;
+		for (int i = 0; i < g_GMCreatureCount && filteredCount < 200; i++) {
+			if (m_iGMPanelCreatureFilter == -1 || g_GMCreatures[i].category == m_iGMPanelCreatureFilter)
+				filteredIdx[filteredCount++] = i;
+		}
+
+		// Clamp scroll
+		int listY = y;
+		int rowH = 16;
+		int visibleRows = (sY + szY - 4 - listY) / rowH;
+		if (visibleRows < 1) visibleRows = 1;
+		int maxScroll = filteredCount - visibleRows;
+		if (maxScroll < 0) maxScroll = 0;
+		if (m_iGMPanelScroll > maxScroll) m_iGMPanelScroll = maxScroll;
+
+		// Draw creature list
+		for (int row = 0; row < visibleRows && (row + m_iGMPanelScroll) < filteredCount; row++) {
+			int idx = filteredIdx[row + m_iGMPanelScroll];
+			int ry = listY + row * rowH;
+			if (ry + rowH > sY + szY - 2) break;
+
+			BOOL hover = (msX >= btnLeft && msX <= btnRight && msY >= ry && msY < ry + rowH);
+			if (hover) gpu->DrawFilledRect(btnLeft, ry, contentW, rowH - 1, 0.15f, 0.15f, 0.25f, 0.7f);
+			PutString(btnLeft + 4, ry + 1, (char*)g_GMCreatures[idx].name,
+				hover ? RGB(255,255,200) : RGB(190,190,220));
+		}
+
+		// Scrollbar
+		if (filteredCount > visibleRows) {
+			int sbX = sX + szX - 10;
+			int sbH = sY + szY - 4 - listY;
+			gpu->DrawFilledRect(sbX, listY, 6, sbH, 0.1f, 0.1f, 0.15f, 0.6f);
+			int thumbH = max(10, sbH * visibleRows / filteredCount);
+			int thumbY = listY + (sbH - thumbH) * m_iGMPanelScroll / max(1, maxScroll);
+			gpu->DrawFilledRect(sbX, thumbY, 6, thumbH, 0.4f, 0.4f, 0.6f, 0.8f);
+		}
+
+		// Count display
+		char cCount[32];
+		wsprintf(cCount, "%d creatures", filteredCount);
+		PutString(sX + szX - 90, sY + szY - 14, cCount, RGB(120, 120, 150));
+		break;
+	}
+
+	case 2: { // === ITEMS TAB ===
+		int y = contentY;
+
+		if (m_iGMPanelItemSelected < 0) {
+			// --- BROWSE MODE ---
+			// Category buttons — 3 rows of 5
+			int catBtnW = contentW / 5;
+			for (int row = 0; row < 3; row++) {
+				for (int col = 0; col < 5; col++) {
+					int c = row * 5 + col;
+					if (c >= g_GMItemCatCount) break;
+					int bx = btnLeft + col * catBtnW;
+					int by = y + row * 15;
+					BOOL sel = (m_iGMPanelItemCategory == c);
+					if (sel) gpu->DrawFilledRect(bx, by, catBtnW - 1, 14, 0.2f, 0.15f, 0.35f, 0.9f);
+					else if (msX >= bx && msX < bx + catBtnW && msY >= by && msY < by + 14)
+						gpu->DrawFilledRect(bx, by, catBtnW - 1, 14, 0.12f, 0.12f, 0.2f, 0.7f);
+					PutString(bx + 2, by + 1, (char*)g_GMItemCatNames[c], sel ? RGB(255,255,200) : RGB(150,150,180));
+				}
+			}
+			y += 47;
+			gpu->DrawFilledRect(sX + 4, y, szX - 8, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 3;
+
+			// Build filtered item list
+			int filteredIdx[600];
+			int filteredCount = 0;
+			for (int i = 0; i < g_GMItemCount && filteredCount < 600; i++) {
+				if (g_GMItems[i].category == m_iGMPanelItemCategory)
+					filteredIdx[filteredCount++] = i;
+			}
+
+			// Clamp scroll
+			int listY = y;
+			int rowH = 16;
+			int visibleRows = (sY + szY - 4 - listY) / rowH;
+			if (visibleRows < 1) visibleRows = 1;
+			int maxScroll = filteredCount - visibleRows;
+			if (maxScroll < 0) maxScroll = 0;
+			if (m_iGMPanelScroll > maxScroll) m_iGMPanelScroll = maxScroll;
+
+			// Draw item list
+			for (int row = 0; row < visibleRows && (row + m_iGMPanelScroll) < filteredCount; row++) {
+				int idx = filteredIdx[row + m_iGMPanelScroll];
+				int ry = listY + row * rowH;
+				if (ry + rowH > sY + szY - 2) break;
+
+				BOOL hover = (msX >= btnLeft && msX <= btnRight && msY >= ry && msY < ry + rowH);
+				if (hover) gpu->DrawFilledRect(btnLeft, ry, contentW, rowH - 1, 0.15f, 0.15f, 0.25f, 0.7f);
+				PutString(btnLeft + 4, ry + 1, (char*)g_GMItems[idx].name,
+					hover ? RGB(255,255,200) : RGB(190,190,220));
+			}
+
+			// Scrollbar
+			if (filteredCount > visibleRows) {
+				int sbX = sX + szX - 10;
+				int sbH = sY + szY - 4 - listY;
+				gpu->DrawFilledRect(sbX, listY, 6, sbH, 0.1f, 0.1f, 0.15f, 0.6f);
+				int thumbH = max(10, sbH * visibleRows / filteredCount);
+				int thumbY = listY + (sbH - thumbH) * m_iGMPanelScroll / max(1, maxScroll);
+				gpu->DrawFilledRect(sbX, thumbY, 6, thumbH, 0.4f, 0.4f, 0.6f, 0.8f);
+			}
+
+			char cCount[32];
+			wsprintf(cCount, "%d items", filteredCount);
+			PutString(sX + szX - 80, sY + szY - 14, cCount, RGB(120, 120, 150));
+
+		} else {
+			// --- ITEM DETAIL / CUSTOMIZATION MODE ---
+			const char* itemName = (m_iGMPanelItemSelected < g_GMItemCount) ? g_GMItems[m_iGMPanelItemSelected].name : "???";
+
+			// Header: [Back] + item name
+			GM_LBTN("[Back]", btnLeft, btnLeft + 45, y);
+			PutString(btnLeft + 50, y + 1, (char*)itemName, RGB(255, 220, 100));
+			y += 18;
+			gpu->DrawFilledRect(sX + 4, y, szX - 8, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 5;
+
+			// Prefix selector
+			PutString(btnLeft, y, "Prefix:", RGB(140, 180, 140)); y += 14;
+			int pfxBtnW = contentW / 4;
+			for (int i = 0; i < g_GMPrefixCount; i++) {
+				int col = i % 4;
+				int row = i / 4;
+				int bx = btnLeft + col * pfxBtnW;
+				int by = y + row * 15;
+				BOOL sel = (m_iGMPanelItemPrefix == i);
+				if (sel) gpu->DrawFilledRect(bx, by, pfxBtnW - 1, 14, 0.1f, 0.25f, 0.1f, 0.9f);
+				else if (msX >= bx && msX < bx + pfxBtnW && msY >= by && msY < by + 14)
+					gpu->DrawFilledRect(bx, by, pfxBtnW - 1, 14, 0.12f, 0.15f, 0.12f, 0.7f);
+				PutString(bx + 2, by + 1, (char*)g_GMPrefixes[i].name, sel ? RGB(200,255,200) : RGB(150,180,150));
+			}
+			y += ((g_GMPrefixCount + 3) / 4) * 15 + 4;
+
+			// Secondary stat selector
+			PutString(btnLeft, y, "Secondary:", RGB(140, 140, 180)); y += 14;
+			int s2BtnW = contentW / 4;
+			for (int i = 0; i < g_GMStat2Count; i++) {
+				int col = i % 4;
+				int row = i / 4;
+				int bx = btnLeft + col * s2BtnW;
+				int by = y + row * 15;
+				BOOL sel = (m_iGMPanelItemStat2 == i);
+				if (sel) gpu->DrawFilledRect(bx, by, s2BtnW - 1, 14, 0.1f, 0.1f, 0.3f, 0.9f);
+				else if (msX >= bx && msX < bx + s2BtnW && msY >= by && msY < by + 14)
+					gpu->DrawFilledRect(bx, by, s2BtnW - 1, 14, 0.1f, 0.1f, 0.2f, 0.7f);
+				PutString(bx + 2, by + 1, (char*)g_GMStat2s[i].name, sel ? RGB(200,200,255) : RGB(150,150,180));
+			}
+			y += ((g_GMStat2Count + 3) / 4) * 15 + 4;
+
+			// Stat2 value: [-] value [+]
+			if (m_iGMPanelItemStat2 > 0) {
+				PutString(btnLeft, y, "Stat Value:", RGB(140, 140, 180));
+				int vx = btnLeft + 80;
+				GM_LBTN("[-]", vx, vx + 24, y);
+				char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemStat2Val);
+				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+				GM_LBTN("[+]", vx + 48, vx + 72, y);
+				y += 18;
+			}
+
+			// Amount: [-] amount [+]
+			PutString(btnLeft, y, "Amount:", RGB(140, 140, 180));
+			{
+				int vx = btnLeft + 80;
+				GM_LBTN("[-]", vx, vx + 24, y);
+				char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemAmount);
+				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+				GM_LBTN("[+]", vx + 48, vx + 72, y);
+			}
+			y += 22;
+
+			// Command preview
+			gpu->DrawFilledRect(btnLeft, y, contentW, 28, 0.05f, 0.05f, 0.1f, 0.8f);
+			{
+				DWORD attr = 0;
+				if (m_iGMPanelItemPrefix > 0) {
+					attr |= (g_GMPrefixes[m_iGMPanelItemPrefix].type & 0xF) << 20;
+					attr |= (1 & 0xF) << 16; // default prefix value = 1
+				}
+				if (m_iGMPanelItemStat2 > 0) {
+					attr |= (g_GMStat2s[m_iGMPanelItemStat2].type & 0xF) << 12;
+					attr |= (m_iGMPanelItemStat2Val & 0xF) << 8;
+				}
+				char cPreview[128];
+				wsprintf(cPreview, "/ci %s %u 0 %d", itemName, attr, m_iGMPanelItemAmount);
+				PutString(btnLeft + 4, y + 2, cPreview, RGB(180, 255, 180));
+
+				// Human-readable line
+				char cHuman[128];
+				char cPfx[32] = "";
+				if (m_iGMPanelItemPrefix > 0) wsprintf(cPfx, "%s ", g_GMPrefixes[m_iGMPanelItemPrefix].name);
+				char cS2[48] = "";
+				if (m_iGMPanelItemStat2 > 0) wsprintf(cS2, ", %s +%d", g_GMStat2s[m_iGMPanelItemStat2].name, m_iGMPanelItemStat2Val);
+				wsprintf(cHuman, "%s%s%s x%d", cPfx, itemName, cS2, m_iGMPanelItemAmount);
+				PutString(btnLeft + 4, y + 15, cHuman, RGB(200, 200, 150));
+			}
+			y += 32;
+
+			// [CREATE] button
+			{
+				int cbx = sX + szX / 2 - 40;
+				int cbw = 80;
+				BOOL hover = (msX >= cbx && msX <= cbx + cbw && msY >= y && msY <= y + 20);
+				if (hover)
+					gpu->DrawFilledRect(cbx, y, cbw, 20, 0.1f, 0.35f, 0.1f, 0.9f);
+				else
+					gpu->DrawFilledRect(cbx, y, cbw, 20, 0.08f, 0.2f, 0.08f, 0.8f);
+				PutAlignedString(cbx, cbx + cbw, y + 3, "CREATE", hover ? 100 : 150, 255, hover ? 100 : 150);
+			}
+		}
+		break;
+	}
+
+	case 3: { // === TELEPORT TAB ===
+		int y = contentY;
+		PutString(btnLeft, y, "- Teleport -", RGB(140, 140, 180)); y += 16;
+		GM_BTN("Teleport (map x y)", y); y += btnH + pad;
+		GM_BTN("Goto Player", y); y += btnH + pad;
+		GM_BTN("Summon Player", y); y += btnH + pad;
+		gpu->DrawFilledRect(sX + 20, y, szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 6;
+		PutString(btnLeft, y, "- Quick Teleport -", RGB(140, 140, 180)); y += 16;
+		GM_BTN("Elvine", y); y += btnH + pad;
+		GM_BTN("Aresden", y); y += btnH + pad;
+		GM_BTN("Middleland", y); y += btnH + pad;
+		GM_BTN("BtlField1", y); y += btnH + pad;
+		GM_BTN("Druncncity", y); y += btnH + pad;
+		GM_BTN("Arena", y); y += btnH + pad;
+		break;
+	}
+	} // end switch
+
 	#undef GM_BTN
-	#undef GM_SEPARATOR
+	#undef GM_LBTN
 }
 
 void CGame::DlgBoxClick_GMPanel(int msX, int msY)
@@ -38792,17 +39238,11 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 	short sX = m_stDialogBoxInfo[DIALOG_GMPANEL].sX;
 	short sY = m_stDialogBoxInfo[DIALOG_GMPANEL].sY;
 	short szX = m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX;
+	short szY = m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY;
 
 	// Close button [X]
 	if (msX >= sX + szX - 20 && msX <= sX + szX - 5 && msY >= sY + 2 && msY <= sY + 18) {
 		DisableDialogBox(DIALOG_GMPANEL);
-		return;
-	}
-
-	// Title bar drag
-	if (msY >= sY && msY <= sY + 20) {
-		m_stMCursor.cSelectedObjectType = SELECTEDOBJTYPE_DLGBOX;
-		m_stMCursor.sSelectedObjectID = DIALOG_GMPANEL;
 		return;
 	}
 
@@ -38820,13 +39260,14 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 		return;
 	}
 
-	int btnY = tabY + tabH + 6;
-	int btnH = 20;
-	int pad = 3;
+	int contentY = tabY + tabH + 4;
 	int btnLeft = sX + 8;
 	int btnRight = sX + szX - 8;
+	int contentW = btnRight - btnLeft;
+	int btnH = 18;
+	int pad = 2;
 
-	// Helper: send a GM chat command (copies to mutable buffer for legacy APIs)
+	// Helper: send a GM chat command
 	char _gmCmdBuf[128];
 	#define GM_SEND_CMD(cmd) { \
 		strncpy(_gmCmdBuf, cmd, sizeof(_gmCmdBuf) - 1); \
@@ -38835,30 +39276,25 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 		AddEventList(_gmCmdBuf, 10); \
 	}
 
-	// Helper: start text input mode
 	#define GM_START_INPUT(mode) { \
 		m_iGMPanelInputMode = mode; \
 		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput)); \
-		StartInputString(btnLeft + 4, btnY + 2, 50, m_cGMPanelInput); \
+		StartInputString(btnLeft + 4, contentY + 2, 50, m_cGMPanelInput); \
 		return; \
 	}
 
-	// Helper: check button click
-	#define GM_BTN_HIT(y) (msX >= btnLeft && msX <= btnRight && msY >= (y) && msY <= (y) + btnH - 2)
+	#define GM_BTN_HIT(y) (msX >= btnLeft && msX <= btnRight && msY >= (y) && msY <= (y) + 16)
 
 	// === INPUT MODE: Send/Cancel ===
 	if (m_iGMPanelInputMode > 0) {
-		btnY += 22; // skip input field display
-
-		// Send button
-		if (msX >= btnLeft && msX <= btnLeft + 55 && msY >= btnY && msY <= btnY + 16) {
+		int iy = contentY + 22;
+		if (msX >= btnLeft && msX <= btnLeft + 55 && msY >= iy && msY <= iy + 16) {
 			char cCmd[128];
 			switch (m_iGMPanelInputMode) {
 			case 1: wsprintf(cCmd, "/summon %s", m_cGMPanelInput); break;
 			case 2: wsprintf(cCmd, "/ci %s", m_cGMPanelInput); break;
 			case 3: wsprintf(cCmd, "/tp %s", m_cGMPanelInput); break;
-			case 4: // Goto player or Summon player
-				wsprintf(cCmd, "/goto %s", m_cGMPanelInput); break;
+			case 4: wsprintf(cCmd, "/goto %s", m_cGMPanelInput); break;
 			case 5: wsprintf(cCmd, "/sethp %s", m_cGMPanelInput); break;
 			case 6: wsprintf(cCmd, "/setmp %s", m_cGMPanelInput); break;
 			case 7: wsprintf(cCmd, "/polymorph %s", m_cGMPanelInput); break;
@@ -38869,9 +39305,7 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
 			return;
 		}
-
-		// Cancel button
-		if (msX >= btnLeft + 65 && msX <= btnLeft + 130 && msY >= btnY && msY <= btnY + 16) {
+		if (msX >= btnLeft + 65 && msX <= btnLeft + 130 && msY >= iy && msY <= iy + 16) {
 			m_iGMPanelInputMode = 0;
 			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
 			return;
@@ -38880,135 +39314,253 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 	}
 
 	switch (m_iGMPanelTab) {
-	case 0: // === COMMANDS TAB ===
-		btnY += 16; // skip section header
-
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/invi"); return; }
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/invincible"); return; }
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/noaggro"); return; }
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/observer"); return; }
-		btnY += btnH + pad;
-
-		btnY += 6; // separator
-		btnY += 16; // section header
-
-		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(5); }  // Set HP
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(6); }  // Set MP
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(7); }  // Polymorph
-		btnY += btnH + pad;
-
-		btnY += 6; // separator
-		btnY += 16; // section header
-
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/unsummonall"); return; }
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/unsummonboss"); return; }
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/clearmap"); return; }
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/disconnectall"); return; }
+	case 0: { // === COMMANDS TAB ===
+		int y = contentY + 16; // skip header
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/invi"); return; } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/invincible"); return; } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/noaggro"); return; } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/observer"); return; } y += btnH + pad;
+		y += 6 + 16; // separator + header
+		if (GM_BTN_HIT(y)) { GM_START_INPUT(5); } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_START_INPUT(6); } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_START_INPUT(7); } y += btnH + pad;
+		y += 6 + 16;
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/unsummonall"); return; } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/unsummonboss"); return; } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/clearmap"); return; } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_SEND_CMD("/disconnectall"); return; } y += btnH + pad;
 		break;
+	}
 
-	case 1: // === SPAWN TAB ===
-		btnY += 16; // section header
+	case 1: { // === SPAWN TAB ===
+		int y = contentY;
 
-		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(1); }  // Summon custom
-		btnY += btnH + pad;
+		// Category filter clicks — 3 rows
+		int catBtnW = contentW / 5;
+		// Row 1
+		for (int c = 0; c < 5 && c < g_GMCreatureCatCount; c++) {
+			int bx = btnLeft + c * catBtnW;
+			if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14) {
+				m_iGMPanelCreatureFilter = c - 1;
+				m_iGMPanelScroll = 0;
+				return;
+			}
+		}
+		y += 15;
+		// Row 2
+		for (int c = 5; c < 10 && c < g_GMCreatureCatCount; c++) {
+			int bx = btnLeft + (c - 5) * catBtnW;
+			if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14) {
+				m_iGMPanelCreatureFilter = c - 1;
+				m_iGMPanelScroll = 0;
+				return;
+			}
+		}
+		y += 15;
+		// Row 3
+		for (int c = 10; c < g_GMCreatureCatCount; c++) {
+			int bx = btnLeft + (c - 10) * catBtnW;
+			if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14) {
+				m_iGMPanelCreatureFilter = c - 1;
+				m_iGMPanelScroll = 0;
+				return;
+			}
+		}
+		y += 17 + 3; // gap + separator
 
-		btnY += 6 + 16; // separator + section header
+		// Creature list click
+		int filteredIdx[200];
+		int filteredCount = 0;
+		for (int i = 0; i < g_GMCreatureCount && filteredCount < 200; i++) {
+			if (m_iGMPanelCreatureFilter == -1 || g_GMCreatures[i].category == m_iGMPanelCreatureFilter)
+				filteredIdx[filteredCount++] = i;
+		}
 
-		{ // Quick summon buttons
-			static const char* quickMobs[] = {
-				"Slime", "Skeleton", "Orc", "Troll", "Ogre", "Cyclops",
-				"Demon", "Unicorn", "Werewolf", "Hellclaw", "Tigerworm", "Rudolph"
-			};
-			for (int i = 0; i < 12; i++) {
-				if (GM_BTN_HIT(btnY)) {
-					char cCmd[64];
-					wsprintf(cCmd, "/summon %s", quickMobs[i]);
-					GM_SEND_CMD(cCmd);
-					return;
-				}
-				btnY += btnH + pad;
+		int listY = y;
+		int rowH = 16;
+		int visibleRows = (sY + szY - 4 - listY) / rowH;
+		if (visibleRows < 1) visibleRows = 1;
+
+		if (msY >= listY && msY < listY + visibleRows * rowH) {
+			int clickedRow = (msY - listY) / rowH + m_iGMPanelScroll;
+			if (clickedRow >= 0 && clickedRow < filteredCount) {
+				int idx = filteredIdx[clickedRow];
+				char cCmd[64];
+				wsprintf(cCmd, "/summon %s 1", g_GMCreatures[idx].name);
+				GM_SEND_CMD(cCmd);
+				return;
 			}
 		}
 		break;
+	}
 
-	case 2: // === ITEMS TAB ===
-		btnY += 16; // section header
+	case 2: { // === ITEMS TAB ===
+		int y = contentY;
 
-		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(2); }  // Create item custom
-		btnY += btnH + pad;
+		if (m_iGMPanelItemSelected < 0) {
+			// --- BROWSE MODE ---
+			// Category button clicks — 3 rows of 5
+			int catBtnW = contentW / 5;
+			for (int row = 0; row < 3; row++) {
+				for (int col = 0; col < 5; col++) {
+					int c = row * 5 + col;
+					if (c >= g_GMItemCatCount) break;
+					int bx = btnLeft + col * catBtnW;
+					int by = y + row * 15;
+					if (msX >= bx && msX < bx + catBtnW && msY >= by && msY < by + 14) {
+						m_iGMPanelItemCategory = c;
+						m_iGMPanelScroll = 0;
+						return;
+					}
+				}
+			}
+			y += 47 + 3; // categories + separator
 
-		btnY += 6 + 16; // separator + section header
+			// Item list click
+			int filteredIdx[600];
+			int filteredCount = 0;
+			for (int i = 0; i < g_GMItemCount && filteredCount < 600; i++) {
+				if (g_GMItems[i].category == m_iGMPanelItemCategory)
+					filteredIdx[filteredCount++] = i;
+			}
 
-		{ // Quick item buttons
-			static const char* quickItems[] = {
-				"Gold 0 0 10000", "ZemstoneofSacrifice", "SwordofMedusa",
-				"GiantSword", "StormBringer", "Excalibur",
-				"KlonessAxe", "PlateMail", "AncientTablet(STR)",
-				"MagicNecklace(DM)", "SuperHP", "SuperMP"
-			};
-			static const char* quickLabels[] = {
-				"Gold(10000)", "ZemstoneofSacrifice", "SwordofMedusa",
-				"GiantSword", "StormBringer", "Excalibur",
-				"KlonessAxe", "PlateMail", "AncientTablet(STR)",
-				"MagicNecklace(DM)", "SuperHP", "SuperMP"
-			};
-			for (int i = 0; i < 12; i++) {
-				if (GM_BTN_HIT(btnY)) {
-					char cCmd[64];
-					wsprintf(cCmd, "/ci %s", quickItems[i]);
+			int listY = y;
+			int rowH = 16;
+			int visibleRows = (sY + szY - 4 - listY) / rowH;
+			if (visibleRows < 1) visibleRows = 1;
+
+			if (msY >= listY && msY < listY + visibleRows * rowH) {
+				int clickedRow = (msY - listY) / rowH + m_iGMPanelScroll;
+				if (clickedRow >= 0 && clickedRow < filteredCount) {
+					m_iGMPanelItemSelected = filteredIdx[clickedRow];
+					m_iGMPanelItemPrefix = 0;
+					m_iGMPanelItemStat2 = 0;
+					m_iGMPanelItemStat2Val = 1;
+					m_iGMPanelItemAmount = 1;
+					return;
+				}
+			}
+
+		} else {
+			// --- ITEM DETAIL MODE ---
+			// [Back] button
+			if (msX >= btnLeft && msX <= btnLeft + 45 && msY >= y && msY < y + 14) {
+				m_iGMPanelItemSelected = -1;
+				m_iGMPanelScroll = 0;
+				return;
+			}
+			y += 18 + 5; // header + separator
+
+			// Prefix label
+			y += 14;
+			// Prefix buttons
+			int pfxBtnW = contentW / 4;
+			for (int i = 0; i < g_GMPrefixCount; i++) {
+				int col = i % 4;
+				int row = i / 4;
+				int bx = btnLeft + col * pfxBtnW;
+				int by = y + row * 15;
+				if (msX >= bx && msX < bx + pfxBtnW && msY >= by && msY < by + 14) {
+					m_iGMPanelItemPrefix = i;
+					return;
+				}
+			}
+			y += ((g_GMPrefixCount + 3) / 4) * 15 + 4;
+
+			// Secondary stat label
+			y += 14;
+			int s2BtnW = contentW / 4;
+			for (int i = 0; i < g_GMStat2Count; i++) {
+				int col = i % 4;
+				int row = i / 4;
+				int bx = btnLeft + col * s2BtnW;
+				int by = y + row * 15;
+				if (msX >= bx && msX < bx + s2BtnW && msY >= by && msY < by + 14) {
+					m_iGMPanelItemStat2 = i;
+					return;
+				}
+			}
+			y += ((g_GMStat2Count + 3) / 4) * 15 + 4;
+
+			// Stat2 value [-] [+]
+			if (m_iGMPanelItemStat2 > 0) {
+				int vx = btnLeft + 80;
+				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
+					if (m_iGMPanelItemStat2Val > 1) m_iGMPanelItemStat2Val--;
+					return;
+				}
+				if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
+					if (m_iGMPanelItemStat2Val < 15) m_iGMPanelItemStat2Val++;
+					return;
+				}
+				y += 18;
+			}
+
+			// Amount [-] [+]
+			{
+				int vx = btnLeft + 80;
+				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
+					if (m_iGMPanelItemAmount > 1) m_iGMPanelItemAmount--;
+					return;
+				}
+				if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
+					if (m_iGMPanelItemAmount < 100) m_iGMPanelItemAmount++;
+					return;
+				}
+			}
+			y += 22 + 28 + 4; // amount row + preview box + gap
+
+			// [CREATE] button
+			{
+				int cbx = sX + szX / 2 - 40;
+				int cbw = 80;
+				if (msX >= cbx && msX <= cbx + cbw && msY >= y && msY <= y + 20) {
+					const char* itemName = g_GMItems[m_iGMPanelItemSelected].name;
+					DWORD attr = 0;
+					if (m_iGMPanelItemPrefix > 0) {
+						attr |= (g_GMPrefixes[m_iGMPanelItemPrefix].type & 0xF) << 20;
+						attr |= (1 & 0xF) << 16;
+					}
+					if (m_iGMPanelItemStat2 > 0) {
+						attr |= (g_GMStat2s[m_iGMPanelItemStat2].type & 0xF) << 12;
+						attr |= (m_iGMPanelItemStat2Val & 0xF) << 8;
+					}
+					char cCmd[128];
+					wsprintf(cCmd, "/ci %s %u 0 %d", itemName, attr, m_iGMPanelItemAmount);
 					GM_SEND_CMD(cCmd);
 					return;
 				}
-				btnY += btnH + pad;
 			}
 		}
 		break;
+	}
 
-	case 3: // === TELEPORT TAB ===
-		btnY += 16; // section header
-
-		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(3); }  // Teleport custom
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(4); }  // Goto player
-		btnY += btnH + pad;
-		if (GM_BTN_HIT(btnY)) {  // Summon player (reuse input mode 4 but with /summonplayer)
+	case 3: { // === TELEPORT TAB ===
+		int y = contentY + 16; // skip header
+		if (GM_BTN_HIT(y)) { GM_START_INPUT(3); } y += btnH + pad;
+		if (GM_BTN_HIT(y)) { GM_START_INPUT(4); } y += btnH + pad;
+		if (GM_BTN_HIT(y)) {
 			m_iGMPanelInputMode = 4;
 			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
-			StartInputString(btnLeft + 4, btnY + 2, 50, m_cGMPanelInput);
+			StartInputString(btnLeft + 4, contentY + 2, 50, m_cGMPanelInput);
 			return;
 		}
-		btnY += btnH + pad;
-
-		btnY += 6 + 16; // separator + section header
-
-		{ // Quick teleport buttons
+		y += btnH + pad;
+		y += 6 + 16; // separator + header
+		{
 			static const char* quickTP[] = {
 				"/tp elvine 310 260", "/tp aresden 310 260",
 				"/tp middleland 250 250", "/tp BtlField1 120 120",
 				"/tp Druncncity 50 50", "/tp arefarm 100 100"
 			};
-			static const char* tpLabels[] = {
-				"Elvine", "Aresden", "Middleland",
-				"BtlField1", "Druncncity", "Arena"
-			};
 			for (int i = 0; i < 6; i++) {
-				if (GM_BTN_HIT(btnY)) {
-					GM_SEND_CMD(quickTP[i]);
-					return;
-				}
-				btnY += btnH + pad;
+				if (GM_BTN_HIT(y)) { GM_SEND_CMD(quickTP[i]); return; }
+				y += btnH + pad;
 			}
 		}
 		break;
 	}
+	} // end switch
 
 	#undef GM_SEND_CMD
 	#undef GM_START_INPUT
