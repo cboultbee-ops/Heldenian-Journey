@@ -14,6 +14,21 @@
 
 extern char G_cSpriteAlphaDegree;
 
+// Debug logger for map change diagnostics
+void MapChangeLog(const char* fmt, ...) {
+	FILE* f = fopen("mapchange_debug.txt", "a");
+	if (f) {
+		DWORD t = timeGetTime();
+		fprintf(f, "[%u] ", t);
+		va_list args;
+		va_start(args, fmt);
+		vfprintf(f, fmt, args);
+		va_end(args);
+		fprintf(f, "\n");
+		fclose(f);
+	}
+}
+
 extern char G_cCmdLine[256], G_cCmdLineTokenA[120], G_cCmdLineTokenA_Lowercase[120], G_cCmdLineTokenB[120], G_cCmdLineTokenC[120], G_cCmdLineTokenD[120], G_cCmdLineTokenE[120];
 extern class XSocket * G_pCalcSocket;
 extern BOOL G_bIsCalcSocketConnected;
@@ -1057,6 +1072,7 @@ void CGame::OnGameSocketEvent(WPARAM wParam, LPARAM lParam)
 	iRet = m_pGSock->iOnSocketEvent(wParam, lParam);
 	switch (iRet) {
 	case XSOCKEVENT_CONNECTIONESTABLISH:
+		MapChangeLog("GSOCK_CONNECT_OK gameMode=%d", (int)m_cGameMode);
 		ConnectionEstablishHandler(SERVERTYPE_GAME);
 		break;
 
@@ -1067,12 +1083,14 @@ void CGame::OnGameSocketEvent(WPARAM wParam, LPARAM lParam)
 		break;
 
 	case XSOCKEVENT_SOCKETCLOSED:
+		MapChangeLog("GSOCK_CLOSED gameMode=%d", (int)m_cGameMode);
 		ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
 		delete m_pGSock;
 		m_pGSock = NULL;
 		break;
 
 	case XSOCKEVENT_SOCKETERROR:
+		MapChangeLog("GSOCK_ERROR gameMode=%d", (int)m_cGameMode);
 		ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
 		delete m_pGSock;
 		m_pGSock = NULL;
@@ -1935,12 +1953,14 @@ BOOL CGame::bSendCommand(DWORD dwMsgID, WORD wCommand, char cDir, int iV1, int i
 	case XSOCKEVENT_SOCKETCLOSED:
 	case XSOCKEVENT_SOCKETERROR:
 	case XSOCKEVENT_QUENEFULL:
+		MapChangeLog("BSEND_FAIL iRet=%d msgID=%u gameMode=%d", iRet, dwMsgID, (int)m_cGameMode);
 		ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
 		delete m_pGSock;
 		m_pGSock = NULL;
 		break;
 
 	case XSOCKEVENT_CRITICALERROR:
+		MapChangeLog("BSEND_CRITICAL msgID=%u gameMode=%d", dwMsgID, (int)m_cGameMode);
 		delete m_pGSock;
 		m_pGSock = NULL;
 		if (G_pCalcSocket != NULL) {
@@ -2601,6 +2621,7 @@ void CGame::DrawObjects(short sPivotX, short sPivotY, short sDivX, short sDivY, 
 
 void CGame::ConnectionEstablishHandler(char cWhere)
 {
+	MapChangeLog("CONN_ESTABLISHED type=%d connectMode=%u enterType=%d", (int)cWhere, m_dwConnectMode, (int)m_wEnterGameType);
 	ChangeGameMode(GAMEMODE_ONWAITINGRESPONSE);
 
 	switch (cWhere) {
@@ -3623,7 +3644,8 @@ void CGame::OnTimer()
 			if (m_cCommandCount >= 6)
 			{	m_iNetLagCount++;
 				if (m_iNetLagCount >= 7)
-				{	ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
+				{	MapChangeLog("NETLAG_DISCONNECT cmdCount=%d lagCount=%d gameMode=%d", (int)m_cCommandCount, m_iNetLagCount, (int)m_cGameMode);
+					ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
 					delete m_pGSock;
 					m_pGSock = NULL;
 					return;
@@ -3810,9 +3832,9 @@ BOOL CGame::_bCheckDlgBoxClick(short msX, short msY)
 			case 56:
 				DlgBoxClick_EquipSet(msX, msY);
 				break;
-			//case 55: //Quest Helper
-			//	DrawQuestHelper();
-			//	break;
+			case DIALOG_GMPANEL:
+				DlgBoxClick_GMPanel(msX, msY);
+				break;
 
 			}
 
@@ -12689,6 +12711,7 @@ void CGame::OnLogSocketEvent(WPARAM wParam, LPARAM lParam)
 	iRet = m_pLSock->iOnSocketEvent(wParam, lParam);
 	switch (iRet) {
 	case XSOCKEVENT_CONNECTIONESTABLISH:
+		MapChangeLog("LSOCK_CONNECT_OK gameMode=%d", (int)m_cGameMode);
 		ConnectionEstablishHandler(SERVERTYPE_LOG);
 		break;
 
@@ -12699,12 +12722,14 @@ void CGame::OnLogSocketEvent(WPARAM wParam, LPARAM lParam)
 		break;
 
 	case XSOCKEVENT_SOCKETCLOSED:
+		MapChangeLog("LSOCK_CLOSED gameMode=%d", (int)m_cGameMode);
 		ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
 		delete m_pLSock;
 		m_pLSock = NULL;
 		break;
 
 	case XSOCKEVENT_SOCKETERROR:
+		MapChangeLog("LSOCK_ERROR gameMode=%d", (int)m_cGameMode);
 		ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
 		delete m_pLSock;
 		m_pLSock = NULL;
@@ -13180,11 +13205,12 @@ void CGame::LogResponseHandler(char * Data)
 		break;
 
 	case ENTERGAMERESTYPE_PLAYING:
+		MapChangeLog("ENTERGAME_RESP=PLAYING (force login prompt)");
 		ChangeGameMode(GAMEMODE_ONQUERYFORCELOGIN);
 		break;
 
 	case ENTERGAMERESTYPE_CONFIRM:
-		{	
+		{
 			Sleep(50);	// await processing of permitted IP from Login Server to Map Server
 
 			int iGameServerPort;
@@ -13199,6 +13225,7 @@ void CGame::LogResponseHandler(char * Data)
 			ZeroMemory(m_cGameServerName, sizeof(m_cGameServerName));
 			memcpy(m_cGameServerName, cp, 20);
 			cp += 20;
+			MapChangeLog("ENTERGAME_RESP=CONFIRM addr=%s port=%d serverName=%s (LAN=%d localAddr=%s)", cGameServerAddr, iGameServerPort, m_cGameServerName, m_iGameServerMode, m_cLogServerAddr);
 			m_pGSock = new class XSocket(m_hWnd, SOCKETBLOCKLIMIT);
 			if (m_iGameServerMode == 1)
 			{	m_pGSock->bConnect(m_cLogServerAddr, iGameServerPort, WM_USER_GAMESOCKETEVENT);
@@ -13210,9 +13237,11 @@ void CGame::LogResponseHandler(char * Data)
 		break;
 
 	case ENTERGAMERESTYPE_REJECT:
+		MapChangeLog("ENTERGAME_RESP=REJECT");
 		ChangeGameMode(GAMEMODE_ONLOGRESMSG);
 		ZeroMemory(m_cMsg, sizeof(m_cMsg));
 		cp = (char *)(Data + INDEX2_MSGTYPE + 2);
+		MapChangeLog("REJECT_REASON=%d", (int)*cp);
 		switch (*cp) {
 		case 1:	strcpy(m_cMsg, "3E"); break;
 		case 2:	strcpy(m_cMsg, "3F"); break;
@@ -15673,7 +15702,10 @@ void CGame::DrawDialogBoxs(short msX, short msY, short msZ, char cLB)
 			DrawDialogBox_DKMenuArmor(msX, msY); 
 			break;
 		case 53:
-			DrawDialogBox_DKMenuWeapons(msX, msY); 
+			DrawDialogBox_DKMenuWeapons(msX, msY);
+			break;
+		case DIALOG_GMPANEL:
+			DrawDialogBox_GMPanel(msX, msY);
 			break;
 		}
 	}
@@ -23715,70 +23747,19 @@ void CGame::OnKeyDown(WPARAM wParam)
 	}
 }
 
-void CGame::UpdateScreen_OnQuit() 
+void CGame::UpdateScreen_OnQuit()
 {
- short msX, msY, msZ;
- char cLB, cRB, cMB;
- char cMIresult;
- int  iMIbuttonNum;
-
- static class CMouseInterface * pMI;
-
- DWORD dwTime = timeGetTime();
-
-	if (m_cGameModeCount == 0) {
-		if (G_pCalcSocket != NULL) 
-		{	delete G_pCalcSocket;
-			G_pCalcSocket = NULL;
-		}
-		if (m_pGSock != NULL) 
-		{	delete m_pGSock;
-			m_pGSock = NULL;
-		}
-		m_bEscPressed = FALSE;
-		m_bEnterPressed = FALSE;
-		pMI = new class CMouseInterface;
-		pMI->AddRect(0,0,640,480);
-		m_bEnterPressed = FALSE;
+	// Clean up sockets and exit immediately — no goodbye splash screen
+	if (G_pCalcSocket != NULL) {
+		delete G_pCalcSocket;
+		G_pCalcSocket = NULL;
 	}
-
-    m_cGameModeCount++;
-	if (m_cGameModeCount > 120) m_cGameModeCount = 120;
-
-	m_DDraw.ClearBackB4();
-
-	if (m_bEscPressed == TRUE || m_bEnterPressed == TRUE) {
-		m_bEscPressed = FALSE;
-		m_bEnterPressed = FALSE;
-		delete pMI;
-		ChangeGameMode(GAMEMODE_NULL);
-		SendMessage(m_hWnd, WM_DESTROY, NULL, NULL);
-		return;
+	if (m_pGSock != NULL) {
+		delete m_pGSock;
+		m_pGSock = NULL;
 	}
-	DrawNewDialogBox(SPRID_INTERFACE_ND_QUIT, 0,0,0, TRUE);
-
-	if (m_cGameModeCount > 20) DrawNewDialogBox(SPRID_INTERFACE_ND_QUIT, 255,123,1, TRUE);
-	else if ((m_cGameModeCount >= 15) && (m_cGameModeCount <= 20)) m_pSprite[SPRID_INTERFACE_ND_QUIT]->PutTransSprite25(255,123,1, TRUE);
-	DrawVersion(TRUE);
-	//if(m_cGameModeCount == 1000)
-	//{	ChangeGameMode(GAMEMODE_NULL);
-	//	delete pMI;
-	//	SendMessage(m_hWnd, WM_DESTROY, NULL, NULL);
-	//	//GoHomepage();
-	//	return;
-	//}
-	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
-	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
-
-	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
-	if ((cMIresult == MIRESULT_CLICK) && (iMIbuttonNum == 1)) {
-		ChangeGameMode(GAMEMODE_NULL);
-		SendMessage(m_hWnd, WM_DESTROY, NULL, NULL);
-		delete pMI;
-		return;
-	}
-
-	if (m_DDraw.iFlip() == DDERR_SURFACELOST) RestoreSprites();
+	ChangeGameMode(GAMEMODE_NULL);
+	SendMessage(m_hWnd, WM_DESTROY, NULL, NULL);
 }
 
 void CGame::UpdateScreen_OnQueryForceLogin()
@@ -26162,6 +26143,19 @@ BOOL CGame::bCheckLocalChatCommand(char * pMsg)
 		else
 			AddEventList(BCHECK_LOCAL_CHAT_COMMAND21, 10);
 		m_manuAutoFill = !m_manuAutoFill;
+		return TRUE;
+	}else if (memcmp(cBuff, "/gm", 3)==0 && (cBuff[3] == 0 || cBuff[3] == ' '))
+	{	if (m_bIsDialogEnabled[DIALOG_GMPANEL] == FALSE) {
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sX = 170;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sY = 50;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX = 280;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY = 320;
+			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+			m_iGMPanelInputMode = 0;
+			EnableDialogBox(DIALOG_GMPANEL, NULL, NULL, NULL);
+		} else {
+			DisableDialogBox(DIALOG_GMPANEL);
+		}
 		return TRUE;
 	}else if (memcmp(cBuff, "/enabletogglescreen", 19)==0)
 	{	m_bToggleScreen = TRUE;
@@ -34407,8 +34401,8 @@ void CGame::ShowEventList(DWORD dwTime)
 }
 
 void CGame::RequestTeleportAndWaitData()
-{	
-
+{
+	MapChangeLog("TELEPORT_REQ map=%s pos=%d,%d cmdCount=%d", m_cMapName, (int)m_sPlayerX, (int)m_sPlayerY, (int)m_cCommandCount);
 	bSendCommand(MSGID_REQUEST_TELEPORT, NULL, NULL, NULL, NULL, NULL, NULL);
 	ChangeGameMode(GAMEMODE_ONWAITINGINITDATA);
 }
@@ -38569,4 +38563,252 @@ void CGame::bItemDrop_EquipSet(short msX, short msY)
 	wsprintf(cMsg, "Saved %s to Set %d", m_pItemList[itemIdx]->m_cName, m_iEquipSetTab + 1);
 	AddEventList(cMsg, 10);
 	PlaySound('E', 14, 5);
+}
+
+
+// ============================================================================
+// GM Panel (DIALOG_GMPANEL = 54)
+// ============================================================================
+
+void CGame::DrawDialogBox_GMPanel(int msX, int msY)
+{
+	short sX = m_stDialogBoxInfo[DIALOG_GMPANEL].sX;
+	short sY = m_stDialogBoxInfo[DIALOG_GMPANEL].sY;
+	short szX = m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX;
+	short szY = m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY;
+
+	// Draw dark semi-transparent background
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, szX, szY, 0.0f, 0.0f, 0.05f, 0.85f);
+		// Title bar
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, szX, 20, 0.15f, 0.15f, 0.25f, 0.95f);
+		// Border lines
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, szX, 1, 0.4f, 0.4f, 0.6f, 1.0f);
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY + szY - 1, szX, 1, 0.4f, 0.4f, 0.6f, 1.0f);
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, 1, szY, 0.4f, 0.4f, 0.6f, 1.0f);
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX + szX - 1, sY, 1, szY, 0.4f, 0.4f, 0.6f, 1.0f);
+	}
+
+	// Title
+	PutAlignedString(sX, sX + szX, sY + 3, "GM Panel", 220, 220, 255);
+
+	// Close button [X] in top-right
+	if (msX >= sX + szX - 20 && msX <= sX + szX - 5 && msY >= sY + 2 && msY <= sY + 18)
+		PutAlignedString(sX + szX - 25, sX + szX, sY + 3, "[X]", 255, 100, 100);
+	else
+		PutAlignedString(sX + szX - 25, sX + szX, sY + 3, "[X]", 180, 180, 180);
+
+	int btnY = sY + 28;
+	int btnH = 22;
+	int pad = 4;
+
+	// Input field display
+	if (m_iGMPanelInputMode > 0) {
+		if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
+			m_DDraw.m_pGPURenderer->DrawFilledRect(sX + 10, btnY, szX - 20, 18, 0.1f, 0.1f, 0.15f, 1.0f);
+		}
+		char cLabel[80];
+		switch (m_iGMPanelInputMode) {
+		case 1: wsprintf(cLabel, "Summon: %s_", m_cGMPanelInput); break;
+		case 2: wsprintf(cLabel, "Item: %s_", m_cGMPanelInput); break;
+		case 3: wsprintf(cLabel, "Goto: %s_", m_cGMPanelInput); break;
+		default: wsprintf(cLabel, "> %s_", m_cGMPanelInput); break;
+		}
+		PutAlignedString(sX + 12, sX + szX - 10, btnY + 2, cLabel, 255, 255, 200);
+		btnY += 22;
+
+		// Send / Cancel buttons
+		if (msX >= sX + 10 && msX <= sX + 70 && msY >= btnY && msY <= btnY + 16)
+			PutAlignedString(sX + 10, sX + 70, btnY, "[Send]", 100, 255, 100);
+		else
+			PutAlignedString(sX + 10, sX + 70, btnY, "[Send]", 150, 255, 150);
+
+		if (msX >= sX + 80 && msX <= sX + 150 && msY >= btnY && msY <= btnY + 16)
+			PutAlignedString(sX + 80, sX + 150, btnY, "[Cancel]", 255, 100, 100);
+		else
+			PutAlignedString(sX + 80, sX + 150, btnY, "[Cancel]", 200, 150, 150);
+
+		return; // Don't draw buttons while in input mode
+	}
+
+	// === BUTTONS ===
+	// Helper macro-style for button rendering
+	#define GM_BTN(label, y) \
+		if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= (y) && msY <= (y) + btnH - 2) \
+			PutAlignedString(sX, sX + szX, (y) + 3, label, 255, 255, 200); \
+		else \
+			PutAlignedString(sX, sX + szX, (y) + 3, label, 180, 180, 220)
+
+	// Summon Monster
+	GM_BTN("Summon Monster", btnY);
+	btnY += btnH + pad;
+
+	// Create Item
+	GM_BTN("Create Item", btnY);
+	btnY += btnH + pad;
+
+	// Go To (teleport)
+	GM_BTN("Go To (map x y)", btnY);
+	btnY += btnH + pad;
+
+	// Separator
+	btnY += 6;
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX + 20, btnY, szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.8f);
+	}
+	btnY += 8;
+
+	// Toggle Invisibility
+	GM_BTN("Toggle Invisibility", btnY);
+	btnY += btnH + pad;
+
+	// Toggle Invincible
+	GM_BTN("Toggle Invincible", btnY);
+	btnY += btnH + pad;
+
+	// Toggle No Aggro
+	GM_BTN("Toggle No Aggro", btnY);
+	btnY += btnH + pad;
+
+	// Separator
+	btnY += 6;
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
+		m_DDraw.m_pGPURenderer->DrawFilledRect(sX + 20, btnY, szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.8f);
+	}
+	btnY += 8;
+
+	// Unsummon All
+	GM_BTN("Unsummon All", btnY);
+	btnY += btnH + pad;
+
+	// Clear Map
+	GM_BTN("Clear Map", btnY);
+	btnY += btnH + pad;
+
+	#undef GM_BTN
+}
+
+void CGame::DlgBoxClick_GMPanel(int msX, int msY)
+{
+	short sX = m_stDialogBoxInfo[DIALOG_GMPANEL].sX;
+	short sY = m_stDialogBoxInfo[DIALOG_GMPANEL].sY;
+	short szX = m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX;
+
+	// Close button [X]
+	if (msX >= sX + szX - 20 && msX <= sX + szX - 5 && msY >= sY + 2 && msY <= sY + 18) {
+		DisableDialogBox(DIALOG_GMPANEL);
+		return;
+	}
+
+	// Title bar drag
+	if (msY >= sY && msY <= sY + 20) {
+		m_stMCursor.cSelectedObjectType = SELECTEDOBJTYPE_DLGBOX;
+		m_stMCursor.sSelectedObjectID = DIALOG_GMPANEL;
+		return;
+	}
+
+	int btnY = sY + 28;
+	int btnH = 22;
+	int pad = 4;
+
+	// If in input mode, handle Send/Cancel
+	if (m_iGMPanelInputMode > 0) {
+		btnY += 22; // skip input field display
+
+		// Send button
+		if (msX >= sX + 10 && msX <= sX + 70 && msY >= btnY && msY <= btnY + 16) {
+			char cCmd[128];
+			switch (m_iGMPanelInputMode) {
+			case 1: wsprintf(cCmd, "/summon %s", m_cGMPanelInput); break;
+			case 2: wsprintf(cCmd, "/ci %s", m_cGMPanelInput); break;
+			case 3: wsprintf(cCmd, "/goto %s", m_cGMPanelInput); break;
+			default: return;
+			}
+			bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, cCmd);
+			AddEventList(cCmd, 10);
+			m_iGMPanelInputMode = 0;
+			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+			return;
+		}
+
+		// Cancel button
+		if (msX >= sX + 80 && msX <= sX + 150 && msY >= btnY && msY <= btnY + 16) {
+			m_iGMPanelInputMode = 0;
+			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+			return;
+		}
+		return;
+	}
+
+	// Summon Monster
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		m_iGMPanelInputMode = 1;
+		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+		StartInputString(sX + 12, btnY + 2, 50, m_cGMPanelInput);
+		return;
+	}
+	btnY += btnH + pad;
+
+	// Create Item
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		m_iGMPanelInputMode = 2;
+		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+		StartInputString(sX + 12, btnY + 2, 50, m_cGMPanelInput);
+		return;
+	}
+	btnY += btnH + pad;
+
+	// Go To
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		m_iGMPanelInputMode = 3;
+		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+		StartInputString(sX + 12, btnY + 2, 50, m_cGMPanelInput);
+		return;
+	}
+	btnY += btnH + pad;
+
+	// Skip separator
+	btnY += 14;
+
+	// Toggle Invisibility
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/invi");
+		AddEventList("GM: Toggle invisibility", 10);
+		return;
+	}
+	btnY += btnH + pad;
+
+	// Toggle Invincible
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/invincible");
+		AddEventList("GM: Toggle invincible", 10);
+		return;
+	}
+	btnY += btnH + pad;
+
+	// Toggle No Aggro
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/noaggro");
+		AddEventList("GM: Toggle no aggro", 10);
+		return;
+	}
+	btnY += btnH + pad;
+
+	// Skip separator
+	btnY += 14;
+
+	// Unsummon All
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/unsummonall");
+		AddEventList("GM: Unsummon all", 10);
+		return;
+	}
+	btnY += btnH + pad;
+
+	// Clear Map
+	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
+		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/clearmap");
+		AddEventList("GM: Clear map", 10);
+		return;
+	}
 }
