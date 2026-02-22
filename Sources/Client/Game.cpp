@@ -23749,7 +23749,9 @@ void CGame::OnKeyDown(WPARAM wParam)
 
 void CGame::UpdateScreen_OnQuit()
 {
-	// Clean up sockets and exit immediately — no goodbye splash screen
+	// Save settings, close sockets, then exit immediately
+	WriteSettings();
+
 	if (G_pCalcSocket != NULL) {
 		delete G_pCalcSocket;
 		G_pCalcSocket = NULL;
@@ -23758,8 +23760,13 @@ void CGame::UpdateScreen_OnQuit()
 		delete m_pGSock;
 		m_pGSock = NULL;
 	}
-	ChangeGameMode(GAMEMODE_NULL);
-	SendMessage(m_hWnd, WM_DESTROY, NULL, NULL);
+	if (m_pLSock != NULL) {
+		delete m_pLSock;
+		m_pLSock = NULL;
+	}
+
+	WSACleanup();
+	ExitProcess(0);
 }
 
 void CGame::UpdateScreen_OnQueryForceLogin()
