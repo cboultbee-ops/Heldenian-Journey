@@ -136,11 +136,6 @@ CGPURenderer::CGPURenderer()
     m_bInitialized = false;
     m_bInFrame = false;
     m_currentTexture = 0;
-    m_currentBlendMode = BLEND_COLORKEY;
-    m_currentAlpha = 1.0f;
-    m_currentColorR = 0.0f;
-    m_currentColorG = 0.0f;
-    m_currentColorB = 0.0f;
 
     memset(m_projectionMatrix, 0, sizeof(m_projectionMatrix));
 
@@ -534,14 +529,7 @@ void CGPURenderer::BeginFrame()
     m_vertices.clear();
     m_indices.clear();
     m_drawCmds.clear();
-
-    // Reset cached state for new frame
     m_currentTexture = 0;
-    m_currentBlendMode = (GPUBlendMode)-1;  // Force first batch to set blend state
-    m_currentAlpha = -1.0f;
-    m_currentColorR = -1.0f;
-    m_currentColorG = -1.0f;
-    m_currentColorB = -1.0f;
 
     // Clear entire window to black (covers letterbox bars)
     glViewport(0, 0, m_renderConfig.nativeWidth, m_renderConfig.nativeHeight);
@@ -553,19 +541,6 @@ void CGPURenderer::BeginFrame()
     glViewport(m_renderConfig.viewportX,
                m_renderConfig.nativeHeight - m_renderConfig.viewportY - m_renderConfig.viewportH,
                m_renderConfig.viewportW, m_renderConfig.viewportH);
-
-    // Bind per-frame state once (shader, projection, VAO, texture unit)
-    glUseProgram(m_shaderProgram);
-    glUniformMatrix4fv(m_uProjection, 1, GL_FALSE, m_projectionMatrix);
-    glUniform1i(m_uTexture, 0);
-    glActiveTexture(GL_TEXTURE0);
-    glBindVertexArray(m_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
-
-    // Default blend state
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void CGPURenderer::EndFrame()
@@ -574,15 +549,6 @@ void CGPURenderer::EndFrame()
 
     Flush();
     FlushLines();
-
-    // Restore blend equation if last batch used reverse subtract
-    if (m_currentBlendMode == BLEND_DARKEN || m_currentBlendMode == BLEND_SUBTRACTIVE) {
-        glBlendEquation(GL_FUNC_ADD);
-    }
-
-    // Unbind per-frame state
-    glBindVertexArray(0);
-    glUseProgram(0);
     m_bInFrame = false;
 }
 
@@ -684,76 +650,68 @@ void CGPURenderer::Flush()
     if (m_drawCmds.empty()) return;
     const SpriteDrawCmd& cmd = m_drawCmds[0];
 
-    // Set blend state — only when changed from previous batch
-    if (cmd.blendMode != m_currentBlendMode) {
-        // Restore blend equation if previous batch used reverse subtract
-        if (m_currentBlendMode == BLEND_DARKEN || m_currentBlendMode == BLEND_SUBTRACTIVE) {
-            glBlendEquation(GL_FUNC_ADD);
-        }
-
-        switch (cmd.blendMode) {
-        case BLEND_OPAQUE:
-            glDisable(GL_BLEND);
-            break;
-        case BLEND_ADDITIVE:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            break;
-        case BLEND_DARKEN:
-        case BLEND_SUBTRACTIVE:
-            glEnable(GL_BLEND);
-            glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-            break;
-        case BLEND_TINTED:
-        case BLEND_SHADOW:
-        case BLEND_FADE:
-        case BLEND_AVERAGE:
-        case BLEND_ALPHA:
-        case BLEND_COLORKEY:
-        default:
-            glEnable(GL_BLEND);
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-            break;
-        }
-        m_currentBlendMode = cmd.blendMode;
+    // Set blend state based on mode
+    switch (cmd.blendMode) {
+    case BLEND_OPAQUE:
+        glDisable(GL_BLEND);
+        break;
+    case BLEND_ADDITIVE:
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        break;
+    case BLEND_DARKEN:
+    case BLEND_SUBTRACTIVE:
+        glEnable(GL_BLEND);
+        glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        break;
+    case BLEND_TINTED:
+    case BLEND_SHADOW:
+    case BLEND_FADE:
+    case BLEND_AVERAGE:
+    case BLEND_ALPHA:
+    case BLEND_COLORKEY:
+    default:
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        break;
     }
 
-    // Shader program is bound once per frame (BeginFrame sets it)
-    // Set uniforms — only when changed
-    if (cmd.blendMode != m_currentBlendMode ||
-        cmd.alpha != m_currentAlpha ||
-        cmd.colorR != m_currentColorR ||
-        cmd.colorG != m_currentColorG ||
-        cmd.colorB != m_currentColorB) {
-        // Blend mode uniform always set (cheap, ensures correctness)
-    }
+    // Use shader program
+    glUseProgram(m_shaderProgram);
+
+    // Set uniforms
+    glUniformMatrix4fv(m_uProjection, 1, GL_FALSE, m_projectionMatrix);
+    glUniform1i(m_uTexture, 0);
     glUniform1i(m_uBlendMode, (int)cmd.blendMode);
-    if (cmd.alpha != m_currentAlpha) {
-        glUniform1f(m_uAlpha, cmd.alpha);
-        m_currentAlpha = cmd.alpha;
-    }
-    if (cmd.colorR != m_currentColorR || cmd.colorG != m_currentColorG || cmd.colorB != m_currentColorB) {
-        glUniform3f(m_uColorTint, cmd.colorR, cmd.colorG, cmd.colorB);
-        m_currentColorR = cmd.colorR;
-        m_currentColorG = cmd.colorG;
-        m_currentColorB = cmd.colorB;
-    }
+    glUniform1f(m_uAlpha, cmd.alpha);
+    glUniform3f(m_uColorTint, cmd.colorR, cmd.colorG, cmd.colorB);
 
-    // Bind texture — only when changed
-    if (cmd.textureID != m_currentTexture) {
-        glBindTexture(GL_TEXTURE_2D, cmd.textureID);
-        m_currentTexture = cmd.textureID;
-    }
+    // Bind texture
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, cmd.textureID);
 
-    // Upload vertex data with buffer orphaning (avoids GPU stall)
-    glBufferData(GL_ARRAY_BUFFER, m_vertices.size() * sizeof(SpriteVertex), m_vertices.data(), GL_DYNAMIC_DRAW);
+    // Update vertex buffer
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, m_vertices.size() * sizeof(SpriteVertex), m_vertices.data());
 
-    // Upload index data with buffer orphaning
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_indices.size() * sizeof(GLuint), m_indices.data(), GL_DYNAMIC_DRAW);
+    // Update element buffer
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, m_indices.size() * sizeof(GLuint), m_indices.data());
 
     // Draw
     glDrawElements(GL_TRIANGLES, (GLsizei)m_indices.size(), GL_UNSIGNED_INT, 0);
+
+    glBindVertexArray(0);
+
+    // Reset blend state if modified
+    if (cmd.blendMode == BLEND_DARKEN || cmd.blendMode == BLEND_SUBTRACTIVE) {
+        glBlendEquation(GL_FUNC_ADD);
+    }
+    if (cmd.blendMode == BLEND_OPAQUE) {
+        glEnable(GL_BLEND);
+    }
 
     // Clear batch
     m_vertices.clear();

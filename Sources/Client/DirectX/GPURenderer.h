@@ -96,9 +96,11 @@ public:
     void EndFrame();
 
     // Sprite rendering - queue for batching
+    // spriteScale: 1 for original sprites, 2 for 2x upscaled (UV coords scaled, vertex size unchanged)
     void QueueSprite(GLuint textureID, int dstX, int dstY,
                      int srcX, int srcY, int width, int height,
                      int texWidth, int texHeight,
+                     int spriteScale = 1,
                      GPUBlendMode blendMode = BLEND_COLORKEY,
                      float alpha = 1.0f,
                      float colorR = 0.0f, float colorG = 0.0f, float colorB = 0.0f);
@@ -108,6 +110,9 @@ public:
 
     // Pixel drawing (1x1 solid color, used for minimap dots/borders)
     void DrawPixel(int x, int y, float r, float g, float b);
+
+    // Filled rectangle (uses white texture + shadow blend for dark panels)
+    void DrawFilledRect(int x, int y, int w, int h, float r, float g, float b, float a);
 
     // Line drawing (additive blend, used for lightning/thunder effects)
     void QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b);
@@ -119,6 +124,7 @@ public:
 
     // Resolution management
     void SetNativeResolution(int width, int height);
+    void OnResize(int newWidth, int newHeight);
     const RenderConfig& GetRenderConfig() const { return m_renderConfig; }
 
     // Coordinate transformation
@@ -179,9 +185,6 @@ private:
 
     // Current batch state
     GLuint m_currentTexture;
-    GPUBlendMode m_currentBlendMode;
-    float m_currentAlpha;
-    float m_currentColorR, m_currentColorG, m_currentColorB;
 
     // Line drawing
     std::vector<SpriteVertex> m_lineVertices;
