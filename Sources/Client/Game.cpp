@@ -1084,6 +1084,15 @@ void CGame::OnGameSocketEvent(WPARAM wParam, LPARAM lParam)
 
 	case XSOCKEVENT_SOCKETCLOSED:
 		MapChangeLog("GSOCK_CLOSED gameMode=%d", (int)m_cGameMode);
+		if (m_cGameMode == GAMEMODE_ONWAITINGINITDATA) {
+			// Socket closed during cross-server teleport wait.
+			// Don't show "Connection Lost" — stay on the wait screen
+			// so the user can press ESC after 7s to return to menu.
+			MapChangeLog("GSOCK_CLOSED during teleport wait");
+			delete m_pGSock;
+			m_pGSock = NULL;
+			break;
+		}
 		ChangeGameMode(GAMEMODE_ONCONNECTIONLOST);
 		delete m_pGSock;
 		m_pGSock = NULL;

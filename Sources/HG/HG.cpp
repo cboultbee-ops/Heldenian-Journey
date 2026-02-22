@@ -198,7 +198,7 @@ bool CGame::bAccept(class XSocket * pXSock)
 	class XSocket * pTmpSock;
 	char  cTxt[80];
 	bool valid = FALSE;
-	int iTotalip;
+	int iTotalip = 0;
 
 	pTmpSock = new class XSocket(m_hWnd, CLIENTSOCKETBLOCKLIMIT);
 
@@ -1339,6 +1339,9 @@ void CGame::RequestInitPlayerHandler(int iClientH, char * pData, char cKey)
 
 	m_pClientList[iClientH]->m_bIsObserverMode = bIsObserverMode;
 
+	wsprintf(g_cTxt, "RequestInitPlayer: client=%d char(%s) acc(%s) observer=%d -> requesting player data from LS",
+		iClientH, cCharName, cAccountName, (int)bIsObserverMode);
+	PutLogList(g_cTxt);
 
 	bSendMsgToLS(MSGID_REQUEST_PLAYERDATA, iClientH);
 }
@@ -2545,16 +2548,20 @@ void CGame::CheckClientResponseTime()
 		if (m_pClientList[i] != NULL) {
 
 			if ((dwTime - m_pClientList[i]->m_dwTime) > CLIENTTIMEOUT ) {
+				// Don't timeout clients waiting for cross-server teleport —
+				// the Login Server save/redirect may take time.
+				if (m_pClientList[i]->m_bIsOnWaitingProcess == TRUE) continue;
+
 				if (m_pClientList[i]->m_bIsInitComplete == TRUE) {
 
-					//Testcode 
+					//Testcode
 					wsprintf(g_cTxt, "Client Timeout: %s (%s)", m_pClientList[i]->m_cCharName ,m_pClientList[i]->m_cIPaddress);
 					PutLogList(g_cTxt);
 
 					DeleteClient(i, TRUE, TRUE);
 				}
 				else {
-					DeleteClient(i, FALSE, FALSE); 
+					DeleteClient(i, FALSE, FALSE);
 				}
 			}
 			else if (m_pClientList[i]->m_bIsInitComplete == TRUE) {
@@ -3431,30 +3438,34 @@ void CGame::ResponsePlayerDataHandler(char * pData, DWORD dwSize)
 	memcpy(cCharName, cp, 10);
 	cp += 10;
 
-	for (i = 1; i < MAXCLIENTS; i++) 
+	for (i = 1; i < MAXCLIENTS; i++)
 		if (m_pClientList[i] != NULL) {
 			if (memcmp(m_pClientList[i]->m_cCharName, cCharName, 10) == 0) {
 				wp = (WORD *)(pData + INDEX2_MSGTYPE);
+				wsprintf(g_cTxt, "ResponsePlayerData: char(%s) type=%d", cCharName, (int)*wp);
+				PutLogList(g_cTxt);
 				switch (*wp) {
 				case LOGRESMSGTYPE_CONFIRM:
-					InitPlayerData(i, pData, dwSize); 
+					InitPlayerData(i, pData, dwSize);
 					break;
 
 				case LOGRESMSGTYPE_REJECT:
 
 					if( *cp == 1) {
+						wsprintf(g_cTxt, "PlayerData REJECT reason=1 (send reject to client)");
+						PutLogList(g_cTxt);
 						ZeroMemory(cTxt, sizeof(cTxt));
 						dwp  = (DWORD *)(cTxt + INDEX4_MSGID);
 						*dwp = MSGID_RESPONSE_INITPLAYER;
 						wp   = (WORD *)(cTxt + INDEX2_MSGTYPE);
 						*wp  = MSGTYPE_REJECT;
 
-						m_pClientList[i]->m_pXSock->iSendMsg(cTxt, 6); 
+						m_pClientList[i]->m_pXSock->iSendMsg(cTxt, 6);
 					}
 					else {
-						wsprintf(g_cTxt, "(HACK?) Not existing character(%s) data request! Rejected!", m_pClientList[i]->m_cCharName);
+						wsprintf(g_cTxt, "(HACK?) Not existing character(%s) data request! Rejected! reason=%d", m_pClientList[i]->m_cCharName, (int)*cp);
 						PutLogList(g_cTxt);
-						//PutLogFileList(g_cTxt); 
+						//PutLogFileList(g_cTxt);
 
 						DeleteClient(i, FALSE, FALSE);
 					}
@@ -3485,8 +3496,11 @@ void CGame::InitPlayerData(int iClientH, char * pData, DWORD dwSize)
 	CClient * player = m_pClientList[iClientH];
 
 	if (!player) return;
-	if (player->m_bIsInitComplete == TRUE) return; 
+	if (player->m_bIsInitComplete == TRUE) return;
 
+	wsprintf(g_cTxt, "InitPlayerData: client=%d char(%s) dwSize=%d maxLevel=%d skillLimit=%d",
+		iClientH, player->m_cCharName, dwSize, (int)m_sMaxPlayerLevel, (int)m_sCharSkillLimit);
+	PutLogList(g_cTxt);
 
 	cp = (char *)(pData + INDEX2_MSGTYPE + 2);
 
@@ -3506,27 +3520,29 @@ void CGame::InitPlayerData(int iClientH, char * pData, DWORD dwSize)
 
 	bRet = _bDecodePlayerDatafileContents(iClientH, cp, dwSize - 19);
 	if (!bRet) {
-		wsprintf(g_cTxt, "(HACK?) Character(%s) data error!", player->m_cCharName);
+		wsprintf(g_cTxt, "InitPlayerData FAIL: _bDecodePlayerDatafileContents returned FALSE for char(%s) dwSize=%d dataSize=%d", player->m_cCharName, dwSize, dwSize - 19);
+		PutLogList(g_cTxt);
 		DeleteClient(iClientH, FALSE, TRUE);
 		return;
-	}	
+	}
+	wsprintf(g_cTxt, "InitPlayerData: decode OK, level=%d isGM=%d", player->m_iLevel, player->IsGM());
+	PutLogList(g_cTxt);
 
 	//***************************************************************************
 
 	if(!player->IsGM() && player->m_iLevel > m_sMaxPlayerLevel) {
-		wsprintf(g_cTxt, "(HACK) (%s) Player: (%s) High level hack (%i)", player->m_cIPaddress, player->m_cCharName, player->m_iLevel);
-		PutLogFileList(g_cTxt, HACK_LOGFILE);
+		wsprintf(g_cTxt, "InitPlayerData FAIL: HIGH LEVEL char(%s) level=%d maxLevel=%d", player->m_cCharName, player->m_iLevel, (int)m_sMaxPlayerLevel);
 		PutLogList(g_cTxt);
 		DeleteClient(iClientH, FALSE, TRUE, TRUE, TRUE);
 		return;
 	}
 
 	int iTotalPoints = 0;
-	for (i = 0; i <	MAXSKILLTYPE; i++) 
+	for (i = 0; i <	MAXSKILLTYPE; i++)
 		iTotalPoints += m_pClientList[iClientH]->m_cSkillMastery[i];
 	if ((iTotalPoints-21 > m_sCharSkillLimit) && (m_pClientList[iClientH]->m_iAdminUserLevel == 0)) {
-		wsprintf(g_cTxt, "(HACK) Packet Editing: (%s) Player: (%s) - has more than allowed skill points (%d).", m_pClientList[iClientH]->m_cIPaddress, m_pClientList[iClientH]->m_cCharName, iTotalPoints);
-		PutLogFileList(g_cTxt);
+		wsprintf(g_cTxt, "InitPlayerData FAIL: SKILL LIMIT char(%s) totalSkill=%d limit=%d", m_pClientList[iClientH]->m_cCharName, iTotalPoints, (int)m_sCharSkillLimit);
+		PutLogList(g_cTxt);
 		DeleteClient(iClientH, FALSE, TRUE, TRUE, TRUE);
 		return;
 	}
@@ -3585,13 +3601,16 @@ void CGame::InitPlayerData(int iClientH, char * pData, DWORD dwSize)
 	case XSOCKEVENT_CRITICALERROR:
 	case XSOCKEVENT_SOCKETCLOSED:
 
-		wsprintf(cTxt, "<%d> InitPlayerData - Socket error! Disconnected.", iClientH);
+		wsprintf(cTxt, "InitPlayerData FAIL: SOCKET ERROR sending INITPLAYER response, iRet=%d", iRet);
 		PutLogList(cTxt);
 
 		DeleteClient(iClientH, FALSE, TRUE); //!!!!!
 		return;
 	}
 
+	wsprintf(g_cTxt, "InitPlayerData SUCCESS: char(%s) level=%d map=%s pos=(%d,%d)",
+		player->m_cCharName, player->m_iLevel, player->m_cMapName, (int)player->m_sX, (int)player->m_sY);
+	PutLogList(g_cTxt);
 	player->m_bIsInitComplete = TRUE;
 
 	bSendMsgToLS(MSGID_ENTERGAMECONFIRM, iClientH);
