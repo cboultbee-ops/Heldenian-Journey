@@ -359,8 +359,11 @@ public:
 	int  m_iGMPanelItemCategory;   // Selected item category (0-14)
 	int  m_iGMPanelItemSelected;   // Selected item index (-1=browse mode)
 	int  m_iGMPanelItemPrefix;     // Prefix type (ITEMSTAT 0=none, 1-11)
+	int  m_iGMPanelItemPrefixVal;  // Prefix value (1-15)
 	int  m_iGMPanelItemStat2;      // Secondary stat type (ITEMSTAT2 0=none, 1-12)
 	int  m_iGMPanelItemStat2Val;   // Secondary stat value (1-15)
+	int  m_iGMPanelItemUpgrade;    // Upgrade level +0 to +15 (nibble 7)
+	int  m_iGMPanelItemManuEndu;   // ManuEndu 0-200 (0=off, manufactured endurance)
 	int  m_iGMPanelItemAmount;     // Item amount (1-100)
 
 	// Slates - Alastor
