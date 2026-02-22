@@ -365,6 +365,8 @@ public:
 	int  m_iGMPanelItemUpgrade;    // Upgrade level +0 to +15 (nibble 7)
 	int  m_iGMPanelItemManuEndu;   // ManuEndu 0-200 (0=off, manufactured endurance)
 	int  m_iGMPanelItemAmount;     // Item amount (1-100)
+	int  m_iGMPanelSpawnCount;     // Spawn count (1-50)
+	int  m_iGMPanelSpawnAbility;   // Spawn special ability (0-8)
 
 	// Slates - Alastor
 	void bItemDrop_Slates();

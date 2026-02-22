@@ -26182,6 +26182,8 @@ BOOL CGame::bCheckLocalChatCommand(char * pMsg)
 			m_iGMPanelItemUpgrade = 0;
 			m_iGMPanelItemManuEndu = 0;
 			m_iGMPanelItemAmount = 1;
+			m_iGMPanelSpawnCount = 1;
+			m_iGMPanelSpawnAbility = 0;
 			EnableDialogBox(DIALOG_GMPANEL, NULL, NULL, NULL);
 		} else {
 			DisableDialogBox(DIALOG_GMPANEL);
@@ -38808,18 +38810,48 @@ struct GMPrefix { int type; const char* name; };
 static const GMPrefix g_GMPrefixes[] = {
 	{0,"(None)"},{1,"Critical"},{2,"Poisoning"},{3,"Righteous"},
 	{5,"Agile"},{6,"Light"},{7,"Sharp"},{8,"Strong"},
-	{9,"Ancient"},{10,"Special"},{11,"Mana Conv"},
+	{9,"Ancient"},{10,"CastProb"},{11,"ManaConv"},{12,"Critical2"},
 };
-static const int g_GMPrefixCount = 11;
+static const int g_GMPrefixCount = 12;
 
-// --- Secondary stat names (ITEMSTAT2 enum) ---
-struct GMStat2 { int type; const char* name; };
+// --- Secondary stat names (ITEMSTAT2 enum) with multipliers ---
+struct GMStat2 { int type; const char* name; int mult; };
 static const GMStat2 g_GMStat2s[] = {
-	{0,"(None)"},{1,"PsnRes"},{2,"HitProb"},{3,"Def"},
-	{4,"HPRec"},{5,"SPRec"},{6,"MPRec"},{7,"MR"},
-	{8,"PA"},{9,"MA"},{10,"CAD"},{11,"EXP"},{12,"Gold"},
+	{0,"(None)",0},{1,"PsnRes",7},{2,"HitProb",7},{3,"Def",7},
+	{4,"HPRec",7},{5,"SPRec",7},{6,"MPRec",7},{7,"MR",7},
+	{8,"PA",3},{9,"MA",3},{10,"CAD",1},{11,"EXP",10},{12,"Gold",10},
 };
 static const int g_GMStat2Count = 13;
+
+// --- Item type from category: 0=weapon, 1=armor, 2=jewelry, 3=other ---
+static int _GMItemType(int cat) {
+	if (cat == 0 || cat == 2) return 0; // Weapons, Bows
+	if (cat == 1) return 1;             // Armor (shields,helms,body,pants,boots,gloves,capes)
+	if (cat == 3 || cat == 4) return 2; // Rings, Necklaces
+	return 3;                           // Scrolls,Potions,Wands,Manuals,etc
+}
+
+// --- Valid prefixes per item type (indices into g_GMPrefixes[]) ---
+static const int g_GMWpnPfx[] = { 0, 1, 2, 3, 4, 5, 6, 7, 8 }; // None..Ancient
+static const int g_GMWpnPfxCount = 9;
+static const int g_GMArmPfx[] = { 0, 5, 7, 10, 11 }; // None,Light,Strong,ManaConv,Critical2
+static const int g_GMArmPfxCount = 5;
+static const int g_GMJewPfx[] = { 0, 5, 10, 11 }; // None,Light,ManaConv,Critical2
+static const int g_GMJewPfxCount = 4;
+
+// --- Valid secondary stats per item type (indices into g_GMStat2s[]) ---
+static const int g_GMWpnSt2[] = { 0, 2, 10, 11, 12 }; // None,HitProb,CAD,EXP,Gold
+static const int g_GMWpnSt2Count = 5;
+static const int g_GMArmSt2[] = { 0, 1, 3, 4, 5, 6, 7, 8, 9 }; // None,PsnRes,Def,HPRec..MR,PA,MA
+static const int g_GMArmSt2Count = 9;
+static const int g_GMJewSt2[] = { 0, 1, 3, 4, 5, 6, 7, 11, 12 }; // None,PsnRes,Def,HPRec..MR,EXP,Gold
+static const int g_GMJewSt2Count = 9;
+
+// --- Spawn special abilities ---
+static const char* g_GMSpawnAbilNames[] = {
+	"Normal", "SeeInvis", "BreakProt", "AntiPhys",
+	"AntiMagic", "Poison", "StrPoison", "Explosive", "HiExplo"
+};
 
 
 void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
@@ -39026,15 +39058,37 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		break;
 	}
 
-	case 1: { // === SPAWN TAB — Scrollable creature list ===
+	case 1: { // === SPAWN TAB — Scrollable creature list with count/ability ===
 		int y = contentY;
 
-		// Category filter bar — 2 rows of buttons
+		// --- Spawn controls: Count and Ability ---
+		PutString(btnLeft, y, "Count:", RGB(140, 180, 140));
+		{
+			int vx = btnLeft + 48;
+			GM_LBTN("[-]", vx, vx + 24, y);
+			char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelSpawnCount);
+			PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+			GM_LBTN("[+]", vx + 48, vx + 72, y);
+			// +10 button
+			GM_LBTN("[+10]", vx + 80, vx + 112, y);
+		}
+		y += 15;
+		PutString(btnLeft, y, "Ability:", RGB(140, 140, 180));
+		{
+			int vx = btnLeft + 48;
+			GM_LBTN("[-]", vx, vx + 24, y);
+			PutString(vx + 28, y + 1, (char*)g_GMSpawnAbilNames[m_iGMPanelSpawnAbility], RGB(255, 255, 200));
+			GM_LBTN("[+]", vx + 120, vx + 144, y);
+		}
+		y += 17;
+		gpu->DrawFilledRect(sX + 4, y, szX - 8, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 3;
+
+		// Category filter bar — 3 rows of buttons
 		int catBtnW = contentW / 5;
 		// Row 1: All, Animals, Undead, Orcs, Golems
 		for (int c = 0; c < 5 && c < g_GMCreatureCatCount; c++) {
 			int bx = btnLeft + c * catBtnW;
-			int filter = c - 1; // -1=All, 0=Animals, 1=Undead, 2=Orcs, 3=Golems
+			int filter = c - 1;
 			BOOL sel = (m_iGMPanelCreatureFilter == filter);
 			if (sel) gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.2f, 0.15f, 0.35f, 0.9f);
 			else if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14)
@@ -39045,7 +39099,7 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		// Row 2: Giants, Demons, Beasts, Pixies, Guards
 		for (int c = 5; c < 10 && c < g_GMCreatureCatCount; c++) {
 			int bx = btnLeft + (c - 5) * catBtnW;
-			int filter = c - 1; // 4=Giants, 5=Demons, 6=Beasts, 7=Pixies, 8=Guards
+			int filter = c - 1;
 			BOOL sel = (m_iGMPanelCreatureFilter == filter);
 			if (sel) gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.2f, 0.15f, 0.35f, 0.9f);
 			else if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14)
@@ -39056,7 +39110,7 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		// Row 3: NPCs, Bosses, Trainers
 		for (int c = 10; c < g_GMCreatureCatCount; c++) {
 			int bx = btnLeft + (c - 10) * catBtnW;
-			int filter = c - 1; // 9=NPCs, 10=Bosses, 11=Trainers
+			int filter = c - 1;
 			BOOL sel = (m_iGMPanelCreatureFilter == filter);
 			if (sel) gpu->DrawFilledRect(bx, y, catBtnW - 1, 14, 0.2f, 0.15f, 0.35f, 0.9f);
 			else if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14)
@@ -39077,7 +39131,7 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		// Clamp scroll
 		int listY = y;
 		int rowH = 16;
-		int visibleRows = (sY + szY - 4 - listY) / rowH;
+		int visibleRows = (sY + szY - 18 - listY) / rowH; // leave room for status line
 		if (visibleRows < 1) visibleRows = 1;
 		int maxScroll = filteredCount - visibleRows;
 		if (maxScroll < 0) maxScroll = 0;
@@ -39087,10 +39141,10 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		for (int row = 0; row < visibleRows && (row + m_iGMPanelScroll) < filteredCount; row++) {
 			int idx = filteredIdx[row + m_iGMPanelScroll];
 			int ry = listY + row * rowH;
-			if (ry + rowH > sY + szY - 2) break;
+			if (ry + rowH > sY + szY - 18) break;
 
-			BOOL hover = (msX >= btnLeft && msX <= btnRight && msY >= ry && msY < ry + rowH);
-			if (hover) gpu->DrawFilledRect(btnLeft, ry, contentW, rowH - 1, 0.15f, 0.15f, 0.25f, 0.7f);
+			BOOL hover = (msX >= btnLeft && msX <= btnRight - 10 && msY >= ry && msY < ry + rowH);
+			if (hover) gpu->DrawFilledRect(btnLeft, ry, contentW - 10, rowH - 1, 0.15f, 0.15f, 0.25f, 0.7f);
 			PutString(btnLeft + 4, ry + 1, (char*)g_GMCreatures[idx].name,
 				hover ? RGB(255,255,200) : RGB(190,190,220));
 		}
@@ -39098,17 +39152,18 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		// Scrollbar
 		if (filteredCount > visibleRows) {
 			int sbX = sX + szX - 10;
-			int sbH = sY + szY - 4 - listY;
+			int sbH = sY + szY - 18 - listY;
 			gpu->DrawFilledRect(sbX, listY, 6, sbH, 0.1f, 0.1f, 0.15f, 0.6f);
 			int thumbH = max(10, sbH * visibleRows / filteredCount);
 			int thumbY = listY + (sbH - thumbH) * m_iGMPanelScroll / max(1, maxScroll);
 			gpu->DrawFilledRect(sbX, thumbY, 6, thumbH, 0.4f, 0.4f, 0.6f, 0.8f);
 		}
 
-		// Count display
-		char cCount[32];
-		wsprintf(cCount, "%d creatures", filteredCount);
-		PutString(sX + szX - 90, sY + szY - 14, cCount, RGB(120, 120, 150));
+		// Status line at bottom
+		char cStatus[64];
+		wsprintf(cStatus, "%d creatures | x%d %s", filteredCount, m_iGMPanelSpawnCount,
+			g_GMSpawnAbilNames[m_iGMPanelSpawnAbility]);
+		PutString(btnLeft, sY + szY - 14, cStatus, RGB(120, 120, 150));
 		break;
 	}
 
@@ -39181,95 +39236,116 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		} else {
 			// --- ITEM DETAIL / CUSTOMIZATION MODE ---
 			const char* itemName = (m_iGMPanelItemSelected < g_GMItemCount) ? g_GMItems[m_iGMPanelItemSelected].name : "???";
+			int itemType = _GMItemType(g_GMItems[m_iGMPanelItemSelected].category);
 
-			// Header: [Back] + item name
+			// Select valid prefix/stat arrays for this item type
+			const int* validPfx = g_GMWpnPfx;  int validPfxCount = g_GMWpnPfxCount;
+			const int* validSt2 = g_GMWpnSt2;  int validSt2Count = g_GMWpnSt2Count;
+			if (itemType == 1)      { validPfx = g_GMArmPfx; validPfxCount = g_GMArmPfxCount; validSt2 = g_GMArmSt2; validSt2Count = g_GMArmSt2Count; }
+			else if (itemType == 2) { validPfx = g_GMJewPfx; validPfxCount = g_GMJewPfxCount; validSt2 = g_GMJewSt2; validSt2Count = g_GMJewSt2Count; }
+
+			// Header: [Back] + item name + type label
 			GM_LBTN("[Back]", btnLeft, btnLeft + 45, y);
 			PutString(btnLeft + 50, y + 1, (char*)itemName, RGB(255, 220, 100));
+			{
+				const char* typeLabel = (itemType==0) ? "[Weapon]" : (itemType==1) ? "[Armor]" : (itemType==2) ? "[Jewelry]" : "[Other]";
+				PutString(sX + szX - 65, y + 1, (char*)typeLabel, RGB(120, 120, 160));
+			}
 			y += 16;
 			gpu->DrawFilledRect(sX + 4, y, szX - 8, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 4;
 
-			// Prefix selector
-			PutString(btnLeft, y, "Prefix:", RGB(140, 180, 140)); y += 13;
-			int pfxBtnW = contentW / 4;
-			for (int i = 0; i < g_GMPrefixCount; i++) {
-				int col = i % 4;
-				int row = i / 4;
-				int bx = btnLeft + col * pfxBtnW;
-				int by = y + row * 14;
-				BOOL sel = (m_iGMPanelItemPrefix == i);
-				if (sel) gpu->DrawFilledRect(bx, by, pfxBtnW - 1, 13, 0.1f, 0.25f, 0.1f, 0.9f);
-				else if (msX >= bx && msX < bx + pfxBtnW && msY >= by && msY < by + 13)
-					gpu->DrawFilledRect(bx, by, pfxBtnW - 1, 13, 0.12f, 0.15f, 0.12f, 0.7f);
-				PutString(bx + 2, by + 1, (char*)g_GMPrefixes[i].name, sel ? RGB(200,255,200) : RGB(150,180,150));
-			}
-			y += ((g_GMPrefixCount + 3) / 4) * 14 + 2;
+			if (itemType == 3) {
+				// Non-equipment: no stats, just amount
+				PutString(btnLeft, y, "No stat options for this item type.", RGB(180, 150, 100));
+				y += 18;
+			} else {
+				// Prefix selector (filtered by item type)
+				PutString(btnLeft, y, "Prefix:", RGB(140, 180, 140)); y += 13;
+				int pfxBtnW = contentW / 4;
+				for (int fi = 0; fi < validPfxCount; fi++) {
+					int i = validPfx[fi]; // index into g_GMPrefixes
+					int col = fi % 4;
+					int row = fi / 4;
+					int bx = btnLeft + col * pfxBtnW;
+					int by = y + row * 14;
+					BOOL sel = (m_iGMPanelItemPrefix == i);
+					if (sel) gpu->DrawFilledRect(bx, by, pfxBtnW - 1, 13, 0.1f, 0.25f, 0.1f, 0.9f);
+					else if (msX >= bx && msX < bx + pfxBtnW && msY >= by && msY < by + 13)
+						gpu->DrawFilledRect(bx, by, pfxBtnW - 1, 13, 0.12f, 0.15f, 0.12f, 0.7f);
+					PutString(bx + 2, by + 1, (char*)g_GMPrefixes[i].name, sel ? RGB(200,255,200) : RGB(150,180,150));
+				}
+				y += ((validPfxCount + 3) / 4) * 14 + 2;
 
-			// Prefix value: [-] value [+]
-			if (m_iGMPanelItemPrefix > 0) {
-				PutString(btnLeft, y, "Pfx Val:", RGB(140, 180, 140));
-				int vx = btnLeft + 80;
-				GM_LBTN("[-]", vx, vx + 24, y);
-				char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemPrefixVal);
-				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
-				GM_LBTN("[+]", vx + 48, vx + 72, y);
+				// Prefix value: [-] value [+]
+				if (m_iGMPanelItemPrefix > 0) {
+					PutString(btnLeft, y, "Pfx Val:", RGB(140, 180, 140));
+					int vx = btnLeft + 60;
+					GM_LBTN("[-]", vx, vx + 24, y);
+					char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemPrefixVal);
+					PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+					GM_LBTN("[+]", vx + 48, vx + 72, y);
+					y += 16;
+				}
+
+				// Secondary stat selector (filtered by item type)
+				PutString(btnLeft, y, "Stat2:", RGB(140, 140, 180)); y += 13;
+				int s2BtnW = contentW / 4;
+				for (int fi = 0; fi < validSt2Count; fi++) {
+					int i = validSt2[fi]; // index into g_GMStat2s
+					int col = fi % 4;
+					int row = fi / 4;
+					int bx = btnLeft + col * s2BtnW;
+					int by = y + row * 14;
+					BOOL sel = (m_iGMPanelItemStat2 == i);
+					if (sel) gpu->DrawFilledRect(bx, by, s2BtnW - 1, 13, 0.1f, 0.1f, 0.3f, 0.9f);
+					else if (msX >= bx && msX < bx + s2BtnW && msY >= by && msY < by + 13)
+						gpu->DrawFilledRect(bx, by, s2BtnW - 1, 13, 0.1f, 0.1f, 0.2f, 0.7f);
+					PutString(bx + 2, by + 1, (char*)g_GMStat2s[i].name, sel ? RGB(200,200,255) : RGB(150,150,180));
+				}
+				y += ((validSt2Count + 3) / 4) * 14 + 2;
+
+				// Stat2 value: [-] value [+] with multiplied display
+				if (m_iGMPanelItemStat2 > 0) {
+					PutString(btnLeft, y, "Stat2 Val:", RGB(140, 140, 180));
+					int vx = btnLeft + 60;
+					GM_LBTN("[-]", vx, vx + 24, y);
+					int mult = g_GMStat2s[m_iGMPanelItemStat2].mult;
+					int actual = m_iGMPanelItemStat2Val * mult;
+					char cVal[24]; wsprintf(cVal, "%d (=+%d)", m_iGMPanelItemStat2Val, actual);
+					PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+					GM_LBTN("[+]", vx + 110, vx + 134, y);
+					y += 16;
+				}
+
+				// Upgrade level: [-] value [+]
+				PutString(btnLeft, y, "Bonus Dmg:", RGB(180, 160, 140));
+				{
+					int vx = btnLeft + 70;
+					GM_LBTN("[-]", vx, vx + 24, y);
+					char cVal[8]; wsprintf(cVal, "+%d", m_iGMPanelItemUpgrade);
+					PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+					GM_LBTN("[+]", vx + 48, vx + 72, y);
+				}
+				y += 16;
+
+				// ManuEndu: [-] value [+]
+				PutString(btnLeft, y, "ManuEndu:", RGB(180, 140, 160));
+				{
+					int vx = btnLeft + 70;
+					GM_LBTN("[-]", vx, vx + 24, y);
+					char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemManuEndu);
+					PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+					GM_LBTN("[+]", vx + 48, vx + 72, y);
+					if (m_iGMPanelItemManuEndu > 0)
+						PutString(vx + 80, y + 1, "(attr=1)", RGB(180, 140, 100));
+				}
 				y += 16;
 			}
-
-			// Secondary stat selector
-			PutString(btnLeft, y, "Stat2:", RGB(140, 140, 180)); y += 13;
-			int s2BtnW = contentW / 4;
-			for (int i = 0; i < g_GMStat2Count; i++) {
-				int col = i % 4;
-				int row = i / 4;
-				int bx = btnLeft + col * s2BtnW;
-				int by = y + row * 14;
-				BOOL sel = (m_iGMPanelItemStat2 == i);
-				if (sel) gpu->DrawFilledRect(bx, by, s2BtnW - 1, 13, 0.1f, 0.1f, 0.3f, 0.9f);
-				else if (msX >= bx && msX < bx + s2BtnW && msY >= by && msY < by + 13)
-					gpu->DrawFilledRect(bx, by, s2BtnW - 1, 13, 0.1f, 0.1f, 0.2f, 0.7f);
-				PutString(bx + 2, by + 1, (char*)g_GMStat2s[i].name, sel ? RGB(200,200,255) : RGB(150,150,180));
-			}
-			y += ((g_GMStat2Count + 3) / 4) * 14 + 2;
-
-			// Stat2 value: [-] value [+]
-			if (m_iGMPanelItemStat2 > 0) {
-				PutString(btnLeft, y, "Stat2 Val:", RGB(140, 140, 180));
-				int vx = btnLeft + 80;
-				GM_LBTN("[-]", vx, vx + 24, y);
-				char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemStat2Val);
-				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
-				GM_LBTN("[+]", vx + 48, vx + 72, y);
-				y += 16;
-			}
-
-			// Upgrade level: [-] value [+]
-			PutString(btnLeft, y, "Upgrade:", RGB(180, 160, 140));
-			{
-				int vx = btnLeft + 80;
-				GM_LBTN("[-]", vx, vx + 24, y);
-				char cVal[8]; wsprintf(cVal, "+%d", m_iGMPanelItemUpgrade);
-				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
-				GM_LBTN("[+]", vx + 48, vx + 72, y);
-			}
-			y += 16;
-
-			// ManuEndu: [-] value [+]
-			PutString(btnLeft, y, "ManuEndu:", RGB(180, 140, 160));
-			{
-				int vx = btnLeft + 80;
-				GM_LBTN("[-]", vx, vx + 24, y);
-				char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemManuEndu);
-				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
-				GM_LBTN("[+]", vx + 48, vx + 72, y);
-				if (m_iGMPanelItemManuEndu > 0)
-					PutString(vx + 80, y + 1, "(attr=1)", RGB(180, 140, 100));
-			}
-			y += 16;
 
 			// Amount: [-] amount [+]
 			PutString(btnLeft, y, "Amount:", RGB(140, 140, 180));
 			{
-				int vx = btnLeft + 80;
+				int vx = btnLeft + 70;
 				GM_LBTN("[-]", vx, vx + 24, y);
 				char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemAmount);
 				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
@@ -39281,25 +39357,26 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 			gpu->DrawFilledRect(btnLeft, y, contentW, 28, 0.05f, 0.05f, 0.1f, 0.8f);
 			{
 				DWORD attr = 0;
+				int manuEndu = 0;
 				if (m_iGMPanelItemManuEndu > 0) {
-					attr = 1; // ManuEndu mode: attribute must be 1
+					attr = 1;
+					manuEndu = m_iGMPanelItemManuEndu;
 				} else {
-					attr |= (m_iGMPanelItemUpgrade & 0xF) << 28;           // Nibble 7: upgrade
+					attr |= (m_iGMPanelItemUpgrade & 0xF) << 28;
 					if (m_iGMPanelItemPrefix > 0) {
-						attr |= (g_GMPrefixes[m_iGMPanelItemPrefix].type & 0xF) << 20; // Nibble 5: type
-						attr |= (m_iGMPanelItemPrefixVal & 0xF) << 16;     // Nibble 4: value
+						attr |= (g_GMPrefixes[m_iGMPanelItemPrefix].type & 0xF) << 20;
+						attr |= (m_iGMPanelItemPrefixVal & 0xF) << 16;
 					}
 					if (m_iGMPanelItemStat2 > 0) {
-						attr |= (g_GMStat2s[m_iGMPanelItemStat2].type & 0xF) << 12; // Nibble 3: type
-						attr |= (m_iGMPanelItemStat2Val & 0xF) << 8;       // Nibble 2: value
+						attr |= (g_GMStat2s[m_iGMPanelItemStat2].type & 0xF) << 12;
+						attr |= (m_iGMPanelItemStat2Val & 0xF) << 8;
 					}
 				}
-				int manuEndu = m_iGMPanelItemManuEndu;
 				char cPreview[128];
 				wsprintf(cPreview, "/createitem %s %u %d %d", itemName, attr, manuEndu, m_iGMPanelItemAmount);
 				PutString(btnLeft + 4, y + 2, cPreview, RGB(180, 255, 180));
 
-				// Human-readable line
+				// Human-readable line with actual stat values
 				char cHuman[128];
 				if (m_iGMPanelItemManuEndu > 0) {
 					wsprintf(cHuman, "Manu %s (endu %d) x%d", itemName, manuEndu, m_iGMPanelItemAmount);
@@ -39307,7 +39384,10 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 					char cPfx[32] = "";
 					if (m_iGMPanelItemPrefix > 0) wsprintf(cPfx, "%s(%d) ", g_GMPrefixes[m_iGMPanelItemPrefix].name, m_iGMPanelItemPrefixVal);
 					char cS2[48] = "";
-					if (m_iGMPanelItemStat2 > 0) wsprintf(cS2, " %s+%d", g_GMStat2s[m_iGMPanelItemStat2].name, m_iGMPanelItemStat2Val);
+					if (m_iGMPanelItemStat2 > 0) {
+						int actual = m_iGMPanelItemStat2Val * g_GMStat2s[m_iGMPanelItemStat2].mult;
+						wsprintf(cS2, " %s+%d", g_GMStat2s[m_iGMPanelItemStat2].name, actual);
+					}
 					char cUpg[8] = "";
 					if (m_iGMPanelItemUpgrade > 0) wsprintf(cUpg, "+%d", m_iGMPanelItemUpgrade);
 					wsprintf(cHuman, "%s%s%s%s x%d", cPfx, itemName, cUpg, cS2, m_iGMPanelItemAmount);
@@ -39327,6 +39407,9 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 					gpu->DrawFilledRect(cbx, y, cbw, 20, 0.08f, 0.2f, 0.08f, 0.8f);
 				PutAlignedString(cbx, cbx + cbw, y + 3, "CREATE", hover ? 100 : 150, 255, hover ? 100 : 150);
 			}
+
+			// GM Level requirement note
+			PutString(btnLeft, sY + szY - 14, "Requires GM Level 1+", RGB(120, 100, 100));
 		}
 		break;
 	}
@@ -39513,9 +39596,38 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 	case 1: { // === SPAWN TAB ===
 		int y = contentY;
 
+		// --- Spawn controls: Count and Ability ---
+		{
+			int vx = btnLeft + 48;
+			if (msX >= vx && msX <= vx + 24 && msY >= y && msY < y + 14) {
+				if (m_iGMPanelSpawnCount > 1) m_iGMPanelSpawnCount--;
+				return;
+			}
+			if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY < y + 14) {
+				if (m_iGMPanelSpawnCount < 50) m_iGMPanelSpawnCount++;
+				return;
+			}
+			if (msX >= vx + 80 && msX <= vx + 112 && msY >= y && msY < y + 14) {
+				m_iGMPanelSpawnCount = min(50, m_iGMPanelSpawnCount + 10);
+				return;
+			}
+		}
+		y += 15;
+		{
+			int vx = btnLeft + 48;
+			if (msX >= vx && msX <= vx + 24 && msY >= y && msY < y + 14) {
+				if (m_iGMPanelSpawnAbility > 0) m_iGMPanelSpawnAbility--;
+				return;
+			}
+			if (msX >= vx + 120 && msX <= vx + 144 && msY >= y && msY < y + 14) {
+				if (m_iGMPanelSpawnAbility < 8) m_iGMPanelSpawnAbility++;
+				return;
+			}
+		}
+		y += 17 + 3; // separator
+
 		// Category filter clicks — 3 rows
 		int catBtnW = contentW / 5;
-		// Row 1
 		for (int c = 0; c < 5 && c < g_GMCreatureCatCount; c++) {
 			int bx = btnLeft + c * catBtnW;
 			if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14) {
@@ -39525,7 +39637,6 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			}
 		}
 		y += 15;
-		// Row 2
 		for (int c = 5; c < 10 && c < g_GMCreatureCatCount; c++) {
 			int bx = btnLeft + (c - 5) * catBtnW;
 			if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14) {
@@ -39535,7 +39646,6 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			}
 		}
 		y += 15;
-		// Row 3
 		for (int c = 10; c < g_GMCreatureCatCount; c++) {
 			int bx = btnLeft + (c - 10) * catBtnW;
 			if (msX >= bx && msX < bx + catBtnW && msY >= y && msY < y + 14) {
@@ -39556,15 +39666,15 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 
 		int listY = y;
 		int rowH = 16;
-		int visibleRows = (sY + szY - 4 - listY) / rowH;
+		int visibleRows = (sY + szY - 18 - listY) / rowH;
 		if (visibleRows < 1) visibleRows = 1;
 		int maxScroll = filteredCount - visibleRows;
 		if (maxScroll < 0) maxScroll = 0;
 
-		// Scrollbar click — map click Y to scroll position
+		// Scrollbar click
 		int sbX = sX + szX - 10;
-		if (filteredCount > visibleRows && msX >= sbX && msX <= sbX + 6 && msY >= listY && msY < sY + szY - 4) {
-			int sbH = sY + szY - 4 - listY;
+		if (filteredCount > visibleRows && msX >= sbX && msX <= sbX + 6 && msY >= listY && msY < sY + szY - 18) {
+			int sbH = sY + szY - 18 - listY;
 			int clickPos = msY - listY;
 			m_iGMPanelScroll = clickPos * maxScroll / max(1, sbH);
 			if (m_iGMPanelScroll > maxScroll) m_iGMPanelScroll = maxScroll;
@@ -39572,13 +39682,16 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			return;
 		}
 
-		// Item row click
+		// Creature row click — summon with count and ability
 		if (msX >= btnLeft && msX < sbX && msY >= listY && msY < listY + visibleRows * rowH) {
 			int clickedRow = (msY - listY) / rowH + m_iGMPanelScroll;
 			if (clickedRow >= 0 && clickedRow < filteredCount) {
 				int idx = filteredIdx[clickedRow];
-				char cCmd[64];
-				wsprintf(cCmd, "/summon %s 1", g_GMCreatures[idx].name);
+				char cCmd[128];
+				if (m_iGMPanelSpawnAbility > 0)
+					wsprintf(cCmd, "/summon %s %d 0 %d", g_GMCreatures[idx].name, m_iGMPanelSpawnCount, m_iGMPanelSpawnAbility);
+				else
+					wsprintf(cCmd, "/summon %s %d", g_GMCreatures[idx].name, m_iGMPanelSpawnCount);
 				GM_SEND_CMD(cCmd);
 				return;
 			}
@@ -39640,8 +39753,11 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 				if (clickedRow >= 0 && clickedRow < filteredCount) {
 					m_iGMPanelItemSelected = filteredIdx[clickedRow];
 					m_iGMPanelItemPrefix = 0;
+					m_iGMPanelItemPrefixVal = 1;
 					m_iGMPanelItemStat2 = 0;
 					m_iGMPanelItemStat2Val = 1;
+					m_iGMPanelItemUpgrade = 0;
+					m_iGMPanelItemManuEndu = 0;
 					m_iGMPanelItemAmount = 1;
 					return;
 				}
@@ -39649,6 +39765,14 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 
 		} else {
 			// --- ITEM DETAIL MODE ---
+			int itemType = _GMItemType(g_GMItems[m_iGMPanelItemSelected].category);
+
+			// Select valid prefix/stat arrays for this item type
+			const int* validPfx = g_GMWpnPfx;  int validPfxCount = g_GMWpnPfxCount;
+			const int* validSt2 = g_GMWpnSt2;  int validSt2Count = g_GMWpnSt2Count;
+			if (itemType == 1)      { validPfx = g_GMArmPfx; validPfxCount = g_GMArmPfxCount; validSt2 = g_GMArmSt2; validSt2Count = g_GMArmSt2Count; }
+			else if (itemType == 2) { validPfx = g_GMJewPfx; validPfxCount = g_GMJewPfxCount; validSt2 = g_GMJewSt2; validSt2Count = g_GMJewSt2Count; }
+
 			// [Back] button
 			if (msX >= btnLeft && msX <= btnLeft + 45 && msY >= y && msY < y + 14) {
 				m_iGMPanelItemSelected = -1;
@@ -39657,96 +39781,103 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			}
 			y += 16 + 4; // header + separator
 
-			// Prefix label + buttons
-			y += 13;
-			int pfxBtnW = contentW / 4;
-			for (int i = 0; i < g_GMPrefixCount; i++) {
-				int col = i % 4;
-				int row = i / 4;
-				int bx = btnLeft + col * pfxBtnW;
-				int by = y + row * 14;
-				if (msX >= bx && msX < bx + pfxBtnW && msY >= by && msY < by + 13) {
-					m_iGMPanelItemPrefix = i;
-					return;
+			if (itemType == 3) {
+				// Non-equipment: skip stat controls
+				y += 18;
+			} else {
+				// Prefix buttons (filtered)
+				y += 13;
+				int pfxBtnW = contentW / 4;
+				for (int fi = 0; fi < validPfxCount; fi++) {
+					int i = validPfx[fi];
+					int col = fi % 4;
+					int row = fi / 4;
+					int bx = btnLeft + col * pfxBtnW;
+					int by = y + row * 14;
+					if (msX >= bx && msX < bx + pfxBtnW && msY >= by && msY < by + 13) {
+						m_iGMPanelItemPrefix = i;
+						return;
+					}
 				}
-			}
-			y += ((g_GMPrefixCount + 3) / 4) * 14 + 2;
+				y += ((validPfxCount + 3) / 4) * 14 + 2;
 
-			// Prefix value [-] [+]
-			if (m_iGMPanelItemPrefix > 0) {
-				int vx = btnLeft + 80;
-				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemPrefixVal > 1) m_iGMPanelItemPrefixVal--;
-					return;
+				// Prefix value [-] [+]
+				if (m_iGMPanelItemPrefix > 0) {
+					int vx = btnLeft + 60;
+					if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemPrefixVal > 1) m_iGMPanelItemPrefixVal--;
+						return;
+					}
+					if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemPrefixVal < 13) m_iGMPanelItemPrefixVal++;
+						return;
+					}
+					y += 16;
 				}
-				if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemPrefixVal < 15) m_iGMPanelItemPrefixVal++;
-					return;
+
+				// Secondary stat buttons (filtered)
+				y += 13;
+				int s2BtnW = contentW / 4;
+				for (int fi = 0; fi < validSt2Count; fi++) {
+					int i = validSt2[fi];
+					int col = fi % 4;
+					int row = fi / 4;
+					int bx = btnLeft + col * s2BtnW;
+					int by = y + row * 14;
+					if (msX >= bx && msX < bx + s2BtnW && msY >= by && msY < by + 13) {
+						m_iGMPanelItemStat2 = i;
+						return;
+					}
+				}
+				y += ((validSt2Count + 3) / 4) * 14 + 2;
+
+				// Stat2 value [-] [+] (max 13)
+				if (m_iGMPanelItemStat2 > 0) {
+					int vx = btnLeft + 60;
+					if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemStat2Val > 1) m_iGMPanelItemStat2Val--;
+						return;
+					}
+					if (msX >= vx + 110 && msX <= vx + 134 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemStat2Val < 13) m_iGMPanelItemStat2Val++;
+						return;
+					}
+					y += 16;
+				}
+
+				// Bonus Dmg [-] [+]
+				{
+					int vx = btnLeft + 70;
+					if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemUpgrade > 0) m_iGMPanelItemUpgrade--;
+						return;
+					}
+					if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemUpgrade < 15) m_iGMPanelItemUpgrade++;
+						return;
+					}
+				}
+				y += 16;
+
+				// ManuEndu [-] [+]
+				{
+					int vx = btnLeft + 70;
+					if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemManuEndu > 0) m_iGMPanelItemManuEndu -= 10;
+						if (m_iGMPanelItemManuEndu < 0) m_iGMPanelItemManuEndu = 0;
+						return;
+					}
+					if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
+						if (m_iGMPanelItemManuEndu < 200) m_iGMPanelItemManuEndu += 10;
+						return;
+					}
 				}
 				y += 16;
 			}
-
-			// Secondary stat label + buttons
-			y += 13;
-			int s2BtnW = contentW / 4;
-			for (int i = 0; i < g_GMStat2Count; i++) {
-				int col = i % 4;
-				int row = i / 4;
-				int bx = btnLeft + col * s2BtnW;
-				int by = y + row * 14;
-				if (msX >= bx && msX < bx + s2BtnW && msY >= by && msY < by + 13) {
-					m_iGMPanelItemStat2 = i;
-					return;
-				}
-			}
-			y += ((g_GMStat2Count + 3) / 4) * 14 + 2;
-
-			// Stat2 value [-] [+]
-			if (m_iGMPanelItemStat2 > 0) {
-				int vx = btnLeft + 80;
-				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemStat2Val > 1) m_iGMPanelItemStat2Val--;
-					return;
-				}
-				if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemStat2Val < 15) m_iGMPanelItemStat2Val++;
-					return;
-				}
-				y += 16;
-			}
-
-			// Upgrade [-] [+]
-			{
-				int vx = btnLeft + 80;
-				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemUpgrade > 0) m_iGMPanelItemUpgrade--;
-					return;
-				}
-				if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemUpgrade < 15) m_iGMPanelItemUpgrade++;
-					return;
-				}
-			}
-			y += 16;
-
-			// ManuEndu [-] [+]
-			{
-				int vx = btnLeft + 80;
-				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemManuEndu > 0) m_iGMPanelItemManuEndu -= 10;
-					if (m_iGMPanelItemManuEndu < 0) m_iGMPanelItemManuEndu = 0;
-					return;
-				}
-				if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemManuEndu < 200) m_iGMPanelItemManuEndu += 10;
-					return;
-				}
-			}
-			y += 16;
 
 			// Amount [-] [+]
 			{
-				int vx = btnLeft + 80;
+				int vx = btnLeft + 70;
 				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
 					if (m_iGMPanelItemAmount > 1) m_iGMPanelItemAmount--;
 					return;
