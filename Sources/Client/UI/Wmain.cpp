@@ -111,24 +111,19 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 		break;
 
 	case WM_ACTIVATEAPP:
-		if( wParam == 0 ) 
+		if( wParam == 0 )
 		{	G_pGame->m_bIsProgramActive = FALSE;
 			G_pGame->m_DInput.SetAcquire(FALSE);
-		}else 
+		}else
 		{	G_pGame->m_bIsProgramActive = TRUE;
 			G_pGame->m_DInput.SetAcquire(TRUE);
 			G_pGame->m_bCtrlPressed = FALSE;
-			
-			// Anti-tamper checks disabled for rebuilt client
-			// if (G_pGame->bCheckImportantFile() == FALSE)
-			// {	MessageBox(G_pGame->m_hWnd, "File checksum error!", "ERROR1", MB_ICONEXCLAMATION | MB_OK);
-			//	PostQuitMessage(0);
-			//	return 0;
-			// }
-			// if (__FindHackingDll__("CRCCHECK") != 1)
-			// {	G_pGame->ChangeGameMode(GAMEMODE_ONQUIT);
-			//	return NULL;
-			// }
+			// Re-apply topmost and foreground when returning to fullscreen
+			if (G_pGame->m_DDraw.m_bFullMode && G_pGame->m_DDraw.m_bUseGPU) {
+				SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
+					SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+				SetForegroundWindow(hWnd);
+			}
 		}
 		return DefWindowProc(hWnd, message, wParam, lParam);
 

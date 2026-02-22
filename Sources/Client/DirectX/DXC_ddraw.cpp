@@ -87,6 +87,21 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 		m_lpFrontB4 = NULL;
 		m_lpBackB4flip = NULL;
 		SetRect(&m_rcFlipping, 0, 0, 640, 480);
+
+		// If fullscreen mode requested, resize window to fill monitor
+		if (m_bFullMode == TRUE) {
+			int screenW = GetSystemMetrics(SM_CXSCREEN);
+			int screenH = GetSystemMetrics(SM_CYSCREEN);
+			// Borderless fullscreen: cover entire screen including taskbar area
+			SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+			SetWindowLong(hWnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
+			SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, screenW, screenH,
+				SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+			SetForegroundWindow(hWnd);
+			if (m_pGPURenderer) {
+				m_pGPURenderer->OnResize(screenW, screenH);
+			}
+		}
 	}
 	else
 	{
@@ -265,8 +280,35 @@ HRESULT DXC_ddraw::iFlip()
 
 void DXC_ddraw::ChangeDisplayMode(HWND hWnd)
 {
-	// GPU mode handles display via OpenGL - no DirectDraw surfaces to toggle
-	if (m_bUseGPU) return;
+	// GPU mode: toggle between windowed (1280x960) and borderless fullscreen
+	if (m_bUseGPU) {
+		if (m_bFullMode == TRUE) {
+			// Fullscreen → Windowed (1280x960 centered)
+			int cx = GetSystemMetrics(SM_CXSCREEN) / 2;
+			int cy = GetSystemMetrics(SM_CYSCREEN) / 2;
+			SetWindowLong(hWnd, GWL_EXSTYLE, 0);
+			SetWindowPos(hWnd, HWND_NOTOPMOST, cx - 640, cy - 480, 1280, 960,
+				SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+			m_bFullMode = FALSE;
+		} else {
+			// Windowed → Fullscreen (fill monitor)
+			int screenW = GetSystemMetrics(SM_CXSCREEN);
+			int screenH = GetSystemMetrics(SM_CYSCREEN);
+			SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+			SetWindowLong(hWnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
+			SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, screenW, screenH,
+				SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+			SetForegroundWindow(hWnd);
+			m_bFullMode = TRUE;
+		}
+		// Update GPU renderer viewport for new window size
+		if (m_pGPURenderer) {
+			RECT rc;
+			GetClientRect(hWnd, &rc);
+			m_pGPURenderer->OnResize(rc.right - rc.left, rc.bottom - rc.top);
+		}
+		return;
+	}
 
 	HRESULT        ddVal;
 	DDSURFACEDESC2 ddsd;
