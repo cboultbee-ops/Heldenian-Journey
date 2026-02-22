@@ -141,8 +141,11 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 		return 0;
 
 	case WM_SETCURSOR:
-		SetCursor(NULL);
-		return TRUE;
+		if (G_pGame && G_pGame->m_bIsProgramActive) {
+			SetCursor(NULL);
+			return TRUE;
+		}
+		return DefWindowProc(hWnd, message, wParam, lParam);
 
 	case WM_DESTROY:
 		OnDestroy();

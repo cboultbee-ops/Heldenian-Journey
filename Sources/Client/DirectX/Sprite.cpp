@@ -36,6 +36,7 @@ CSprite::CSprite(HANDLE hPakFile, DXC_ddraw *pDDraw, char *cPakFileName, short s
 	m_cAlphaDegree = 1;
 	m_bOnCriticalSection = FALSE;
 	m_iTotalFrame = 0;
+	m_iSpriteScale = 1;
 	m_pDDraw = pDDraw;
 	if (framePositions) {
 		iASDstart = (*framePositions)[sNthFile];
@@ -189,7 +190,7 @@ void CSprite::PutSpriteFast(int sX, int sY, int sFrame, DWORD dwTime)
 		if (m_bIsGPUTexture) {
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
-				m_wBitmapSizeX, m_wBitmapSizeY,
+				m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_COLORKEY, 1.0f, 0.0f, 0.0f, 0.0f);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -336,7 +337,7 @@ void CSprite::PutSpriteFastNoColorKey(int sX, int sY, int sFrame, DWORD dwTime)
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_OPAQUE, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -622,7 +623,7 @@ void CSprite::PutSpriteFastWidth(int sX, int sY, int sFrame, int sWidth, DWORD d
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_COLORKEY, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -761,7 +762,7 @@ void CSprite::PutShadowSprite(int sX, int sY, int sFrame, DWORD dwTime)
 			int destX = sX + pivotX;
 			int destY = sY + pivotY;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_SHADOW, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -857,7 +858,7 @@ void CSprite::PutShadowSpriteClip(int sX, int sY, int sFrame, DWORD dwTime)
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_SHADOW, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -1027,7 +1028,7 @@ void CSprite::PutTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int alpha
 		if (m_bIsGPUTexture) {
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
-				m_wBitmapSizeX, m_wBitmapSizeY,
+				m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 1.0f, 0.0f, 0.0f, 0.0f);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -1126,7 +1127,7 @@ void CSprite::PutTransSprite_NoColorKey(int sX, int sY, int sFrame, DWORD dwTime
 			// alphaDepth=0 means "no transparency" (100% opaque) in the original DD code
 			float alpha = (alphaDepth == 0) ? 1.0f : (float)alphaDepth / 100.0f;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, alpha, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -1317,7 +1318,7 @@ void CSprite::PutTransSprite70(int sX, int sY, int sFrame, DWORD dwTime)
 		if (m_bIsGPUTexture) {
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
-				m_wBitmapSizeX, m_wBitmapSizeY,
+				m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 0.7f, 0.0f, 0.0f, 0.0f);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -1415,7 +1416,7 @@ void CSprite::PutTransSprite70_NoColorKey(int sX, int sY, int sFrame, DWORD dwTi
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 0.7f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -1606,7 +1607,7 @@ void CSprite::PutTransSprite50(int sX, int sY, int sFrame, DWORD dwTime)
 		if (m_bIsGPUTexture) {
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
-				m_wBitmapSizeX, m_wBitmapSizeY,
+				m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 0.5f, 0.0f, 0.0f, 0.0f);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -1709,7 +1710,7 @@ void CSprite::PutTransSprite50_NoColorKey(int sX, int sY, int sFrame, DWORD dwTi
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 0.5f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -1854,7 +1855,7 @@ void CSprite::PutTransSprite25(int sX, int sY, int sFrame, DWORD dwTime)
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 0.25f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -2007,7 +2008,7 @@ void CSprite::PutTransSprite25_NoColorKey(int sX, int sY, int sFrame, DWORD dwTi
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 0.25f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -2153,7 +2154,7 @@ void CSprite::PutTransSprite2(int sX, int sY, int sFrame, DWORD dwTime)
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_AVERAGE, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -2294,7 +2295,7 @@ void CSprite::PutShiftTransSprite2(int sX, int sY, int shX, int shY, int sFrame,
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_AVERAGE, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -2440,7 +2441,7 @@ void CSprite::PutFadeSprite(short sX, short sY, short sFrame, DWORD dwTime)
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_FADE, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -2698,7 +2699,7 @@ bool CSprite::LoadToGPU()
 	if (m_stBrush == NULL) return false;
 	if (m_pDDraw == NULL || m_pDDraw->m_pGPURenderer == NULL) return false;
 
-	// PNG or BMP from PAK: decode with stb_image for OpenGL
+	// Try stb_image first (handles PNG and 24/32-bit BMP)
 	{
 		char pathName[32];
 		if (memcmp(m_cPakFileName, "lgn_", 4) == 0)
@@ -2728,17 +2729,45 @@ bool CSprite::LoadToGPU()
 		stbi_set_flip_vertically_on_load(0);
 		unsigned char* rgba = stbi_load_from_memory(blob, (int)bitmapSize, &w, &h, &ch, 4);
 		free(blob);
-		if (!rgba || w <= 0 || h <= 0) return false;
-		m_wBitmapSizeX = (WORD)w;
-		m_wBitmapSizeY = (WORD)h;
-		m_glTextureID = m_pDDraw->m_pGPURenderer->CreateTexture(rgba, m_wBitmapSizeX, m_wBitmapSizeY);
-		stbi_image_free(rgba);
-		if (m_glTextureID == 0) return false;
-		m_bIsGPUTexture = true;
-		return true;
+		if (rgba && w > 0 && h > 0) {
+			m_wBitmapSizeX = (WORD)w;
+			m_wBitmapSizeY = (WORD)h;
+
+			// If source had no alpha channel, apply color key transparency
+			// Read top-left pixel as color key, set matching pixels to alpha=0
+			if (ch < 4) {
+				uint8_t ckR = rgba[0], ckG = rgba[1], ckB = rgba[2];
+				for (int i = 0; i < w * h; i++) {
+					if (rgba[i*4+0] == ckR && rgba[i*4+1] == ckG && rgba[i*4+2] == ckB) {
+						rgba[i*4+3] = 0;
+					}
+				}
+			}
+
+			// Detect sprite scale: compare texture width to max brush source extent
+			// With 1x brush values and 2x textures, ratio will be ~2
+			if (m_iTotalFrame > 0 && m_stBrush != NULL) {
+				int maxSrcRight = 0;
+				for (int i = 0; i < m_iTotalFrame; i++) {
+					int r = m_stBrush[i].sx + m_stBrush[i].szx;
+					if (r > maxSrcRight) maxSrcRight = r;
+				}
+				if (maxSrcRight > 0) {
+					int ratio = (w + maxSrcRight / 2) / maxSrcRight;
+					if (ratio >= 2) m_iSpriteScale = ratio;
+				}
+			}
+
+			m_glTextureID = m_pDDraw->m_pGPURenderer->CreateTexture(rgba, m_wBitmapSizeX, m_wBitmapSizeY);
+			stbi_image_free(rgba);
+			if (m_glTextureID == 0) return false;
+			m_bIsGPUTexture = true;
+			return true;
+		}
+		// stbi failed (e.g. 16-bit BMP) — fall through to CMyDib path
 	}
 
-	// Legacy: load BMP from pak (CMyDib reads file header for size)
+	// Fallback: CMyDib handles 16-bit BMP and other formats stbi can't decode
 	CMyDib mydib(m_cPakFileName, m_dwBitmapFileStartLoc);
 	if (mydib.m_lpDib == NULL) return false;
 
@@ -2933,6 +2962,19 @@ bool CSprite::LoadToGPU()
 		return false;
 	}
 
+	// Detect sprite scale for CMyDib path (same logic as stbi path)
+	if (m_iTotalFrame > 0 && m_stBrush != NULL) {
+		int maxSrcRight = 0;
+		for (int i = 0; i < m_iTotalFrame; i++) {
+			int r = m_stBrush[i].sx + m_stBrush[i].szx;
+			if (r > maxSrcRight) maxSrcRight = r;
+		}
+		if (maxSrcRight > 0) {
+			int ratio = (m_wBitmapSizeX + maxSrcRight / 2) / maxSrcRight;
+			if (ratio >= 2) m_iSpriteScale = ratio;
+		}
+	}
+
 	// Create OpenGL texture
 	m_glTextureID = m_pDDraw->m_pGPURenderer->CreateTexture(rgbaData, m_wBitmapSizeX, m_wBitmapSizeY);
 
@@ -3055,7 +3097,7 @@ void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int
 			}
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
-				m_wBitmapSizeX, m_wBitmapSizeY,
+				m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_TINTED, 1.0f, colorR, colorG, colorB);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -3160,7 +3202,7 @@ void CSprite::PutTransSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen
 			float normG = sGreen / 32.0f;
 			float normB = sBlue / 32.0f;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 1.0f, normR, normG, normB);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -3321,7 +3363,7 @@ void CSprite::PutTransSpriteRGB_NoColorKey(int sX, int sY, int sFrame, int sRed,
 			float normG = sGreen / 32.0f;
 			float normB = sBlue / 32.0f;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_ADDITIVE, 1.0f, normR, normG, normB);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -3721,7 +3763,7 @@ void CSprite::PutShiftSpriteFast(int sX, int sY, int shX, int shY, int sFrame, D
 			m_rcBound.right = destX + srcW;
 			m_rcBound.bottom = destY + srcH;
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_OPAQUE, 1.0f, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;
@@ -3847,7 +3889,7 @@ void CSprite::PutRevTransSprite(int sX, int sY, int sFrame, DWORD dwTime, int al
 			// alphaDepth increases subtraction strength (0 = normal)
 			float alpha = 1.0f + ((float)alphaDepth / 32.0f);
 			m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
-				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY,
+				srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
 				BLEND_SUBTRACTIVE, alpha, 0, 0, 0);
 		}
 		m_bOnCriticalSection = FALSE;

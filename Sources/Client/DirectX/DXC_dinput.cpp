@@ -74,11 +74,15 @@ void DXC_dinput::SetAcquire(BOOL bFlag)
 		ClientToScreen(m_hWnd, &pt);
 		OffsetRect(&rc, pt.x, pt.y);
 		ClipCursor(&rc);
-		ShowCursor(FALSE);
+		// Ensure OS cursor is fully hidden (ShowCursor uses a reference counter)
+		while (ShowCursor(FALSE) >= 0) {}
+		// Center OS cursor inside window to prevent it from touching edges
+		SetCursorPos((rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2);
 	} else {
 		m_bAcquired = FALSE;
 		ClipCursor(NULL);
-		ShowCursor(TRUE);
+		// Restore OS cursor visibility
+		while (ShowCursor(TRUE) < 0) {}
 	}
 }
 
@@ -151,6 +155,17 @@ void DXC_dinput::UpdateMouseState(short * pX, short * pY, short * pZ, char * pLB
 	if (m_sY < 0)       m_sY = 0;
 	if (m_sX > m_sMaxX) m_sX = m_sMaxX;
 	if (m_sY > m_sMaxY) m_sY = m_sMaxY;
+
+	// Re-center OS cursor each frame to prevent escape
+	// Raw Input provides hardware deltas independent of cursor position,
+	// so SetCursorPos does not affect the raw delta accumulation.
+	if (m_hWnd) {
+		RECT rc;
+		GetClientRect(m_hWnd, &rc);
+		POINT center = { (rc.right - rc.left) / 2, (rc.bottom - rc.top) / 2 };
+		ClientToScreen(m_hWnd, &center);
+		SetCursorPos(center.x, center.y);
+	}
 
 	*pX = m_sX;
 	*pY = m_sY;
