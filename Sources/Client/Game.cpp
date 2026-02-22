@@ -4329,7 +4329,7 @@ void CGame::InitGameSettings()
 	m_bDialogTrans   = FALSE;
 	m_cWhetherStatus = NULL;
 	m_cLogOutCount = -1;
-	m_iLogOutTimer = 11;
+	m_iLogOutTimer = 2;
 	m_sLogOutStartX = 0;
 	m_sLogOutStartY = 0;
 
