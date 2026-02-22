@@ -15716,7 +15716,7 @@ void CGame::DrawDialogBoxs(short msX, short msY, short msZ, char cLB)
 			DrawDialogBox_DKMenuWeapons(msX, msY);
 			break;
 		case DIALOG_GMPANEL:
-			DrawDialogBox_GMPanel(msX, msY);
+			DrawDialogBox_GMPanel(msX, msY, msZ);
 			break;
 		}
 	}
@@ -38819,7 +38819,7 @@ static const GMStat2 g_GMStat2s[] = {
 static const int g_GMStat2Count = 13;
 
 
-void CGame::DrawDialogBox_GMPanel(int msX, int msY)
+void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 {
 	short sX = m_stDialogBoxInfo[DIALOG_GMPANEL].sX;
 	short sY = m_stDialogBoxInfo[DIALOG_GMPANEL].sY;
@@ -38829,12 +38829,10 @@ void CGame::DrawDialogBox_GMPanel(int msX, int msY)
 	if (!m_DDraw.m_bUseGPU || !m_DDraw.m_pGPURenderer) return;
 	CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
 
-	// Handle mouse wheel scrolling for this dialog
-	short msZ = m_DInput.m_sZ;
-	if (msZ != 0 && msX >= sX && msX <= sX + szX && msY >= sY && msY <= sY + szY) {
-		m_iGMPanelScroll -= msZ / 30;
-		if (m_iGMPanelScroll < 0) m_iGMPanelScroll = 0;
-		m_DInput.m_sZ = 0;
+	// Handle mouse wheel scrolling (msZ passed from DrawDialogBoxs)
+	if (msZ != 0 && iGetTopDialogBoxIndex() == DIALOG_GMPANEL) {
+		if (msZ > 0 && m_iGMPanelScroll > 0) m_iGMPanelScroll--;
+		if (msZ < 0) m_iGMPanelScroll++;
 	}
 
 	// Background
@@ -39380,8 +39378,22 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 		int rowH = 16;
 		int visibleRows = (sY + szY - 4 - listY) / rowH;
 		if (visibleRows < 1) visibleRows = 1;
+		int maxScroll = filteredCount - visibleRows;
+		if (maxScroll < 0) maxScroll = 0;
 
-		if (msY >= listY && msY < listY + visibleRows * rowH) {
+		// Scrollbar click — map click Y to scroll position
+		int sbX = sX + szX - 10;
+		if (filteredCount > visibleRows && msX >= sbX && msX <= sbX + 6 && msY >= listY && msY < sY + szY - 4) {
+			int sbH = sY + szY - 4 - listY;
+			int clickPos = msY - listY;
+			m_iGMPanelScroll = clickPos * maxScroll / max(1, sbH);
+			if (m_iGMPanelScroll > maxScroll) m_iGMPanelScroll = maxScroll;
+			if (m_iGMPanelScroll < 0) m_iGMPanelScroll = 0;
+			return;
+		}
+
+		// Item row click
+		if (msX >= btnLeft && msX < sbX && msY >= listY && msY < listY + visibleRows * rowH) {
 			int clickedRow = (msY - listY) / rowH + m_iGMPanelScroll;
 			if (clickedRow >= 0 && clickedRow < filteredCount) {
 				int idx = filteredIdx[clickedRow];
@@ -39428,8 +39440,22 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			int rowH = 16;
 			int visibleRows = (sY + szY - 4 - listY) / rowH;
 			if (visibleRows < 1) visibleRows = 1;
+			int maxScroll = filteredCount - visibleRows;
+			if (maxScroll < 0) maxScroll = 0;
 
-			if (msY >= listY && msY < listY + visibleRows * rowH) {
+			// Scrollbar click
+			int sbX = sX + szX - 10;
+			if (filteredCount > visibleRows && msX >= sbX && msX <= sbX + 6 && msY >= listY && msY < sY + szY - 4) {
+				int sbH = sY + szY - 4 - listY;
+				int clickPos = msY - listY;
+				m_iGMPanelScroll = clickPos * maxScroll / max(1, sbH);
+				if (m_iGMPanelScroll > maxScroll) m_iGMPanelScroll = maxScroll;
+				if (m_iGMPanelScroll < 0) m_iGMPanelScroll = 0;
+				return;
+			}
+
+			// Item row click
+			if (msX >= btnLeft && msX < sbX && msY >= listY && msY < listY + visibleRows * rowH) {
 				int clickedRow = (msY - listY) / rowH + m_iGMPanelScroll;
 				if (clickedRow >= 0 && clickedRow < filteredCount) {
 					m_iGMPanelItemSelected = filteredIdx[clickedRow];

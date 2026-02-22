@@ -349,7 +349,7 @@ public:
 	void DlgBoxClick_DKMenuWeapons(int msX, int msY);
 
 	// GM Panel (54)
-	void DrawDialogBox_GMPanel(int msX, int msY);
+	void DrawDialogBox_GMPanel(short msX, short msY, short msZ);
 	void DlgBoxClick_GMPanel(int msX, int msY);
 	char m_cGMPanelInput[64];    // Text input buffer for GM panel
 	int  m_iGMPanelInputMode;    // 0=none, 1=monster, 2=item, 3=teleport, 4=summonplayer, 5=sethp, 6=setmp, 7=polymorph
