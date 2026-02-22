@@ -2744,6 +2744,49 @@ bool CSprite::LoadToGPU()
 				}
 			}
 
+			// Runtime edge defringe: neutralize color-key contamination near edges.
+			// AI upscaling bleeds the color key (often bright green) into nearby
+			// pixels. Build a distance map from transparent boundary, then desaturate
+			// green-dominant pixels within DEFRINGE_LAYERS of transparency.
+			{
+				const int DEFRINGE_LAYERS = 5;
+				// Distance map: 0 = transparent, 1..N = layers from boundary
+				uint8_t* dist = (uint8_t*)calloc(w * h, 1);
+				if (dist) {
+					// Initialize: transparent=0, opaque=255 (unvisited)
+					for (int i = 0; i < w * h; i++)
+						dist[i] = (rgba[i*4+3] == 0) ? 0 : 255;
+					// BFS-style expansion from transparent boundary
+					for (int layer = 1; layer <= DEFRINGE_LAYERS; layer++) {
+						for (int y = 0; y < h; y++) {
+							for (int x = 0; x < w; x++) {
+								int idx = y * w + x;
+								if (dist[idx] != 255) continue; // already assigned
+								uint8_t prev = (uint8_t)(layer - 1);
+								bool nearBoundary = false;
+								if (x > 0   && dist[idx-1] == prev) nearBoundary = true;
+								if (x < w-1 && dist[idx+1] == prev) nearBoundary = true;
+								if (y > 0   && dist[idx-w] == prev) nearBoundary = true;
+								if (y < h-1 && dist[idx+w] == prev) nearBoundary = true;
+								if (nearBoundary) dist[idx] = (uint8_t)layer;
+							}
+						}
+					}
+					// Fix green-dominant pixels near edges
+					for (int i = 0; i < w * h; i++) {
+						if (dist[i] == 0 || dist[i] > DEFRINGE_LAYERS) continue;
+						int r = rgba[i*4+0], g = rgba[i*4+1], b = rgba[i*4+2];
+						if (g > r + 25 && g > b + 25 && g > 60) {
+							int avg = (r + b) / 2;
+							// Stronger correction for pixels closer to edge
+							int blend = (dist[i] <= 2) ? 4 : 3; // 80% or 67% toward avg
+							rgba[i*4+1] = (uint8_t)((avg * blend + g) / (blend + 1));
+						}
+					}
+					free(dist);
+				}
+			}
+
 			// Detect sprite scale: compare texture width to max brush source extent
 			// With 1x brush values and 2x textures, ratio will be ~2
 			if (m_iTotalFrame > 0 && m_stBrush != NULL) {
