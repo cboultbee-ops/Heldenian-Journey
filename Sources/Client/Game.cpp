@@ -26146,12 +26146,14 @@ BOOL CGame::bCheckLocalChatCommand(char * pMsg)
 		return TRUE;
 	}else if (memcmp(cBuff, "/gm", 3)==0 && (cBuff[3] == 0 || cBuff[3] == ' '))
 	{	if (m_bIsDialogEnabled[DIALOG_GMPANEL] == FALSE) {
-			m_stDialogBoxInfo[DIALOG_GMPANEL].sX = 170;
-			m_stDialogBoxInfo[DIALOG_GMPANEL].sY = 50;
-			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX = 280;
-			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY = 320;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sX = 140;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sY = 30;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX = 320;
+			m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY = 400;
 			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
 			m_iGMPanelInputMode = 0;
+			m_iGMPanelTab = 0;
+			m_iGMPanelScroll = 0;
 			EnableDialogBox(DIALOG_GMPANEL, NULL, NULL, NULL);
 		} else {
 			DisableDialogBox(DIALOG_GMPANEL);
@@ -38577,115 +38579,196 @@ void CGame::DrawDialogBox_GMPanel(int msX, int msY)
 	short szX = m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeX;
 	short szY = m_stDialogBoxInfo[DIALOG_GMPANEL].sSizeY;
 
-	// Draw dark semi-transparent background
-	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, szX, szY, 0.0f, 0.0f, 0.05f, 0.85f);
-		// Title bar
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, szX, 20, 0.15f, 0.15f, 0.25f, 0.95f);
-		// Border lines
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, szX, 1, 0.4f, 0.4f, 0.6f, 1.0f);
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY + szY - 1, szX, 1, 0.4f, 0.4f, 0.6f, 1.0f);
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX, sY, 1, szY, 0.4f, 0.4f, 0.6f, 1.0f);
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX + szX - 1, sY, 1, szY, 0.4f, 0.4f, 0.6f, 1.0f);
-	}
+	if (!m_DDraw.m_bUseGPU || !m_DDraw.m_pGPURenderer) return;
+	CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
+
+	// Background
+	gpu->DrawFilledRect(sX, sY, szX, szY, 0.0f, 0.0f, 0.05f, 0.88f);
+	// Title bar
+	gpu->DrawFilledRect(sX, sY, szX, 20, 0.15f, 0.15f, 0.25f, 0.95f);
+	// Border
+	gpu->DrawFilledRect(sX, sY, szX, 1, 0.4f, 0.4f, 0.6f, 1.0f);
+	gpu->DrawFilledRect(sX, sY + szY - 1, szX, 1, 0.4f, 0.4f, 0.6f, 1.0f);
+	gpu->DrawFilledRect(sX, sY, 1, szY, 0.4f, 0.4f, 0.6f, 1.0f);
+	gpu->DrawFilledRect(sX + szX - 1, sY, 1, szY, 0.4f, 0.4f, 0.6f, 1.0f);
 
 	// Title
 	PutAlignedString(sX, sX + szX, sY + 3, "GM Panel", 220, 220, 255);
 
-	// Close button [X] in top-right
+	// Close button [X]
 	if (msX >= sX + szX - 20 && msX <= sX + szX - 5 && msY >= sY + 2 && msY <= sY + 18)
 		PutAlignedString(sX + szX - 25, sX + szX, sY + 3, "[X]", 255, 100, 100);
 	else
 		PutAlignedString(sX + szX - 25, sX + szX, sY + 3, "[X]", 180, 180, 180);
 
-	int btnY = sY + 28;
-	int btnH = 22;
-	int pad = 4;
-
-	// Input field display
-	if (m_iGMPanelInputMode > 0) {
-		if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
-			m_DDraw.m_pGPURenderer->DrawFilledRect(sX + 10, btnY, szX - 20, 18, 0.1f, 0.1f, 0.15f, 1.0f);
+	// === TAB BAR ===
+	int tabY = sY + 22;
+	int tabH = 18;
+	int tabW = szX / 4;
+	static char tabNames[4][12] = {"Commands", "Spawn", "Items", "Teleport"};
+	for (int t = 0; t < 4; t++) {
+		int tx = sX + t * tabW;
+		if (t == m_iGMPanelTab) {
+			gpu->DrawFilledRect(tx, tabY, tabW, tabH, 0.12f, 0.12f, 0.2f, 1.0f);
+		} else if (msX >= tx && msX < tx + tabW && msY >= tabY && msY < tabY + tabH) {
+			gpu->DrawFilledRect(tx, tabY, tabW, tabH, 0.08f, 0.08f, 0.15f, 0.9f);
 		}
+		// Tab text
+		int r = (t == m_iGMPanelTab) ? 255 : 150;
+		int g = (t == m_iGMPanelTab) ? 255 : 150;
+		int b = (t == m_iGMPanelTab) ? 220 : 180;
+		PutAlignedString(tx, tx + tabW, tabY + 2, tabNames[t], r, g, b);
+	}
+	// Tab underline
+	gpu->DrawFilledRect(sX, tabY + tabH, szX, 1, 0.3f, 0.3f, 0.5f, 0.8f);
+
+	int btnY = tabY + tabH + 6;
+	int btnH = 20;
+	int pad = 3;
+	int btnLeft = sX + 8;
+	int btnRight = sX + szX - 8;
+
+	// === INPUT MODE OVERLAY ===
+	if (m_iGMPanelInputMode > 0) {
+		gpu->DrawFilledRect(btnLeft, btnY, szX - 16, 18, 0.1f, 0.1f, 0.15f, 1.0f);
 		char cLabel[80];
 		switch (m_iGMPanelInputMode) {
 		case 1: wsprintf(cLabel, "Summon: %s_", m_cGMPanelInput); break;
 		case 2: wsprintf(cLabel, "Item: %s_", m_cGMPanelInput); break;
-		case 3: wsprintf(cLabel, "Goto: %s_", m_cGMPanelInput); break;
+		case 3: wsprintf(cLabel, "Teleport: %s_", m_cGMPanelInput); break;
+		case 4: wsprintf(cLabel, "Player: %s_", m_cGMPanelInput); break;
+		case 5: wsprintf(cLabel, "Set HP: %s_", m_cGMPanelInput); break;
+		case 6: wsprintf(cLabel, "Set MP: %s_", m_cGMPanelInput); break;
+		case 7: wsprintf(cLabel, "Polymorph: %s_", m_cGMPanelInput); break;
 		default: wsprintf(cLabel, "> %s_", m_cGMPanelInput); break;
 		}
-		PutAlignedString(sX + 12, sX + szX - 10, btnY + 2, cLabel, 255, 255, 200);
+		PutAlignedString(btnLeft + 4, btnRight, btnY + 2, cLabel, 255, 255, 200);
 		btnY += 22;
 
-		// Send / Cancel buttons
-		if (msX >= sX + 10 && msX <= sX + 70 && msY >= btnY && msY <= btnY + 16)
-			PutAlignedString(sX + 10, sX + 70, btnY, "[Send]", 100, 255, 100);
+		if (msX >= btnLeft && msX <= btnLeft + 55 && msY >= btnY && msY <= btnY + 16)
+			PutAlignedString(btnLeft, btnLeft + 55, btnY, "[Send]", 100, 255, 100);
 		else
-			PutAlignedString(sX + 10, sX + 70, btnY, "[Send]", 150, 255, 150);
+			PutAlignedString(btnLeft, btnLeft + 55, btnY, "[Send]", 150, 255, 150);
 
-		if (msX >= sX + 80 && msX <= sX + 150 && msY >= btnY && msY <= btnY + 16)
-			PutAlignedString(sX + 80, sX + 150, btnY, "[Cancel]", 255, 100, 100);
+		if (msX >= btnLeft + 65 && msX <= btnLeft + 130 && msY >= btnY && msY <= btnY + 16)
+			PutAlignedString(btnLeft + 65, btnLeft + 130, btnY, "[Cancel]", 255, 100, 100);
 		else
-			PutAlignedString(sX + 80, sX + 150, btnY, "[Cancel]", 200, 150, 150);
-
-		return; // Don't draw buttons while in input mode
+			PutAlignedString(btnLeft + 65, btnLeft + 130, btnY, "[Cancel]", 200, 150, 150);
+		return;
 	}
 
-	// === BUTTONS ===
-	// Helper macro-style for button rendering
+	// Helper: draw a button with hover highlight
 	#define GM_BTN(label, y) \
-		if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= (y) && msY <= (y) + btnH - 2) \
-			PutAlignedString(sX, sX + szX, (y) + 3, label, 255, 255, 200); \
-		else \
-			PutAlignedString(sX, sX + szX, (y) + 3, label, 180, 180, 220)
+		if (msX >= btnLeft && msX <= btnRight && msY >= (y) && msY <= (y) + btnH - 2) { \
+			gpu->DrawFilledRect(btnLeft, (y), szX - 16, btnH - 2, 0.15f, 0.15f, 0.25f, 0.7f); \
+			PutAlignedString(sX, sX + szX, (y) + 2, label, 255, 255, 200); \
+		} else { \
+			PutAlignedString(sX, sX + szX, (y) + 2, label, 180, 180, 220); \
+		}
 
-	// Summon Monster
-	GM_BTN("Summon Monster", btnY);
-	btnY += btnH + pad;
+	#define GM_SEPARATOR(y) \
+		gpu->DrawFilledRect(sX + 20, (y), szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.6f); \
+		(y) += 6
 
-	// Create Item
-	GM_BTN("Create Item", btnY);
-	btnY += btnH + pad;
+	switch (m_iGMPanelTab) {
+	case 0: // === COMMANDS TAB ===
+		PutString(btnLeft, btnY, "- Toggles -", RGB(140, 140, 180));
+		btnY += 16;
 
-	// Go To (teleport)
-	GM_BTN("Go To (map x y)", btnY);
-	btnY += btnH + pad;
+		GM_BTN("Toggle Invisibility", btnY); btnY += btnH + pad;
+		GM_BTN("Toggle Invincible", btnY); btnY += btnH + pad;
+		GM_BTN("Toggle No Aggro", btnY); btnY += btnH + pad;
+		GM_BTN("Toggle Observer Mode", btnY); btnY += btnH + pad;
 
-	// Separator
-	btnY += 6;
-	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX + 20, btnY, szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.8f);
+		GM_SEPARATOR(btnY);
+		PutString(btnLeft, btnY, "- Stats -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Set HP", btnY); btnY += btnH + pad;
+		GM_BTN("Set MP", btnY); btnY += btnH + pad;
+		GM_BTN("Polymorph", btnY); btnY += btnH + pad;
+
+		GM_SEPARATOR(btnY);
+		PutString(btnLeft, btnY, "- Map -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Unsummon All", btnY); btnY += btnH + pad;
+		GM_BTN("Unsummon Bosses", btnY); btnY += btnH + pad;
+		GM_BTN("Clear Map", btnY); btnY += btnH + pad;
+		GM_BTN("Disconnect All", btnY); btnY += btnH + pad;
+		break;
+
+	case 1: // === SPAWN TAB ===
+		PutString(btnLeft, btnY, "- Summon Creature -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Summon (type name)", btnY); btnY += btnH + pad;
+
+		GM_SEPARATOR(btnY);
+		PutString(btnLeft, btnY, "- Quick Summon -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Slime", btnY); btnY += btnH + pad;
+		GM_BTN("Skeleton", btnY); btnY += btnH + pad;
+		GM_BTN("Orc", btnY); btnY += btnH + pad;
+		GM_BTN("Troll", btnY); btnY += btnH + pad;
+		GM_BTN("Ogre", btnY); btnY += btnH + pad;
+		GM_BTN("Cyclops", btnY); btnY += btnH + pad;
+		GM_BTN("Demon", btnY); btnY += btnH + pad;
+		GM_BTN("Unicorn", btnY); btnY += btnH + pad;
+		GM_BTN("Werewolf", btnY); btnY += btnH + pad;
+		GM_BTN("Hellclaw", btnY); btnY += btnH + pad;
+		GM_BTN("Tigerworm", btnY); btnY += btnH + pad;
+		GM_BTN("Rudolph", btnY); btnY += btnH + pad;
+		break;
+
+	case 2: // === ITEMS TAB ===
+		PutString(btnLeft, btnY, "- Create Item -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Create Item (type name)", btnY); btnY += btnH + pad;
+
+		GM_SEPARATOR(btnY);
+		PutString(btnLeft, btnY, "- Quick Items -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Gold(10000)", btnY); btnY += btnH + pad;
+		GM_BTN("ZemstoneofSacrifice", btnY); btnY += btnH + pad;
+		GM_BTN("SwordofMedusa", btnY); btnY += btnH + pad;
+		GM_BTN("GiantSword", btnY); btnY += btnH + pad;
+		GM_BTN("StormBringer", btnY); btnY += btnH + pad;
+		GM_BTN("Excalibur", btnY); btnY += btnH + pad;
+		GM_BTN("KlonessAxe", btnY); btnY += btnH + pad;
+		GM_BTN("PlateMail", btnY); btnY += btnH + pad;
+		GM_BTN("AncientTablet(STR)", btnY); btnY += btnH + pad;
+		GM_BTN("MagicNecklace(DM)", btnY); btnY += btnH + pad;
+		GM_BTN("SuperHP", btnY); btnY += btnH + pad;
+		GM_BTN("SuperMP", btnY); btnY += btnH + pad;
+		break;
+
+	case 3: // === TELEPORT TAB ===
+		PutString(btnLeft, btnY, "- Teleport -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Teleport (map x y)", btnY); btnY += btnH + pad;
+		GM_BTN("Goto Player", btnY); btnY += btnH + pad;
+		GM_BTN("Summon Player", btnY); btnY += btnH + pad;
+
+		GM_SEPARATOR(btnY);
+		PutString(btnLeft, btnY, "- Quick Teleport -", RGB(140, 140, 180));
+		btnY += 16;
+
+		GM_BTN("Elvine", btnY); btnY += btnH + pad;
+		GM_BTN("Aresden", btnY); btnY += btnH + pad;
+		GM_BTN("Middleland", btnY); btnY += btnH + pad;
+		GM_BTN("BtlField1", btnY); btnY += btnH + pad;
+		GM_BTN("Druncncity", btnY); btnY += btnH + pad;
+		GM_BTN("Arena", btnY); btnY += btnH + pad;
+		break;
 	}
-	btnY += 8;
-
-	// Toggle Invisibility
-	GM_BTN("Toggle Invisibility", btnY);
-	btnY += btnH + pad;
-
-	// Toggle Invincible
-	GM_BTN("Toggle Invincible", btnY);
-	btnY += btnH + pad;
-
-	// Toggle No Aggro
-	GM_BTN("Toggle No Aggro", btnY);
-	btnY += btnH + pad;
-
-	// Separator
-	btnY += 6;
-	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer) {
-		m_DDraw.m_pGPURenderer->DrawFilledRect(sX + 20, btnY, szX - 40, 1, 0.3f, 0.3f, 0.5f, 0.8f);
-	}
-	btnY += 8;
-
-	// Unsummon All
-	GM_BTN("Unsummon All", btnY);
-	btnY += btnH + pad;
-
-	// Clear Map
-	GM_BTN("Clear Map", btnY);
-	btnY += btnH + pad;
 
 	#undef GM_BTN
+	#undef GM_SEPARATOR
 }
 
 void CGame::DlgBoxClick_GMPanel(int msX, int msY)
@@ -38707,32 +38790,72 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 		return;
 	}
 
-	int btnY = sY + 28;
-	int btnH = 22;
-	int pad = 4;
+	// Tab bar clicks
+	int tabY = sY + 22;
+	int tabH = 18;
+	int tabW = szX / 4;
+	if (msY >= tabY && msY < tabY + tabH) {
+		int newTab = (msX - sX) / tabW;
+		if (newTab >= 0 && newTab < 4) {
+			m_iGMPanelTab = newTab;
+			m_iGMPanelInputMode = 0;
+			m_iGMPanelScroll = 0;
+		}
+		return;
+	}
 
-	// If in input mode, handle Send/Cancel
+	int btnY = tabY + tabH + 6;
+	int btnH = 20;
+	int pad = 3;
+	int btnLeft = sX + 8;
+	int btnRight = sX + szX - 8;
+
+	// Helper: send a GM chat command (copies to mutable buffer for legacy APIs)
+	char _gmCmdBuf[128];
+	#define GM_SEND_CMD(cmd) { \
+		strncpy(_gmCmdBuf, cmd, sizeof(_gmCmdBuf) - 1); \
+		_gmCmdBuf[sizeof(_gmCmdBuf) - 1] = 0; \
+		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, _gmCmdBuf); \
+		AddEventList(_gmCmdBuf, 10); \
+	}
+
+	// Helper: start text input mode
+	#define GM_START_INPUT(mode) { \
+		m_iGMPanelInputMode = mode; \
+		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput)); \
+		StartInputString(btnLeft + 4, btnY + 2, 50, m_cGMPanelInput); \
+		return; \
+	}
+
+	// Helper: check button click
+	#define GM_BTN_HIT(y) (msX >= btnLeft && msX <= btnRight && msY >= (y) && msY <= (y) + btnH - 2)
+
+	// === INPUT MODE: Send/Cancel ===
 	if (m_iGMPanelInputMode > 0) {
 		btnY += 22; // skip input field display
 
 		// Send button
-		if (msX >= sX + 10 && msX <= sX + 70 && msY >= btnY && msY <= btnY + 16) {
+		if (msX >= btnLeft && msX <= btnLeft + 55 && msY >= btnY && msY <= btnY + 16) {
 			char cCmd[128];
 			switch (m_iGMPanelInputMode) {
 			case 1: wsprintf(cCmd, "/summon %s", m_cGMPanelInput); break;
 			case 2: wsprintf(cCmd, "/ci %s", m_cGMPanelInput); break;
-			case 3: wsprintf(cCmd, "/goto %s", m_cGMPanelInput); break;
+			case 3: wsprintf(cCmd, "/tp %s", m_cGMPanelInput); break;
+			case 4: // Goto player or Summon player
+				wsprintf(cCmd, "/goto %s", m_cGMPanelInput); break;
+			case 5: wsprintf(cCmd, "/sethp %s", m_cGMPanelInput); break;
+			case 6: wsprintf(cCmd, "/setmp %s", m_cGMPanelInput); break;
+			case 7: wsprintf(cCmd, "/polymorph %s", m_cGMPanelInput); break;
 			default: return;
 			}
-			bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, cCmd);
-			AddEventList(cCmd, 10);
+			GM_SEND_CMD(cCmd);
 			m_iGMPanelInputMode = 0;
 			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
 			return;
 		}
 
 		// Cancel button
-		if (msX >= sX + 80 && msX <= sX + 150 && msY >= btnY && msY <= btnY + 16) {
+		if (msX >= btnLeft + 65 && msX <= btnLeft + 130 && msY >= btnY && msY <= btnY + 16) {
 			m_iGMPanelInputMode = 0;
 			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
 			return;
@@ -38740,75 +38863,138 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 		return;
 	}
 
-	// Summon Monster
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		m_iGMPanelInputMode = 1;
-		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
-		StartInputString(sX + 12, btnY + 2, 50, m_cGMPanelInput);
-		return;
+	switch (m_iGMPanelTab) {
+	case 0: // === COMMANDS TAB ===
+		btnY += 16; // skip section header
+
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/invi"); return; }
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/invincible"); return; }
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/noaggro"); return; }
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/observer"); return; }
+		btnY += btnH + pad;
+
+		btnY += 6; // separator
+		btnY += 16; // section header
+
+		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(5); }  // Set HP
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(6); }  // Set MP
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(7); }  // Polymorph
+		btnY += btnH + pad;
+
+		btnY += 6; // separator
+		btnY += 16; // section header
+
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/unsummonall"); return; }
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/unsummonboss"); return; }
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/clearmap"); return; }
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_SEND_CMD("/disconnectall"); return; }
+		break;
+
+	case 1: // === SPAWN TAB ===
+		btnY += 16; // section header
+
+		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(1); }  // Summon custom
+		btnY += btnH + pad;
+
+		btnY += 6 + 16; // separator + section header
+
+		{ // Quick summon buttons
+			static const char* quickMobs[] = {
+				"Slime", "Skeleton", "Orc", "Troll", "Ogre", "Cyclops",
+				"Demon", "Unicorn", "Werewolf", "Hellclaw", "Tigerworm", "Rudolph"
+			};
+			for (int i = 0; i < 12; i++) {
+				if (GM_BTN_HIT(btnY)) {
+					char cCmd[64];
+					wsprintf(cCmd, "/summon %s", quickMobs[i]);
+					GM_SEND_CMD(cCmd);
+					return;
+				}
+				btnY += btnH + pad;
+			}
+		}
+		break;
+
+	case 2: // === ITEMS TAB ===
+		btnY += 16; // section header
+
+		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(2); }  // Create item custom
+		btnY += btnH + pad;
+
+		btnY += 6 + 16; // separator + section header
+
+		{ // Quick item buttons
+			static const char* quickItems[] = {
+				"Gold 0 0 10000", "ZemstoneofSacrifice", "SwordofMedusa",
+				"GiantSword", "StormBringer", "Excalibur",
+				"KlonessAxe", "PlateMail", "AncientTablet(STR)",
+				"MagicNecklace(DM)", "SuperHP", "SuperMP"
+			};
+			static const char* quickLabels[] = {
+				"Gold(10000)", "ZemstoneofSacrifice", "SwordofMedusa",
+				"GiantSword", "StormBringer", "Excalibur",
+				"KlonessAxe", "PlateMail", "AncientTablet(STR)",
+				"MagicNecklace(DM)", "SuperHP", "SuperMP"
+			};
+			for (int i = 0; i < 12; i++) {
+				if (GM_BTN_HIT(btnY)) {
+					char cCmd[64];
+					wsprintf(cCmd, "/ci %s", quickItems[i]);
+					GM_SEND_CMD(cCmd);
+					return;
+				}
+				btnY += btnH + pad;
+			}
+		}
+		break;
+
+	case 3: // === TELEPORT TAB ===
+		btnY += 16; // section header
+
+		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(3); }  // Teleport custom
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) { GM_START_INPUT(4); }  // Goto player
+		btnY += btnH + pad;
+		if (GM_BTN_HIT(btnY)) {  // Summon player (reuse input mode 4 but with /summonplayer)
+			m_iGMPanelInputMode = 4;
+			ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+			StartInputString(btnLeft + 4, btnY + 2, 50, m_cGMPanelInput);
+			return;
+		}
+		btnY += btnH + pad;
+
+		btnY += 6 + 16; // separator + section header
+
+		{ // Quick teleport buttons
+			static const char* quickTP[] = {
+				"/tp elvine 310 260", "/tp aresden 310 260",
+				"/tp middleland 250 250", "/tp BtlField1 120 120",
+				"/tp Druncncity 50 50", "/tp arefarm 100 100"
+			};
+			static const char* tpLabels[] = {
+				"Elvine", "Aresden", "Middleland",
+				"BtlField1", "Druncncity", "Arena"
+			};
+			for (int i = 0; i < 6; i++) {
+				if (GM_BTN_HIT(btnY)) {
+					GM_SEND_CMD(quickTP[i]);
+					return;
+				}
+				btnY += btnH + pad;
+			}
+		}
+		break;
 	}
-	btnY += btnH + pad;
 
-	// Create Item
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		m_iGMPanelInputMode = 2;
-		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
-		StartInputString(sX + 12, btnY + 2, 50, m_cGMPanelInput);
-		return;
-	}
-	btnY += btnH + pad;
-
-	// Go To
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		m_iGMPanelInputMode = 3;
-		ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
-		StartInputString(sX + 12, btnY + 2, 50, m_cGMPanelInput);
-		return;
-	}
-	btnY += btnH + pad;
-
-	// Skip separator
-	btnY += 14;
-
-	// Toggle Invisibility
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/invi");
-		AddEventList("GM: Toggle invisibility", 10);
-		return;
-	}
-	btnY += btnH + pad;
-
-	// Toggle Invincible
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/invincible");
-		AddEventList("GM: Toggle invincible", 10);
-		return;
-	}
-	btnY += btnH + pad;
-
-	// Toggle No Aggro
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/noaggro");
-		AddEventList("GM: Toggle no aggro", 10);
-		return;
-	}
-	btnY += btnH + pad;
-
-	// Skip separator
-	btnY += 14;
-
-	// Unsummon All
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/unsummonall");
-		AddEventList("GM: Unsummon all", 10);
-		return;
-	}
-	btnY += btnH + pad;
-
-	// Clear Map
-	if (msX >= sX + 10 && msX <= sX + szX - 10 && msY >= btnY && msY <= btnY + btnH - 2) {
-		bSendCommand(MSGID_COMMAND_CHATMSG, NULL, NULL, NULL, NULL, NULL, "/clearmap");
-		AddEventList("GM: Clear map", 10);
-		return;
-	}
+	#undef GM_SEND_CMD
+	#undef GM_START_INPUT
+	#undef GM_BTN_HIT
 }

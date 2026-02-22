@@ -198,6 +198,7 @@ enum DialogBoxType {
 	DIALOG_CMDHALLMENU      = 51,  // Guild hall commander menu
 	DIALOG_DKMENUARMOR      = 52,  // Dark Knight armor menu
 	DIALOG_DKMENUWEAPONS    = 53,  // Dark Knight weapons menu
+	DIALOG_GMPANEL          = 54,  // GM tools panel (/gm command)
 	DIALOG_COUNT            = 61   // Total dialog box slots
 };
 
@@ -346,6 +347,14 @@ public:
 
 	void DrawDialogBox_DKMenuWeapons(int msX, int msY); // 53
 	void DlgBoxClick_DKMenuWeapons(int msX, int msY);
+
+	// GM Panel (54)
+	void DrawDialogBox_GMPanel(int msX, int msY);
+	void DlgBoxClick_GMPanel(int msX, int msY);
+	char m_cGMPanelInput[64];    // Text input buffer for GM panel
+	int  m_iGMPanelInputMode;    // 0=none, 1=monster, 2=item, 3=teleport, 4=summonplayer, 5=sethp, 6=setmp, 7=polymorph
+	int  m_iGMPanelTab;          // 0=Commands, 1=Spawn, 2=Items, 3=Teleport
+	int  m_iGMPanelScroll;       // Scroll offset for current tab
 
 	// Slates - Alastor
 	void bItemDrop_Slates();
