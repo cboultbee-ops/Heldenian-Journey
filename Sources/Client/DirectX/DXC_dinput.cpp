@@ -12,6 +12,7 @@ DXC_dinput::DXC_dinput()
 {
 	m_hWnd       = NULL;
 	m_bAcquired  = FALSE;
+	m_bCursorHidden = FALSE;
 	m_sX         = 0;
 	m_sY         = 0;
 	m_sZ         = 0;
@@ -30,7 +31,10 @@ DXC_dinput::~DXC_dinput()
 {
 	if (m_hWnd != NULL) {
 		ClipCursor(NULL);
-		ShowCursor(TRUE);
+		if (m_bCursorHidden) {
+			ShowCursor(TRUE);
+			m_bCursorHidden = FALSE;
+		}
 	}
 }
 
@@ -67,22 +71,30 @@ void DXC_dinput::SetAcquire(BOOL bFlag)
 
 	if (bFlag == TRUE) {
 		m_bAcquired = TRUE;
-		// Confine cursor to window (replaces DISCL_EXCLUSIVE)
+		// Confine cursor to window — ClipCursor alone prevents escape.
+		// Raw Input provides hardware deltas independent of cursor position,
+		// so no per-frame re-centering is needed.
 		RECT rc;
 		GetClientRect(m_hWnd, &rc);
 		POINT pt = {0, 0};
 		ClientToScreen(m_hWnd, &pt);
 		OffsetRect(&rc, pt.x, pt.y);
 		ClipCursor(&rc);
-		// Ensure OS cursor is fully hidden (ShowCursor uses a reference counter)
-		while (ShowCursor(FALSE) >= 0) {}
-		// Center OS cursor inside window to prevent it from touching edges
+		// Hide OS cursor once (tracked by bool to avoid counter drift)
+		if (!m_bCursorHidden) {
+			ShowCursor(FALSE);
+			m_bCursorHidden = TRUE;
+		}
+		// Center OS cursor inside window once on acquire
 		SetCursorPos((rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2);
 	} else {
 		m_bAcquired = FALSE;
 		ClipCursor(NULL);
-		// Restore OS cursor visibility
-		while (ShowCursor(TRUE) < 0) {}
+		// Restore OS cursor once
+		if (m_bCursorHidden) {
+			ShowCursor(TRUE);
+			m_bCursorHidden = FALSE;
+		}
 	}
 }
 
@@ -156,16 +168,9 @@ void DXC_dinput::UpdateMouseState(short * pX, short * pY, short * pZ, char * pLB
 	if (m_sX > m_sMaxX) m_sX = m_sMaxX;
 	if (m_sY > m_sMaxY) m_sY = m_sMaxY;
 
-	// Re-center OS cursor each frame to prevent escape
-	// Raw Input provides hardware deltas independent of cursor position,
-	// so SetCursorPos does not affect the raw delta accumulation.
-	if (m_hWnd) {
-		RECT rc;
-		GetClientRect(m_hWnd, &rc);
-		POINT center = { (rc.right - rc.left) / 2, (rc.bottom - rc.top) / 2 };
-		ClientToScreen(m_hWnd, &center);
-		SetCursorPos(center.x, center.y);
-	}
+	// No per-frame SetCursorPos re-centering — ClipCursor confines the OS
+	// cursor to the window, and Raw Input deltas are independent of cursor
+	// position.  Re-centering every frame fights alt-tab and system hotkeys.
 
 	*pX = m_sX;
 	*pY = m_sY;

@@ -34,6 +34,7 @@ public:
 private:
 	HWND m_hWnd;
 	BOOL m_bAcquired;
+	BOOL m_bCursorHidden;  // Track ShowCursor state with a bool (avoid counter drift)
 	// Accumulated deltas from WM_INPUT, consumed by UpdateMouseState
 	long m_lDeltaX, m_lDeltaY;
 	short m_sWheelDelta;
