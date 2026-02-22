@@ -82,6 +82,10 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 	m_bUseGPU = FALSE;
 	if (InitGPURenderer()) {
 		m_bUseGPU = TRUE;
+		// GPU renderer handles viewport clipping via projection matrix.
+		// Widen the CPU clip area so sprites near edges aren't truncated
+		// before reaching the GPU (fixes right-side clipping on UI panels).
+		SetRect(&m_rcClipArea, -200, -200, 840, 680);
 		OutputDebugString("GPU Renderer initialized - skipping DirectDraw display setup\n");
 		// No primary surface needed - GPU handles display via OpenGL
 		m_lpFrontB4 = NULL;

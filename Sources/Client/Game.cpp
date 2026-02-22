@@ -23906,7 +23906,7 @@ void CGame::UpdateScreen_OnSelectCharacter(short sX, short sY, short msX, short 
 
 			if (m_pCharList[i]->m_sSex != NULL)
 			{	if (m_Misc.bCheckValidString(m_pCharList[i]->m_cName) == TRUE)
-				{	m_pEffectSpr[0]->PutTransSprite(sX +157 +i*109, sY +138, 1, dwTime);
+				{	m_pEffectSpr[0]->PutShadowSprite(sX +157 +i*109, sY +138, 1, dwTime);
 					DrawObject_OnMove_ForMenu(0, 0, sX +157 +i*109, sY +138, FALSE, dwTime, 0, 0);
 					PutString(sX +112 +i*109, sY +179 -9, m_pCharList[i]->m_cName, RGB(51,0,51));//25,35,25);
 					int	_sLevel = m_pCharList[i]->m_sLevel;

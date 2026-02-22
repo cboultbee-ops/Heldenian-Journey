@@ -534,7 +534,14 @@ void CGPURenderer::BeginFrame()
     m_vertices.clear();
     m_indices.clear();
     m_drawCmds.clear();
+
+    // Reset cached state for new frame
     m_currentTexture = 0;
+    m_currentBlendMode = (GPUBlendMode)-1;  // Force first batch to set blend state
+    m_currentAlpha = -1.0f;
+    m_currentColorR = -1.0f;
+    m_currentColorG = -1.0f;
+    m_currentColorB = -1.0f;
 
     // Clear entire window to black (covers letterbox bars)
     glViewport(0, 0, m_renderConfig.nativeWidth, m_renderConfig.nativeHeight);
@@ -546,6 +553,19 @@ void CGPURenderer::BeginFrame()
     glViewport(m_renderConfig.viewportX,
                m_renderConfig.nativeHeight - m_renderConfig.viewportY - m_renderConfig.viewportH,
                m_renderConfig.viewportW, m_renderConfig.viewportH);
+
+    // Bind per-frame state once (shader, projection, VAO, texture unit)
+    glUseProgram(m_shaderProgram);
+    glUniformMatrix4fv(m_uProjection, 1, GL_FALSE, m_projectionMatrix);
+    glUniform1i(m_uTexture, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(m_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+
+    // Default blend state
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 void CGPURenderer::EndFrame()
@@ -554,12 +574,22 @@ void CGPURenderer::EndFrame()
 
     Flush();
     FlushLines();
+
+    // Restore blend equation if last batch used reverse subtract
+    if (m_currentBlendMode == BLEND_DARKEN || m_currentBlendMode == BLEND_SUBTRACTIVE) {
+        glBlendEquation(GL_FUNC_ADD);
+    }
+
+    // Unbind per-frame state
+    glBindVertexArray(0);
+    glUseProgram(0);
     m_bInFrame = false;
 }
 
 void CGPURenderer::QueueSprite(GLuint textureID, int dstX, int dstY,
                                int srcX, int srcY, int width, int height,
                                int texWidth, int texHeight,
+                               int spriteScale,
                                GPUBlendMode blendMode, float alpha,
                                float colorR, float colorG, float colorB)
 {
@@ -580,12 +610,18 @@ void CGPURenderer::QueueSprite(GLuint textureID, int dstX, int dstY,
     }
 
     // Calculate texture coordinates
-    float u0 = (float)srcX / (float)texWidth;
-    float v0 = (float)srcY / (float)texHeight;
-    float u1 = (float)(srcX + width) / (float)texWidth;
-    float v1 = (float)(srcY + height) / (float)texHeight;
+    // For upscaled sprites (spriteScale > 1), brush coords are in 1x game space
+    // but the texture is Nx larger. Scale UV coords to address the correct texels.
+    // Half-texel inset prevents sampling adjacent texels at boundaries with GL_NEAREST.
+    float halfTexelU = 0.5f / (float)texWidth;
+    float halfTexelV = 0.5f / (float)texHeight;
+    float u0 = (float)(srcX * spriteScale) / (float)texWidth + halfTexelU;
+    float v0 = (float)(srcY * spriteScale) / (float)texHeight + halfTexelV;
+    float u1 = (float)((srcX + width) * spriteScale) / (float)texWidth - halfTexelU;
+    float v1 = (float)((srcY + height) * spriteScale) / (float)texHeight - halfTexelV;
 
     // Calculate vertex positions (virtual coordinates, will be transformed by projection)
+    // Vertex size stays at 1x game coordinates regardless of sprite scale
     float x0 = (float)dstX;
     float y0 = (float)dstY;
     float x1 = (float)(dstX + width);
@@ -648,75 +684,76 @@ void CGPURenderer::Flush()
     if (m_drawCmds.empty()) return;
     const SpriteDrawCmd& cmd = m_drawCmds[0];
 
-    // Set blend state based on mode
-    switch (cmd.blendMode) {
-    case BLEND_OPAQUE:
-        // Map background: no blending, direct overwrite
-        glDisable(GL_BLEND);
-        break;
-    case BLEND_ADDITIVE:
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        break;
-    case BLEND_DARKEN:
-        // Subtractive: result = dst * 1 - src * srcAlpha
-        glEnable(GL_BLEND);
-        glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        break;
-    case BLEND_SUBTRACTIVE:
-        // PutRevTransSprite: result = dst - src (dark pixels subtract nothing = invisible)
-        glEnable(GL_BLEND);
-        glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-        break;
-    case BLEND_TINTED:
-    case BLEND_SHADOW:
-    case BLEND_FADE:
-    case BLEND_AVERAGE:
-    case BLEND_ALPHA:
-    case BLEND_COLORKEY:
-    default:
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        break;
+    // Set blend state — only when changed from previous batch
+    if (cmd.blendMode != m_currentBlendMode) {
+        // Restore blend equation if previous batch used reverse subtract
+        if (m_currentBlendMode == BLEND_DARKEN || m_currentBlendMode == BLEND_SUBTRACTIVE) {
+            glBlendEquation(GL_FUNC_ADD);
+        }
+
+        switch (cmd.blendMode) {
+        case BLEND_OPAQUE:
+            glDisable(GL_BLEND);
+            break;
+        case BLEND_ADDITIVE:
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            break;
+        case BLEND_DARKEN:
+        case BLEND_SUBTRACTIVE:
+            glEnable(GL_BLEND);
+            glBlendEquation(GL_FUNC_REVERSE_SUBTRACT);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+            break;
+        case BLEND_TINTED:
+        case BLEND_SHADOW:
+        case BLEND_FADE:
+        case BLEND_AVERAGE:
+        case BLEND_ALPHA:
+        case BLEND_COLORKEY:
+        default:
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            break;
+        }
+        m_currentBlendMode = cmd.blendMode;
     }
 
-    // Use shader program
-    glUseProgram(m_shaderProgram);
-
-    // Set uniforms
-    glUniformMatrix4fv(m_uProjection, 1, GL_FALSE, m_projectionMatrix);
-    glUniform1i(m_uTexture, 0);
+    // Shader program is bound once per frame (BeginFrame sets it)
+    // Set uniforms — only when changed
+    if (cmd.blendMode != m_currentBlendMode ||
+        cmd.alpha != m_currentAlpha ||
+        cmd.colorR != m_currentColorR ||
+        cmd.colorG != m_currentColorG ||
+        cmd.colorB != m_currentColorB) {
+        // Blend mode uniform always set (cheap, ensures correctness)
+    }
     glUniform1i(m_uBlendMode, (int)cmd.blendMode);
-    glUniform1f(m_uAlpha, cmd.alpha);
-    glUniform3f(m_uColorTint, cmd.colorR, cmd.colorG, cmd.colorB);
+    if (cmd.alpha != m_currentAlpha) {
+        glUniform1f(m_uAlpha, cmd.alpha);
+        m_currentAlpha = cmd.alpha;
+    }
+    if (cmd.colorR != m_currentColorR || cmd.colorG != m_currentColorG || cmd.colorB != m_currentColorB) {
+        glUniform3f(m_uColorTint, cmd.colorR, cmd.colorG, cmd.colorB);
+        m_currentColorR = cmd.colorR;
+        m_currentColorG = cmd.colorG;
+        m_currentColorB = cmd.colorB;
+    }
 
-    // Bind texture
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, cmd.textureID);
+    // Bind texture — only when changed
+    if (cmd.textureID != m_currentTexture) {
+        glBindTexture(GL_TEXTURE_2D, cmd.textureID);
+        m_currentTexture = cmd.textureID;
+    }
 
-    // Update vertex buffer
-    glBindVertexArray(m_vao);
-    glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-    glBufferSubData(GL_ARRAY_BUFFER, 0, m_vertices.size() * sizeof(SpriteVertex), m_vertices.data());
+    // Upload vertex data with buffer orphaning (avoids GPU stall)
+    glBufferData(GL_ARRAY_BUFFER, m_vertices.size() * sizeof(SpriteVertex), m_vertices.data(), GL_DYNAMIC_DRAW);
 
-    // Update element buffer
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
-    glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, m_indices.size() * sizeof(GLuint), m_indices.data());
+    // Upload index data with buffer orphaning
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_indices.size() * sizeof(GLuint), m_indices.data(), GL_DYNAMIC_DRAW);
 
     // Draw
     glDrawElements(GL_TRIANGLES, (GLsizei)m_indices.size(), GL_UNSIGNED_INT, 0);
-
-    glBindVertexArray(0);
-
-    // Reset blend state if modified
-    if (cmd.blendMode == BLEND_DARKEN || cmd.blendMode == BLEND_SUBTRACTIVE) {
-        glBlendEquation(GL_FUNC_ADD);
-    }
-    if (cmd.blendMode == BLEND_OPAQUE) {
-        glEnable(GL_BLEND);
-    }
 
     // Clear batch
     m_vertices.clear();
@@ -728,7 +765,47 @@ void CGPURenderer::DrawPixel(int x, int y, float r, float g, float b)
 {
     if (!m_bInitialized) return;
     // Queue a 1x1 sprite using the white texture with BLEND_TEXT (uses uColorTint for color)
-    QueueSprite(m_glWhiteTexture, x, y, 0, 0, 1, 1, 1, 1, BLEND_TEXT, 1.0f, r, g, b);
+    QueueSprite(m_glWhiteTexture, x, y, 0, 0, 1, 1, 1, 1, 1, BLEND_TEXT, 1.0f, r, g, b);
+}
+
+void CGPURenderer::DrawFilledRect(int x, int y, int w, int h, float r, float g, float b, float a)
+{
+    if (!m_bInitialized) return;
+    // Flush any pending sprites to avoid state mixing
+    Flush();
+
+    // Build a quad with the desired color as vertex color
+    // Uses white texture + BLEND_COLORKEY: FragColor = texColor * Color = (1,1,1,1) * (r,g,b,a)
+    float x0 = (float)x, y0 = (float)y;
+    float x1 = (float)(x + w), y1 = (float)(y + h);
+
+    GLuint baseIndex = (GLuint)m_vertices.size();
+    SpriteVertex v;
+    v.r = r; v.g = g; v.b = b; v.a = a;
+    v.u = 0.0f; v.v = 0.0f;
+
+    v.x = x0; v.y = y0; m_vertices.push_back(v);
+    v.x = x1; v.y = y0; m_vertices.push_back(v);
+    v.x = x1; v.y = y1; m_vertices.push_back(v);
+    v.x = x0; v.y = y1; m_vertices.push_back(v);
+
+    m_indices.push_back(baseIndex + 0);
+    m_indices.push_back(baseIndex + 1);
+    m_indices.push_back(baseIndex + 2);
+    m_indices.push_back(baseIndex + 0);
+    m_indices.push_back(baseIndex + 2);
+    m_indices.push_back(baseIndex + 3);
+
+    SpriteDrawCmd cmd;
+    cmd.textureID = m_glWhiteTexture;
+    cmd.blendMode = BLEND_COLORKEY;
+    cmd.alpha = 1.0f;
+    cmd.colorR = 0.0f; cmd.colorG = 0.0f; cmd.colorB = 0.0f;
+    cmd.dstX = x; cmd.dstY = y;
+    cmd.srcX = 0; cmd.srcY = 0;
+    cmd.width = w; cmd.height = h;
+    cmd.texWidth = 1; cmd.texHeight = 1;
+    m_drawCmds.push_back(cmd);
 }
 
 void CGPURenderer::QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b)
@@ -820,6 +897,13 @@ void CGPURenderer::SetNativeResolution(int width, int height)
     m_renderConfig.viewportY = (height - m_renderConfig.viewportH) / 2;
 
     UpdateProjectionMatrix();
+}
+
+void CGPURenderer::OnResize(int newWidth, int newHeight)
+{
+    if (!m_bInitialized) return;
+    if (newWidth <= 0 || newHeight <= 0) return;
+    SetNativeResolution(newWidth, newHeight);
 }
 
 void CGPURenderer::VirtualToNative(int vx, int vy, int& nx, int& ny)
@@ -1001,7 +1085,7 @@ void CGPURenderer::RenderText(int x, int y, const char* text, COLORREF color)
             const CharMetrics& cm = m_charMetrics[c];
             QueueSprite(m_fontAtlasTexture, curX, y,
                         cm.x, cm.y, cm.width, cm.height,
-                        m_fontAtlasWidth, m_fontAtlasHeight,
+                        m_fontAtlasWidth, m_fontAtlasHeight, 1,
                         BLEND_TEXT, 1.0f, r, g, b);
             curX += cm.width;
         }
@@ -1057,7 +1141,7 @@ void CGPURenderer::RenderTextRect(RECT* pRect, const char* text, COLORREF color)
                 const CharMetrics& cm = m_charMetrics[c];
                 QueueSprite(m_fontAtlasTexture, curX, curY,
                             cm.x, cm.y, cm.width, cm.height,
-                            m_fontAtlasWidth, m_fontAtlasHeight,
+                            m_fontAtlasWidth, m_fontAtlasHeight, 1,
                             BLEND_TEXT, 1.0f, r, g, b);
                 curX += cm.width;
             }
@@ -1180,7 +1264,7 @@ void CGPURenderer::RenderMapQuad(int srcX, int srcY, int srcW, int srcH)
     // BLEND_OPAQUE: force alpha=1.0, no blending (background is always fully opaque)
     QueueSprite(m_mapTexture, 0, 0,
                 srcX, srcY, srcW, srcH,
-                m_mapTexWidth, m_mapTexHeight,
+                m_mapTexWidth, m_mapTexHeight, 1,
                 BLEND_OPAQUE, 1.0f, 0.0f, 0.0f, 0.0f);
 }
 
