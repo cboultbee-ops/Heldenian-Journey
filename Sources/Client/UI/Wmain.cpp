@@ -114,11 +114,16 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 		if( wParam == 0 )
 		{	G_pGame->m_bIsProgramActive = FALSE;
 			G_pGame->m_DInput.SetAcquire(FALSE);
+			// Release topmost so system UI (Win+Shift+S, Ctrl+Alt+Del) can appear
+			if (G_pGame->m_DDraw.m_bFullMode && G_pGame->m_DDraw.m_bUseGPU) {
+				SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+			}
 		}else
 		{	G_pGame->m_bIsProgramActive = TRUE;
 			G_pGame->m_DInput.SetAcquire(TRUE);
 			G_pGame->m_bCtrlPressed = FALSE;
-			// Re-apply topmost and foreground when returning to fullscreen
+			// Re-apply topmost when returning to fullscreen
 			if (G_pGame->m_DDraw.m_bFullMode && G_pGame->m_DDraw.m_bUseGPU) {
 				SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
 					SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
