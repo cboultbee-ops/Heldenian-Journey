@@ -39180,7 +39180,7 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 					attr |= (m_iGMPanelItemStat2Val & 0xF) << 8;
 				}
 				char cPreview[128];
-				wsprintf(cPreview, "/ci %s %u 0 %d", itemName, attr, m_iGMPanelItemAmount);
+				wsprintf(cPreview, "/createitem %s %u 0 %d", itemName, attr, m_iGMPanelItemAmount);
 				PutString(btnLeft + 4, y + 2, cPreview, RGB(180, 255, 180));
 
 				// Human-readable line
@@ -39290,7 +39290,7 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			char cCmd[128];
 			switch (m_iGMPanelInputMode) {
 			case 1: wsprintf(cCmd, "/summon %s", m_cGMPanelInput); break;
-			case 2: wsprintf(cCmd, "/ci %s", m_cGMPanelInput); break;
+			case 2: wsprintf(cCmd, "/createitem %s", m_cGMPanelInput); break;
 			case 3: wsprintf(cCmd, "/tp %s", m_cGMPanelInput); break;
 			case 4: wsprintf(cCmd, "/goto %s", m_cGMPanelInput); break;
 			case 5: wsprintf(cCmd, "/sethp %s", m_cGMPanelInput); break;
@@ -39552,7 +39552,7 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 						attr |= (m_iGMPanelItemStat2Val & 0xF) << 8;
 					}
 					char cCmd[128];
-					wsprintf(cCmd, "/ci %s %u 0 %d", itemName, attr, m_iGMPanelItemAmount);
+					wsprintf(cCmd, "/createitem %s %u 0 %d", itemName, attr, m_iGMPanelItemAmount);
 					GM_SEND_CMD(cCmd);
 					return;
 				}
