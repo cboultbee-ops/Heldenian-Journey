@@ -3904,7 +3904,7 @@ BOOL CGame::bDlgBoxPress_Inventory(short msX, short msY)
 		cItemID = m_cItemOrder[MAXITEMS - 1 - i];
 
 		if (m_pItemList[cItemID] != NULL)
-		{	if (m_bItemHiddenBySet[cItemID]) continue; // Hidden by equipment set
+		{	if (m_bItemHiddenBySet[cItemID] || m_bHeldBySetSwap[cItemID]) continue; // Hidden by equipment set
 			m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->_GetSpriteRect(sX + 32 + m_pItemList[cItemID]->m_sX,
 			                                                   sY + 44 + m_pItemList[cItemID]->m_sY, m_pItemList[cItemID]->m_sSpriteFrame);
 			x1 = (short)m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->m_rcBound.left;
@@ -4357,6 +4357,7 @@ void CGame::InitGameSettings()
 		}
 	}
 	for (int hi = 0; hi < MAXITEMS; hi++) m_bItemHiddenBySet[hi] = false;
+	for (int hi2 = 0; hi2 < MAXITEMS; hi2++) m_bHeldBySetSwap[hi2] = false;
 	m_bEquipSetBackupSaved = false;
 	m_stEquipSetBackup.bIsConfigured = false;
 	for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
@@ -18253,7 +18254,7 @@ void CGame::DrawDialogBox_Inventory(int msX, int msY)
 	UpdateItemSetVisibility();
 	for (i = 0; i < MAXITEMS; i++)
 	if ((m_cItemOrder[i] != -1) && (m_pItemList[m_cItemOrder[i]] != NULL))
-	{	if (m_bItemHiddenBySet[m_cItemOrder[i]]) continue; // Hidden by equipment set
+	{	if (m_bItemHiddenBySet[m_cItemOrder[i]] || m_bHeldBySetSwap[m_cItemOrder[i]]) continue; // Hidden by equipment set
 		if (   ((m_stMCursor.cSelectedObjectType == SELECTEDOBJTYPE_ITEM)
 			&& (m_stMCursor.sSelectedObjectID   ==	m_cItemOrder[i])) || (m_bIsItemEquipped[m_cItemOrder[i]] == TRUE) )
 		{}else
@@ -18314,7 +18315,7 @@ void CGame::DrawDialogBox_Inventory(int msX, int msY)
 		for (int j = 0; j < MAXITEMS; j++) {
 			if (m_pItemList[j] != NULL) {
 				iItemCount++;
-				if (m_bItemHiddenBySet[j]) iHiddenCount++;
+				if (m_bItemHiddenBySet[j] || m_bHeldBySetSwap[j]) iHiddenCount++;
 			}
 		}
 		wsprintf(cTxt, "Items: %d / %d", iItemCount - iHiddenCount, MAXITEMS);
@@ -24896,7 +24897,7 @@ void CGame::DlbBoxDoubleClick_Inventory(short msX, short msY)
 	{	if (m_cItemOrder[MAXITEMS - 1 - i] == -1) continue;
 		cItemID = m_cItemOrder[MAXITEMS - 1 - i];
 		if (m_pItemList[cItemID] == NULL) continue;
-		if (m_bItemHiddenBySet[cItemID]) continue; // Hidden by equipment set
+		if (m_bItemHiddenBySet[cItemID] || m_bHeldBySetSwap[cItemID]) continue; // Hidden by equipment set
 
 		m_pSprite[SPRID_ITEMPACK_PIVOTPOINT + m_pItemList[cItemID]->m_sSprite]->_GetSpriteRect(sX + 32 + m_pItemList[cItemID]->m_sX, sY + 44 + m_pItemList[cItemID]->m_sY, m_pItemList[cItemID]->m_sSpriteFrame);
 		// Order
@@ -38127,6 +38128,14 @@ void CGame::ActivateEquipmentSet(int setIndex)
 			}
 		}
 		m_bEquipSetBackupSaved = true;
+
+		// Mark all currently-equipped items as held by set swap.
+		// When displaced by the new set, they stay hidden in the bag.
+		for (int ep2 = 1; ep2 < MAXITEMEQUIPPOS; ep2++) {
+			if (m_sItemEquipmentStatus[ep2] >= 0) {
+				m_bHeldBySetSwap[m_sItemEquipmentStatus[ep2]] = true;
+			}
+		}
 	}
 
 	int iEquipped = 0;
@@ -38199,6 +38208,9 @@ void CGame::RestoreOriginalEquipment()
 			}
 		}
 	}
+
+	// Clear all set-swap hidden flags — everything returns to normal bag visibility
+	for (int clr = 0; clr < MAXITEMS; clr++) m_bHeldBySetSwap[clr] = false;
 
 	m_iActiveEquipSet = -1;
 	m_bEquipSetBackupSaved = false;
@@ -38352,6 +38364,7 @@ void CGame::UpdateItemSetVisibility()
 				if (m_pItemList[i] == NULL) continue;
 				if (m_bIsItemEquipped[i] == TRUE) continue;
 				if (m_bItemHiddenBySet[i]) continue;
+				if (m_bHeldBySetSwap[i]) continue; // Already hidden by set swap buffer
 				if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[sl], 20) == 0 &&
 					m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[sl]) {
 					m_bItemHiddenBySet[i] = true;

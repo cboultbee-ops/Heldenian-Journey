@@ -898,6 +898,7 @@ public:
 	void DrawDialogBox_EquipSet(int msX, int msY);
 	void DlgBoxClick_EquipSet(short msX, short msY);
 	bool m_bItemHiddenBySet[MAXITEMS];
+	bool m_bHeldBySetSwap[MAXITEMS];
 	void UpdateItemSetVisibility();
 
 	short m_sPlayerX, m_sPlayerY;
