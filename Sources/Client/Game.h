@@ -61,13 +61,6 @@
 	#include <RICHEDIT.H>
 #endif
 
-// Virtual resolution for GPU renderer (2x zoom-out for 2x sprites)
-#define VIRTUAL_W       1280
-#define VIRTUAL_H       960
-#define VIRTUAL_HALF_W  (VIRTUAL_W / 2)
-#define VIRTUAL_HALF_H  (VIRTUAL_H / 2)
-#define PLAYABLE_H      (VIRTUAL_H - 53)
-
 //v2.18
 #define BTNSZX				74
 #define BTNSZY				20
@@ -770,7 +763,6 @@ public:
 	BOOL m_bZoomMap;
 	BOOL m_bIsProgramActive;
 	int m_bCommandAvailable;//was BOOL
-	BOOL m_bStopRequested; // Latched right-click stop — survives command lock
 	// Sound state accessors — delegates to m_SoundMgr for compatibility
 	// m_bSoundFlag moved to m_SoundMgr.m_bSoundFlag
 	BOOL & m_bSoundStat  = m_SoundMgr.m_bSoundStat;

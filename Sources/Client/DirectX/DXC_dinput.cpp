@@ -16,8 +16,8 @@ DXC_dinput::DXC_dinput()
 	m_sX         = 0;
 	m_sY         = 0;
 	m_sZ         = 0;
-	m_sMaxX      = 1279;  // VIRTUAL_W - 1
-	m_sMaxY      = 959;   // VIRTUAL_H - 1
+	m_sMaxX      = 639;
+	m_sMaxY      = 479;
 	m_lDeltaX    = 0;
 	m_lDeltaY    = 0;
 	m_sWheelDelta = 0;
@@ -25,11 +25,6 @@ DXC_dinput::DXC_dinput()
 	m_cButtons[1] = 0;
 	m_cButtons[2] = 0;
 	m_fMouseScale = 1.0f;
-	m_fMouseSensitivity = 1.0f;
-	m_iViewportX = 0;
-	m_iViewportY = 0;
-	m_iViewportW = 0;
-	m_iViewportH = 0;
 }
 
 DXC_dinput::~DXC_dinput()
@@ -37,7 +32,7 @@ DXC_dinput::~DXC_dinput()
 	if (m_hWnd != NULL) {
 		ClipCursor(NULL);
 		if (m_bCursorHidden) {
-			while (ShowCursor(TRUE) < 0) {}
+			ShowCursor(TRUE);
 			m_bCursorHidden = FALSE;
 		}
 	}
@@ -76,34 +71,28 @@ void DXC_dinput::SetAcquire(BOOL bFlag)
 
 	if (bFlag == TRUE) {
 		m_bAcquired = TRUE;
-		// Confine cursor to viewport area (excludes letterbox bars).
-		// Raw Input provides hardware deltas independent of cursor position.
+		// Confine cursor to window — ClipCursor alone prevents escape.
+		// Raw Input provides hardware deltas independent of cursor position,
+		// so no per-frame re-centering is needed.
+		RECT rc;
+		GetClientRect(m_hWnd, &rc);
 		POINT pt = {0, 0};
 		ClientToScreen(m_hWnd, &pt);
-		RECT rc;
-		if (m_iViewportW > 0 && m_iViewportH > 0) {
-			rc.left   = pt.x + m_iViewportX;
-			rc.top    = pt.y + m_iViewportY;
-			rc.right  = rc.left + m_iViewportW;
-			rc.bottom = rc.top + m_iViewportH;
-		} else {
-			GetClientRect(m_hWnd, &rc);
-			OffsetRect(&rc, pt.x, pt.y);
-		}
+		OffsetRect(&rc, pt.x, pt.y);
 		ClipCursor(&rc);
-		// Force-hide OS cursor (ShowCursor uses a counter; ensure it goes negative)
+		// Hide OS cursor once (tracked by bool to avoid counter drift)
 		if (!m_bCursorHidden) {
-			while (ShowCursor(FALSE) >= 0) {}
+			ShowCursor(FALSE);
 			m_bCursorHidden = TRUE;
 		}
-		// Center OS cursor inside viewport on acquire
+		// Center OS cursor inside window once on acquire
 		SetCursorPos((rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2);
 	} else {
 		m_bAcquired = FALSE;
 		ClipCursor(NULL);
-		// Restore OS cursor (undo force-hide by bringing counter back to 0)
+		// Restore OS cursor once
 		if (m_bCursorHidden) {
-			while (ShowCursor(TRUE) < 0) {}
+			ShowCursor(TRUE);
 			m_bCursorHidden = FALSE;
 		}
 	}
@@ -161,10 +150,9 @@ void DXC_dinput::UpdateMouseState(short * pX, short * pY, short * pZ, char * pLB
 	if (!m_bAcquired) return;
 
 	// Apply accumulated deltas, scaled by reciprocal of viewport scale
-	// and user sensitivity multiplier
-	float scale = m_fMouseScale * m_fMouseSensitivity;
-	m_sX += (short)(m_lDeltaX * scale);
-	m_sY += (short)(m_lDeltaY * scale);
+	// This makes cursor movement match the visual scale on screen
+	m_sX += (short)(m_lDeltaX * m_fMouseScale);
+	m_sY += (short)(m_lDeltaY * m_fMouseScale);
 	m_lDeltaX = 0;
 	m_lDeltaY = 0;
 
@@ -180,8 +168,9 @@ void DXC_dinput::UpdateMouseState(short * pX, short * pY, short * pZ, char * pLB
 	if (m_sX > m_sMaxX) m_sX = m_sMaxX;
 	if (m_sY > m_sMaxY) m_sY = m_sMaxY;
 
-	// ClipCursor confines the OS cursor to the viewport area.
-	// Raw Input deltas are independent of cursor position.
+	// No per-frame SetCursorPos re-centering — ClipCursor confines the OS
+	// cursor to the window, and Raw Input deltas are independent of cursor
+	// position.  Re-centering every frame fights alt-tab and system hotkeys.
 
 	*pX = m_sX;
 	*pY = m_sY;
@@ -195,24 +184,4 @@ void DXC_dinput::SetBounds(short sMaxX, short sMaxY)
 {
 	m_sMaxX = sMaxX;
 	m_sMaxY = sMaxY;
-}
-
-void DXC_dinput::RefreshClipCursor()
-{
-	if (m_hWnd == NULL || !m_bAcquired) return;
-	POINT pt = {0, 0};
-	ClientToScreen(m_hWnd, &pt);
-
-	RECT rc;
-	if (m_iViewportW > 0 && m_iViewportH > 0) {
-		// Clip to GPU viewport area only (excludes letterbox bars)
-		rc.left   = pt.x + m_iViewportX;
-		rc.top    = pt.y + m_iViewportY;
-		rc.right  = rc.left + m_iViewportW;
-		rc.bottom = rc.top + m_iViewportH;
-	} else {
-		GetClientRect(m_hWnd, &rc);
-		OffsetRect(&rc, pt.x, pt.y);
-	}
-	ClipCursor(&rc);
 }

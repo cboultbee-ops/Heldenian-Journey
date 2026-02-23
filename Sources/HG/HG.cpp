@@ -1266,8 +1266,6 @@ void CGame::RequestInitPlayerHandler(int iClientH, char * pData, char cKey)
 	//testcode
 	if (strlen(cTxt) == 0) PutLogList("RIPH - cTxt: Char NULL!");
 
-	printf("[Connect] Client %d requesting init: char='%s'\n", iClientH, cTxt);
-
 	memcpy(cAccountName, cp, 10);
 	cp += 10;
 
@@ -1731,10 +1729,6 @@ void CGame::DeleteClient(int iClientH, bool bSave, bool bNotify, bool bCountLogo
 
 	if (!player) return;
 
-	printf("[Disconnect] Client %d (%s) map=%s save=%d notify=%d forceClose=%d\n",
-		iClientH, player->m_cCharName, player->m_cMapName,
-		(int)bSave, (int)bNotify, (int)bForceCloseConn);
-
 	if (player->m_bIsInitComplete == TRUE) {
 		if (memcmp(player->m_cMapName, "fight", 5) == 0) {
 			wsprintf(g_cTxt, "Char(%s)-Exit(%s)", player->m_cCharName, player->m_cMapName);
@@ -1763,16 +1757,14 @@ void CGame::DeleteClient(int iClientH, bool bSave, bool bNotify, bool bCountLogo
 				SendNotifyMsg(NULL, i, NOTIFY_WHISPERMODEOFF, NULL, NULL, NULL, player->m_cCharName);
 			}
 
-			if (!player->m_bIsOnServerChange) {
-				ZeroMemory(cData, sizeof(cData));
-				cp = (char *)cData;
-				*cp = GSM_DISCONNECT;
-				cp++;
-				memcpy(cp, player->m_cCharName, 10);
-				cp += 10;
-				bStockMsgToGateServer(cData, 11);
-				SendStockMsgToGateServer();
-			}
+			ZeroMemory(cData, sizeof(cData));
+			cp = (char *)cData;
+			*cp = GSM_DISCONNECT;
+			cp++;
+			memcpy(cp, player->m_cCharName, 10);
+			cp += 10;
+			bStockMsgToGateServer(cData, 11);
+			SendStockMsgToGateServer();
 
 			m_pMapList[player->m_cMapIndex]->ClearOwner(/*2,*/ iClientH, OWNERTYPE_PLAYER,
 				player->m_sX, 
@@ -4805,11 +4797,7 @@ bool CGame::_bDecodePlayerDatafileContents(int iClientH, char * pData, DWORD dwS
 	m_pClientList[iClientH]->m_elo = wGetOffsetValue(pData, 239);
 	//m_bIsBankModified +1
 	m_pClientList[iClientH]->m_iAdminUserLevel = bGetOffsetValue(pData, 242);
-	printf("[PlayerData] Client %d (%s) AdminLevel=%d Level=%d\n",
-		iClientH, m_pClientList[iClientH]->m_cCharName,
-		m_pClientList[iClientH]->m_iAdminUserLevel,
-		m_pClientList[iClientH]->m_iLevel);
-	for (i = 0; i < MAXMAGICTYPE; i++)
+	for (i = 0; i < MAXMAGICTYPE; i++) 
 		m_pClientList[iClientH]->m_cMagicMastery[i] = bGetOffsetValue(pData, 243+i);
 	ZeroMemory(m_pClientList[iClientH]->m_cProfile, sizeof(m_pClientList[iClientH]->m_cProfile));
 	SafeCopy(m_pClientList[iClientH]->m_cProfile, pData+343, 255);
@@ -6276,24 +6264,12 @@ void CGame::ChatMsgHandler(int iClientH, char * pData, DWORD dwMsgSize)
 	char   cBuffer[256], cTemp[256], cSendMode = NULL;
 
 	if (m_pClientList[iClientH] == NULL) return;
-	if (m_pClientList[iClientH]->m_bIsInitComplete == FALSE) {
-		printf("[ChatMsg] DROPPED client %d (%s): InitComplete=FALSE\n", iClientH, m_pClientList[iClientH]->m_cCharName);
-		return;
-	}
-	if (dwMsgSize > 83 +30) {
-		printf("[ChatMsg] DROPPED client %d: msgSize %u > 113\n", iClientH, dwMsgSize);
-		return;
-	}
+	if (m_pClientList[iClientH]->m_bIsInitComplete == FALSE) return;
+	if (dwMsgSize > 83 +30) return;
 
-	if (m_pClientList[iClientH]->m_iTimeLeft_ShutUp > 0) {
-		printf("[ChatMsg] DROPPED client %d (%s): ShutUp timer active\n", iClientH, m_pClientList[iClientH]->m_cCharName);
-		return;
-	}
+	if (m_pClientList[iClientH]->m_iTimeLeft_ShutUp > 0) return;
 
-	if (memcmp((pData + 10), m_pClientList[iClientH]->m_cCharName, strlen(m_pClientList[iClientH]->m_cCharName)) != 0) {
-		printf("[ChatMsg] DROPPED client %d: name mismatch (pkt='%.10s' vs stored='%s')\n", iClientH, (pData+10), m_pClientList[iClientH]->m_cCharName);
-		return;
-	}
+	if (memcmp((pData + 10), m_pClientList[iClientH]->m_cCharName, strlen(m_pClientList[iClientH]->m_cCharName)) != 0) return;
 
 	if ((m_pClientList[iClientH]->m_bIsObserverMode == TRUE) && (m_pClientList[iClientH]->m_iAdminUserLevel == 0)) return;
 
@@ -6430,11 +6406,6 @@ void CGame::ChatMsgHandler(int iClientH, char * pData, DWORD dwMsgSize)
 		memcpy(cBuffer, cp, dwMsgSize - 21);
 		cp = (char *)(cBuffer);
 
-		printf("[Admin] Client %d (%s) AdminLv=%d Cmd: '%s' (size=%u)\n",
-			iClientH, m_pClientList[iClientH]->m_cCharName,
-			m_pClientList[iClientH]->m_iAdminUserLevel,
-			cp, dwMsgSize);
-
 		if (memcmp(cp, "/who", 4) == 0) {
 			SendNotifyMsg(NULL, iClientH, NOTIFY_TOTALUSERS, NULL, NULL, NULL, NULL);
 		} 
@@ -6533,7 +6504,6 @@ void CGame::ChatMsgHandler(int iClientH, char * pData, DWORD dwMsgSize)
 		} else if (memcmp(cp, "/disconnectall", 14) == 0) {
 			AdminOrder_DisconnectAll(iClientH);
 		} else if (memcmp(cp, "/createitem ", 12) == 0 || memcmp(cp, "/ci ", 4) == 0) {
-			printf("[ChatMsg] Dispatching /createitem for client %d, msgSize=%d\n", iClientH, dwMsgSize);
 			AdminOrder_CreateItem(iClientH, cp, dwMsgSize - 21);
 		} else if (memcmp(cp, "/energysphere ", 14) == 0) {
 			if (m_pClientList[iClientH]->m_iAdminUserLevel >= 2)
@@ -14077,10 +14047,6 @@ void CGame::RequestTeleportHandler(int iClientH, char teleportType, char * cMapN
 
 	if (!player) return;
 	if (player->m_bIsInitComplete == FALSE) return;
-
-	printf("[Teleport] Client %d (%s) type=%d from=%s destMap=%s destXY=(%d,%d)\n",
-		iClientH, player->m_cCharName, (int)teleportType,
-		player->m_cMapName, cMapName ? cMapName : "(auto)", dX, dY);
 	if (player->m_bIsKilled == TRUE) return;
 	if (player->m_bIsOnWaitingProcess == TRUE) return;
 
@@ -31398,8 +31364,6 @@ void CGame::AdminOrder_Summon(int iClientH, char *pData, DWORD dwMsgSize)
 	pX = m_pClientList[iClientH]->m_sX;
 	pY = m_pClientList[iClientH]->m_sY;
 
-	printf("[Summon] Client %d (%s): NPC='%s' count=%d summoned=%d SA=%d\n",
-		iClientH, m_pClientList[iClientH]->m_cCharName, cNpcName, iNum, (int)bSummoned, (int)cSA);
 	wsprintf(g_cTxt, "(!) Admin Order: Summon(%s)-(%d)", cNpcName, iNum);
 	PutLogList(g_cTxt);
 
@@ -31416,9 +31380,6 @@ void CGame::AdminOrder_Summon(int iClientH, char *pData, DWORD dwMsgSize)
 
 		if ((bMaster = bCreateNewNpc( cNpcName, cName_Master, m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->m_cName, cSA, MOVETYPE_RANDOM, &pX, &pY, cWaypoint, NULL, NULL, -1, FALSE, bSummoned, FALSE, TRUE)) == FALSE) {
 			m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->SetNamingValueEmpty(iNamingValue);
-			printf("[Summon] FAILED to create master NPC '%s' at (%d,%d)\n", cNpcName, pX, pY);
-		} else {
-			printf("[Summon] Created master NPC '%s' at (%d,%d)\n", cNpcName, pX, pY);
 		}
 	}
 
@@ -32714,8 +32675,6 @@ void CGame::AdminOrder_CreateItem(int iClientH, char *pData, DWORD dwMsgSize)
 	ZeroMemory(cBuff, sizeof(cBuff));
 	memcpy(cBuff, pData, dwMsgSize);
 
-	printf("[CreateItem] Raw cmd (%d bytes): '%s'\n", dwMsgSize, cBuff);
-
 	StrTok pStrTok(new CStrTok(cBuff, seps));
 	token = pStrTok->pGet();
 
@@ -32723,11 +32682,11 @@ void CGame::AdminOrder_CreateItem(int iClientH, char *pData, DWORD dwMsgSize)
 	if (token != NULL) {
 		ZeroMemory(cItemName, sizeof(cItemName));
 		strcpy(cItemName, token);
-	} else { printf("[CreateItem] ERROR: No item name token\n"); return; }
+	} else return;
 
 	token = pStrTok->pGet();
 	if (token != NULL) {
-		attribute = strtoul(token, NULL, 10);
+		attribute = atoi(token);
 	} else attribute = 0;
 
 	token = pStrTok->pGet();
@@ -32740,12 +32699,9 @@ void CGame::AdminOrder_CreateItem(int iClientH, char *pData, DWORD dwMsgSize)
 		amount = atoi(token);
 	} else amount = 1;
 
-	printf("[CreateItem] Item='%s' attr=%u manuEndu=%d amount=%d\n", cItemName, attribute, manuEndu, amount);
-
 	for (int i = amount; i > 0; i--){
 		pItem = new CItem;
 		if (_bInitItemAttr(pItem, cItemName) == FALSE) {
-			printf("[CreateItem] ERROR: _bInitItemAttr FAILED for '%s' - item not found in config!\n", cItemName);
 			delete pItem;
 			return;
 		}
@@ -32837,7 +32793,7 @@ void CGame::AdminOrder_CreateItem(int iClientH, char *pData, DWORD dwMsgSize)
 		}
 
 		if (_bAddClientItemList(iClientH, pItem, &iEraseReq) == TRUE) {
-			printf("[CreateItem] SUCCESS: Created '%s' for client %d\n", cItemName, iClientH);
+
 			SendItemNotifyMsg(iClientH, NOTIFY_ITEMOBTAINED, pItem, NULL, false);
 			
 #ifdef TAIWANLOG 
@@ -32853,19 +32809,6 @@ void CGame::AdminOrder_CreateItem(int iClientH, char *pData, DWORD dwMsgSize)
 			bSendMsgToLS(MSGID_GAMEMASTERLOG, iClientH, NULL,g_cTxt);
 		}
 		else {
-			// Count actual items for diagnostics
-			int usedSlots = 0, equippedCount = 0;
-			for (int s = 0; s < MAXITEMS; s++) {
-				if (m_pClientList[iClientH]->m_pItemList[s] != NULL) {
-					usedSlots++;
-					if (m_pClientList[iClientH]->m_bIsItemEquipped[s])
-						equippedCount++;
-				}
-			}
-			printf("[CreateItem] ERROR: _bAddClientItemList FAILED for '%s' — slots=%d/%d (equipped=%d) weight=%d/%d\n",
-				cItemName, usedSlots, MAXITEMS, equippedCount,
-				m_pClientList[iClientH]->m_iCurWeightLoad, _iCalcMaxLoad(iClientH));
-			SendItemNotifyMsg(iClientH, NOTIFY_CANNOTCARRYMOREITEM, NULL, NULL, true);
 			delete pItem;
 			return;
 		}

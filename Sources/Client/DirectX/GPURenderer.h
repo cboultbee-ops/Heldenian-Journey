@@ -84,7 +84,7 @@ public:
     ~CGPURenderer();
 
     // Initialization - uses WGL to create OpenGL context on Win32 window
-    bool Init(HWND hWnd, int virtualWidth = 1280, int virtualHeight = 960);
+    bool Init(HWND hWnd, int virtualWidth = 640, int virtualHeight = 480);
     void Shutdown();
     bool IsInitialized() const { return m_bInitialized; }
 
