@@ -2200,10 +2200,14 @@ void CLoginServer::ProcessRequestPlayerData(char *Data, BYTE GSID, MYSQL myConn)
 	//SendBuff+16 = m_cAccountStatus, not used on hgserver
 	if(IsAccountInUse(AccName, &AccountID))
 	{
-		BOOL bAllowRequest = (IsSame(AccPwd, Client[AccountID]->AccountPassword) &&
-			IsSame(CharName, Client[AccountID]->CharName) &&
-			(Client[AccountID]->ConnectedServerID == GameServerSocket[GSID]->GSID ||
-			 Client[AccountID]->IsOnServerChange == TRUE));
+		BOOL bPwdOk = IsSame(AccPwd, Client[AccountID]->AccountPassword);
+		BOOL bCharOk = IsSame(CharName, Client[AccountID]->CharName);
+		BOOL bGsidOk = (Client[AccountID]->ConnectedServerID == GameServerSocket[GSID]->GSID);
+		BOOL bServerChange = Client[AccountID]->IsOnServerChange;
+		BOOL bAllowRequest = (bPwdOk && bCharOk && (bGsidOk || bServerChange));
+		ZeroMemory(log, sizeof(log));
+		sprintf(log, "PlayerData: Acc(%s) Char(%s) pwd=%d char=%d gsid=%d(%d/%d) srvchg=%d allow=%d", AccName, CharName, bPwdOk, bCharOk, bGsidOk, (int)Client[AccountID]->ConnectedServerID, (int)GameServerSocket[GSID]->GSID, bServerChange, bAllowRequest);
+		PutLogList(log);
 		if(!bAllowRequest)
 		{
 			*wp = LOGRESMSGTYPE_REJECT;
@@ -2238,7 +2242,7 @@ void CLoginServer::ProcessRequestPlayerData(char *Data, BYTE GSID, MYSQL myConn)
 	else{
 		*wp = LOGRESMSGTYPE_REJECT;
 		ZeroMemory(log, sizeof(log));
-		sprintf(log, "(ERROR) Character(%s) data error: account not initialized!", CharName);
+		sprintf(log, "(ERROR) Character(%s) Account(%s) data error: account not initialized!", CharName, AccName);
 		PutLogList(log, WARN_MSG, TRUE, ERROR_LOGFILE);
 	}
 	SendMsgToGS(GSID, SendBuff, 16+CharInfoSize);
@@ -2382,6 +2386,7 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 		else if(IsSame(field[f]->name, "AdminLevel")){
 			AdminUserLevel = (BYTE)atoi(myRow[f]);
 			SendValue(Data, 242, BYTESIZE, AdminUserLevel);
+			printf("[PlayerData] Char '%s' AdminLevel=%d (raw='%s')\n", CharName, AdminUserLevel, myRow[f]);
 		}
 		else if(IsSame(field[f]->name, "MagicMastery")) {
 			int mlen = strlen(myRow[f]);
@@ -2418,11 +2423,13 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 		ZeroMemory(gmAccName, sizeof(gmAccName));
 		MakeGoodName(gmAccName, AccountName);
 		sprintf(gmQuery, "SELECT `IsGMAccount` FROM `account_database` WHERE `name` = '%s' LIMIT 1;", gmAccName);
+		printf("[GMCheck] Char '%s' Account '%s' AdminLv=%d - checking IsGMAccount...\n", CharName, gmAccName, AdminUserLevel);
 		if(ProcessQuery(&myConn, gmQuery) != -1){
 			st_mysql_res *gmResult = mysql_store_result(&myConn);
 			if(gmResult != NULL){
 				MYSQL_ROW gmRow = mysql_fetch_row(gmResult);
 				if(gmRow == NULL || atoi(gmRow[0]) <= 0){
+					printf("[GMCheck] FAILED: IsGMAccount=%s for account '%s' - BLOCKING entry!\n", gmRow ? gmRow[0] : "NULL", gmAccName);
 					char log[200];
 					ZeroMemory(log, sizeof(log));
 					sprintf(log, "(ERROR) Character(%s) tries to enter in game as GM in a non-GM account!!!", CharName);
@@ -2430,9 +2437,16 @@ WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
 					mysql_free_result(gmResult);
 					return 0;
 				}
+				printf("[GMCheck] PASSED: IsGMAccount=%s for account '%s'\n", gmRow[0], gmAccName);
 				mysql_free_result(gmResult);
+			} else {
+				printf("[GMCheck] WARNING: gmResult is NULL for account '%s'\n", gmAccName);
 			}
+		} else {
+			printf("[GMCheck] WARNING: GM query failed for account '%s'\n", gmAccName);
 		}
+	} else {
+		printf("[PlayerData] Char '%s' AdminLevel=0 (no GM check needed)\n", CharName);
 	}
 	ZeroMemory(QueryConsult, sizeof(QueryConsult));
 	sprintf(QueryConsult, "SELECT `SkillID`, `SkillMastery`, `SkillSSN` FROM `skill` WHERE `CharID` = '%lu' LIMIT %u;", CharID, MAXSKILLS);

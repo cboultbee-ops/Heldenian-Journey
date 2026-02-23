@@ -11,6 +11,9 @@
 extern char G_cSpriteAlphaDegree;
 extern char G_cCmdLine[256], G_cCmdLineTokenA[120], G_cCmdLineTokenA_Lowercase[120], G_cCmdLineTokenB[120], G_cCmdLineTokenC[120], G_cCmdLineTokenD[120], G_cCmdLineTokenE[120];
 
+// Debug logger (defined in Game.cpp)
+void MapChangeLog(const char* fmt, ...);
+
 void CMessageHandler::GameRecvMsgHandler(DWORD dwMsgSize, char * Data)
 { DWORD * dwpMsgID;
 	dwpMsgID = (DWORD *)(Data + INDEX4_MSGID);
@@ -1910,6 +1913,7 @@ void CMessageHandler::InitPlayerResponseHandler(char * Data)
 {
 	WORD * wp;
 	wp = (WORD *)(Data + INDEX2_MSGTYPE);
+	MapChangeLog("INITPLAYER_RESP type=%d", (int)*wp);
 	switch (*wp) {
 	case MSGTYPE_CONFIRM:
 		//bSendCommand(MSGID_REQUEST_INITDATA, NULL, NULL, NULL, NULL, NULL, NULL);
@@ -1917,6 +1921,7 @@ void CMessageHandler::InitPlayerResponseHandler(char * Data)
 		break;
 
 	case MSGTYPE_REJECT:
+		MapChangeLog("INITPLAYER_REJECTED");
 		m_pGame->ChangeGameMode(GAMEMODE_ONLOGRESMSG);
 		ZeroMemory(m_pGame->m_cMsg, sizeof(m_pGame->m_cMsg));
 		strcpy(m_pGame->m_cMsg, "3J");
@@ -2129,8 +2134,8 @@ void CMessageHandler::InitDataResponseHandler(char * Data)
 											  OBJECTSTOP, NULL, NULL, NULL);
 	}
 
-	m_pGame->m_sViewDstX = m_pGame->m_sViewPointX = (sX+4+5)*32;
-	m_pGame->m_sViewDstY = m_pGame->m_sViewPointY = (sY+5+5)*32;
+	m_pGame->m_sViewDstX = m_pGame->m_sViewPointX = (m_pGame->m_sPlayerX - 20) * 32;
+	m_pGame->m_sViewDstY = m_pGame->m_sViewPointY = (m_pGame->m_sPlayerY - 14) * 32;
 	m_pGame->_ReadMapData(sX + 4 + 5, sY + 5 + 5, cp);
 	m_pGame->m_bIsRedrawPDBGS = TRUE;
     // ------------------------------------------------------------------------+
@@ -2233,8 +2238,8 @@ void CMessageHandler::MotionResponseHandler(char * Data)
 										  OBJECTSTOP, NULL, NULL, NULL, NULL, 5);
 		m_pGame->m_cCommandCount = 0;
 		m_pGame->m_bIsGetPointingMode = FALSE;
-		m_pGame->m_sViewDstX = m_pGame->m_sViewPointX = (m_pGame->m_sPlayerX-10)*32;
-		m_pGame->m_sViewDstY = m_pGame->m_sViewPointY = (m_pGame->m_sPlayerY-7)*32;
+		m_pGame->m_sViewDstX = m_pGame->m_sViewPointX = (m_pGame->m_sPlayerX-20)*32;
+		m_pGame->m_sViewDstY = m_pGame->m_sViewPointY = (m_pGame->m_sPlayerY-14)*32;
 
 		m_pGame->m_bIsRedrawPDBGS = TRUE;
 		break;
@@ -2322,8 +2327,8 @@ void CMessageHandler::MotionResponseHandler(char * Data)
 										  0, 11);
 		m_pGame->m_cCommandCount = 0;
 		m_pGame->m_bIsGetPointingMode = FALSE;
-		m_pGame->m_sViewDstX = m_pGame->m_sViewPointX = (m_pGame->m_sPlayerX-10)*32;
-		m_pGame->m_sViewDstY = m_pGame->m_sViewPointY = (m_pGame->m_sPlayerY-7)*32;
+		m_pGame->m_sViewDstX = m_pGame->m_sViewPointX = (m_pGame->m_sPlayerX-20)*32;
+		m_pGame->m_sViewDstY = m_pGame->m_sViewPointY = (m_pGame->m_sPlayerY-14)*32;
 		m_pGame->m_bIsPrevMoveBlocked = TRUE;
 		switch (m_pGame->m_sPlayerType) {
 		case 1:
@@ -2820,11 +2825,19 @@ void CMessageHandler::ChatMsgHandler(char * Data)
 			wsprintf(cMsg, "%s: %s", cName, cTemp);
 	}
 
-	m_pGame->m_DDraw._GetBackBufferDC();
+	// In GPU mode, m_hDC is not valid (no DirectDraw back buffer DC).
+	// Use character-count estimate for word wrap (~8px per char, 305px limit ≈ 38 chars).
+	if (!m_pGame->m_DDraw.m_bUseGPU)
+		m_pGame->m_DDraw._GetBackBufferDC();
 	bFlag = FALSE;
 	short sCheckByte = 0;
 	while (bFlag == FALSE)
-	{	iLoc = m_pGame->m_Misc.iGetTextLengthLoc(m_pGame->m_DDraw.m_hDC, cMsg, 305);
+	{	if (m_pGame->m_DDraw.m_bUseGPU) {
+			int len = (int)strlen(cMsg);
+			iLoc = (len * 8 > 305) ? (305 / 8) : 0;
+		} else {
+			iLoc = m_pGame->m_Misc.iGetTextLengthLoc(m_pGame->m_DDraw.m_hDC, cMsg, 305);
+		}
 		for( int i=0 ; i<iLoc ; i++ ) if( cMsg[i] < 0 ) sCheckByte ++;
 		if (iLoc == 0)
 		{	m_pGame->PutChatScrollList(cMsg, cMsgType);
@@ -2850,7 +2863,8 @@ void CMessageHandler::ChatMsgHandler(char * Data)
 				strcat(cMsg, cTemp);
 	}	}	}
 
-	m_pGame->m_DDraw._ReleaseBackBufferDC();
+	if (!m_pGame->m_DDraw.m_bUseGPU)
+		m_pGame->m_DDraw._ReleaseBackBufferDC();
 
 	m_pGame->_RemoveChatMsgListByObjectID(iObjectID);
 
@@ -5077,6 +5091,7 @@ void CMessageHandler::NotifyMsg_ServerChange(char * Data)
 	ip = (int *)cp;
 	iWorldServerPort = *ip;
 	cp += 4;
+	MapChangeLog("SERVER_CHANGE map=%s addr=%s port=%d LAN=%d localAddr=%s", m_pGame->m_cMapName, cWorldServerAddr, iWorldServerPort, m_pGame->m_iGameServerMode, m_pGame->m_cLogServerAddr);
 	if (m_pGame->m_pGSock != NULL)
 	{	delete m_pGame->m_pGSock;
 		m_pGame->m_pGSock = NULL;

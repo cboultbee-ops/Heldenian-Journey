@@ -56,6 +56,40 @@ DWORD G_dwCalcSocketTime = NULL, G_dwCalcSocketSendTime = NULL;
 
 char G_cCmdLine[256], G_cCmdLineTokenA[120], G_cCmdLineTokenA_Lowercase[120], G_cCmdLineTokenB[120], G_cCmdLineTokenC[120], G_cCmdLineTokenD[120], G_cCmdLineTokenE[120];
 
+// Taskbar hiding for borderless fullscreen
+BOOL G_bTaskbarHidden = FALSE;
+
+void HideTaskbar()
+{
+	if (G_bTaskbarHidden) return;
+	HWND hTaskbar = FindWindow("Shell_TrayWnd", NULL);
+	if (hTaskbar) {
+		ShowWindow(hTaskbar, SW_HIDE);
+		// Also hide the secondary taskbar on multi-monitor setups
+		HWND hSecondary = FindWindow("Shell_SecondaryTrayWnd", NULL);
+		if (hSecondary) ShowWindow(hSecondary, SW_HIDE);
+		G_bTaskbarHidden = TRUE;
+	}
+}
+
+void ShowTaskbar()
+{
+	if (!G_bTaskbarHidden) return;
+	HWND hTaskbar = FindWindow("Shell_TrayWnd", NULL);
+	if (hTaskbar) {
+		ShowWindow(hTaskbar, SW_SHOW);
+		HWND hSecondary = FindWindow("Shell_SecondaryTrayWnd", NULL);
+		if (hSecondary) ShowWindow(hSecondary, SW_SHOW);
+		G_bTaskbarHidden = FALSE;
+	}
+}
+
+// atexit handler — ensures taskbar is restored even on unexpected exit
+static void _AtExitRestoreTaskbar()
+{
+	ShowTaskbar();
+}
+
 // --------------------------------------------------------------
 
 LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
@@ -118,6 +152,7 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 			if (G_pGame->m_DDraw.m_bFullMode && G_pGame->m_DDraw.m_bUseGPU) {
 				SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
 					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+				ShowTaskbar();
 			}
 		}else
 		{	G_pGame->m_bIsProgramActive = TRUE;
@@ -125,6 +160,7 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 			G_pGame->m_bCtrlPressed = FALSE;
 			// Re-apply topmost when returning to fullscreen
 			if (G_pGame->m_DDraw.m_bFullMode && G_pGame->m_DDraw.m_bUseGPU) {
+				HideTaskbar();
 				SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0,
 					SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
 				SetForegroundWindow(hWnd);
@@ -144,6 +180,16 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 		if (G_pGame && G_pGame->m_bIsProgramActive) {
 			SetCursor(NULL);
 			return TRUE;
+		}
+		return DefWindowProc(hWnd, message, wParam, lParam);
+
+	case WM_WINDOWPOSCHANGING:
+		// Prevent Windows 11 taskbar from pushing fullscreen window behind it
+		if (G_pGame && G_pGame->m_DDraw.m_bFullMode && G_pGame->m_DDraw.m_bUseGPU
+			&& G_pGame->m_bIsProgramActive) {
+			WINDOWPOS* wp = (WINDOWPOS*)lParam;
+			wp->hwndInsertAfter = HWND_TOPMOST;
+			wp->flags &= ~SWP_NOZORDER;
 		}
 		return DefWindowProc(hWnd, message, wParam, lParam);
 
@@ -174,10 +220,14 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 			int h = (int)(short)HIWORD(lParam);
 			if (w > 0 && h > 0) {
 				G_pGame->m_DDraw.m_pGPURenderer->SetNativeResolution(w, h);
-				// Update mouse scale to match new letterbox viewport
-				float scale = G_pGame->m_DDraw.m_pGPURenderer->GetRenderConfig().uniformScale;
-				if (scale > 0.0f)
-					G_pGame->m_DInput.m_fMouseScale = 1.0f / scale;
+				// Update mouse scale and viewport bounds to match new letterbox viewport
+				const auto& cfg = G_pGame->m_DDraw.m_pGPURenderer->GetRenderConfig();
+				if (cfg.uniformScale > 0.0f)
+					G_pGame->m_DInput.m_fMouseScale = 1.0f / cfg.uniformScale;
+				G_pGame->m_DInput.m_iViewportX = cfg.viewportX;
+				G_pGame->m_DInput.m_iViewportY = cfg.viewportY;
+				G_pGame->m_DInput.m_iViewportW = cfg.viewportW;
+				G_pGame->m_DInput.m_iViewportH = cfg.viewportH;
 			}
 		}
 		return DefWindowProc(hWnd, message, wParam, lParam);
@@ -197,6 +247,7 @@ int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
 	srand((unsigned)time(NULL));
 	char *pJammer = new char[(rand() % 100) +1];
+	atexit(_AtExitRestoreTaskbar);
 	G_pGame = new class CGame;
 	ZeroMemory(cRealName, sizeof(cRealName));
 	strcpy(cRealName, cSearchDll);
@@ -480,7 +531,8 @@ void EventLoop() {
 
 
 void OnDestroy()
-{	G_pGame->m_bIsProgramActive = FALSE;		
+{	G_pGame->m_bIsProgramActive = FALSE;
+	ShowTaskbar();
 	_StopTimer(G_mmTimer);
 	G_pGame->Quit();
 	WSACleanup();

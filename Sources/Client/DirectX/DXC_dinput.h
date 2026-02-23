@@ -21,6 +21,7 @@ public:
 	BOOL bInit(HWND hWnd, HINSTANCE hInst);
 
 	void SetBounds(short sMaxX, short sMaxY);
+	void RefreshClipCursor();  // Re-apply ClipCursor to current window bounds
 
 	// Raw Input message handler - call from WndProc on WM_INPUT
 	void OnRawInput(LPARAM lParam);
@@ -29,7 +30,10 @@ public:
 
 	short m_sX, m_sY, m_sZ;
 	short m_sMaxX, m_sMaxY;
-	float m_fMouseScale;    // Reciprocal of GPU uniform scale (default 1.0)
+	float m_fMouseScale;       // Reciprocal of GPU uniform scale (default 1.0)
+	float m_fMouseSensitivity; // User-adjustable sensitivity multiplier (default 1.0)
+	// Viewport bounds for cursor confinement (set from GPU renderer)
+	int m_iViewportX, m_iViewportY, m_iViewportW, m_iViewportH;
 
 private:
 	HWND m_hWnd;

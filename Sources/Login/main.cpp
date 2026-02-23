@@ -4,6 +4,8 @@
 #include <winuser.h>
 #include <mmsystem.h>
 #include <stdio.h>
+#include <io.h>
+#include <fcntl.h>
 #include "net\XSocket.h"
 #include "main.h"
 #include "net\MsgCodes.h"
@@ -433,12 +435,25 @@ BOOL InitInstance( HINSTANCE hInstance, int nCmdShow )
 int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	LPSTR lpCmdLine, int nCmdShow )
 {
+	// Enable printf output for pipe-captured or console-attached processes
+	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hOut != INVALID_HANDLE_VALUE && hOut != NULL) {
+		int fd = _open_osfhandle((intptr_t)hOut, _O_TEXT);
+		if (fd >= 0) {
+			FILE* fp = _fdopen(fd, "w");
+			if (fp) {
+				*stdout = *fp;
+				setvbuf(stdout, NULL, _IONBF, 0);
+			}
+		}
+	}
+
 #ifndef _DEBUG
-	hMutex = CreateMutex( NULL, FALSE, "HB LoginServer." ); // Create a Mutex 
+	hMutex = CreateMutex( NULL, FALSE, "HB LoginServer." ); // Create a Mutex
 	if ( ( hMutex == NULL ) || ( GetLastError() == ERROR_ALREADY_EXISTS ) ) {
 		MessageBox(GetForegroundWindow(), "Login server is already opened!", "Login server", MB_OK|MB_ICONWARNING);
-		CloseHandle( hMutex ); 
-		return FALSE; 
+		CloseHandle( hMutex );
+		return FALSE;
 	}
 #endif
 

@@ -107,6 +107,7 @@ public:
 	int		m_iTotalFrame;
 	char	m_cAlphaDegree;
 	WORD	m_wBitmapSizeX, m_wBitmapSizeY;
+	int		m_iSpriteScale;  // 1 for original, 2 for 2x upscaled textures
 	WORD	m_wColorKey;
 	char	m_cPakFileName[16];
 	stBrush* m_stBrush;

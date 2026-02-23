@@ -13,6 +13,8 @@
 
 
 extern char G_cSpriteAlphaDegree;
+extern void HideTaskbar();
+extern void ShowTaskbar();
 
 // Debug logger for map change diagnostics
 void MapChangeLog(const char* fmt, ...) {
@@ -672,6 +674,7 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 	}
 	m_hWnd = hWnd;
 	m_bCommandAvailable = TRUE;
+	m_bStopRequested = FALSE;
 	m_dwTime = G_dwGlobalTime;
 	m_SoundMgr.Init(m_hWnd);
 	if (!m_SoundMgr.m_bSoundFlag)
@@ -739,11 +742,20 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 		return FALSE;
 	}
 
-	// Set mouse scale to match letterbox viewport scaling
+	// Hide Windows taskbar in borderless fullscreen so it can't overlay the game
+	if (m_DDraw.m_bFullMode && m_DDraw.m_bUseGPU) {
+		HideTaskbar();
+	}
+
+	// Set mouse scale and viewport bounds to match letterbox viewport scaling
 	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
-		float uniformScale = m_DDraw.m_pGPURenderer->GetRenderConfig().uniformScale;
-		if (uniformScale > 0.0f)
-			m_DInput.m_fMouseScale = 1.0f / uniformScale;
+		const auto& cfg = m_DDraw.m_pGPURenderer->GetRenderConfig();
+		if (cfg.uniformScale > 0.0f)
+			m_DInput.m_fMouseScale = 1.0f / cfg.uniformScale;
+		m_DInput.m_iViewportX = cfg.viewportX;
+		m_DInput.m_iViewportY = cfg.viewportY;
+		m_DInput.m_iViewportW = cfg.viewportW;
+		m_DInput.m_iViewportH = cfg.viewportH;
 	}
 
 	if (m_DInput.bInit(hWnd, hInst) == FALSE) {
@@ -2001,7 +2013,7 @@ void CGame::DrawObjects(short sPivotX, short sPivotY, short sDivX, short sDivY, 
 	int idelay = 75;
 	uint32 groundPivotPoint = (m_bigItems) ? SPRID_ITEMPACK_PIVOTPOINT : SPRID_ITEMGROUND_PIVOTPOINT;
 
-	if( sDivY < 0 || sDivX < 0) return ;
+	// Guard removed: with 1280x960 virtual resolution, sDivX can legitimately be -1
 	m_sMCX = NULL;
 	m_sMCY = NULL;
 	ZeroMemory(m_cMCName, sizeof(m_cMCName));
@@ -2010,13 +2022,13 @@ void CGame::DrawObjects(short sPivotX, short sPivotY, short sDivX, short sDivY, 
 	DWORD dwTime = m_dwCurTime;
 	m_stMCursor.sCursorFrame = 0;
 
-	indexY = sDivY + sPivotY - 7;
-	for (iy = -sModY-224; iy <= 427+352; iy += 32)
-	{	indexX = sDivX + sPivotX-4;
-		for (ix = -sModX-128 ; ix <= 640 + 128; ix += 32)
+	indexY = sDivY + sPivotY - 15;
+	for (iy = -sModY-480; iy <= PLAYABLE_H+704; iy += 32)
+	{	indexX = sDivX + sPivotX-8;
+		for (ix = -sModX-256 ; ix <= VIRTUAL_W + 256; ix += 32)
 		{	sDynamicObject = NULL;
 			bRet = FALSE;
-			if ((ix >= -sModX) && (ix <= 640+16) && (iy >= -sModY) && (iy <= 427+32+16))
+			if ((ix >= -sModX) && (ix <= VIRTUAL_W+16) && (iy >= -sModY) && (iy <= PLAYABLE_H+32+16))
 			{	_tmp_wObjectID = _tmp_sOwnerType = _tmp_sAppr1 = _tmp_sAppr2 = _tmp_sAppr3 = _tmp_sAppr4 = _tmp_iStatus = NULL;
 				_tmp_cDir = _tmp_cFrame = 0;
 				_tmp_iEffectType = _tmp_iEffectFrame = _tmp_iChatIndex = 0;
@@ -2257,8 +2269,8 @@ void CGame::DrawObjects(short sPivotX, short sPivotY, short sDivX, short sDivY, 
 
 					if (memcmp(m_cPlayerName, _tmp_cName, 10) == 0)
 					{	if (m_bIsObserverMode == FALSE)
-						{	m_sViewDstX = (indexX*32) - 288 - 32;
-							m_sViewDstY = (indexY*32) - 224;
+						{	m_sViewDstX = (indexX*32) - VIRTUAL_HALF_W;
+							m_sViewDstY = (indexY*32) - (VIRTUAL_HALF_H - 32);
 						}
 						SetRect(&m_rcPlayerRect, m_rcBodyRect.left, m_rcBodyRect.top, m_rcBodyRect.right, m_rcBodyRect.bottom);
 						bIsPlayerDrawed = TRUE;
@@ -3651,6 +3663,9 @@ void CGame::OnTimer()
 		if ((dwTime - m_dwCheckChatTime) > 2000)
 		{	m_dwCheckChatTime = m_dwTime;
 			ReleaseTimeoverChatMsg();
+			// Periodically re-apply ClipCursor in fullscreen to prevent click-through
+			if (m_DDraw.m_bFullMode && m_bIsProgramActive)
+				m_DInput.RefreshClipCursor();
 			if (m_cCommandCount >= 6)
 			{	m_iNetLagCount++;
 				if (m_iNetLagCount >= 7)
@@ -13476,6 +13491,14 @@ BOOL CGame::bReadLoginConfigFile(char * cFn)
 				if (m_iWindowHeight > 2160) m_iWindowHeight = 2160;
 				cReadMode = 0;
 				break;
+			case 11: // mouse-sensitivity
+				{	float fSens = (float)atof(token);
+					if (fSens < 0.1f) fSens = 0.1f;
+					if (fSens > 5.0f) fSens = 5.0f;
+					m_DInput.m_fMouseSensitivity = fSens;
+				}
+				cReadMode = 0;
+				break;
 			}
 		}else
 		{	if (memcmp(token, "log-server-address",18) == 0) cReadMode = 1;
@@ -13488,6 +13511,7 @@ BOOL CGame::bReadLoginConfigFile(char * cFn)
 			if (memcmp(token, "attack-speed-multiplier",23) == 0) cReadMode = 8;
 			if (memcmp(token, "display-mode",12) == 0)          cReadMode = 9;
 			if (memcmp(token, "resolution",10) == 0)            cReadMode = 10;
+			if (memcmp(token, "mouse-sensitivity",17) == 0)     cReadMode = 11;
 		}
 		token = strtok( NULL, seps );
 	}
@@ -13583,15 +13607,15 @@ void CGame::DrawBackground(short sDivX, short sModX, short sDivY, short sModY)
 	int indexX, indexY, ix, iy;
 	short sSpr, sSprFrame;
 
- 	if (sDivX < 0 || sDivY < 0) return ;
+ 	// Guard removed: with 1280x960 virtual resolution, sDivX can legitimately be -1
 
 	if (m_DDraw.m_bUseGPU) {
 		// GPU path: queue each tile directly as a sprite
-		SetRect(&m_DDraw.m_rcClipArea, 0, 0, 640, 480);
+		SetRect(&m_DDraw.m_rcClipArea, 0, 0, VIRTUAL_W, VIRTUAL_H);
 		indexY = sDivY + m_pMapData->m_sPivotY;
-		for (iy = -sModY; iy < 427 + 48; iy += 32) {
+		for (iy = -sModY; iy < PLAYABLE_H + 48; iy += 32) {
 			indexX = sDivX + m_pMapData->m_sPivotX;
-			for (ix = -sModX; ix < 640 + 48; ix += 32) {
+			for (ix = -sModX; ix < VIRTUAL_W + 48; ix += 32) {
 				sSpr      = m_pMapData->m_tile[indexX][indexY].m_sTileSprite;
 				sSprFrame = m_pMapData->m_tile[indexX][indexY].m_sTileSpriteFrame;
 				m_pTileSpr[sSpr]->PutSpriteFastNoColorKey(ix - 16, iy - 16, sSprFrame, m_dwCurTime);
@@ -13628,10 +13652,10 @@ void CGame::DrawBackground(short sDivX, short sModX, short sDivY, short sModY)
 	if (m_showGrid) 
 	{
 		indexY = sDivY+m_pMapData->m_sPivotY;
-		for (iy = -sModY; iy < 427+48 ; iy += 32)
+		for (iy = -sModY; iy < PLAYABLE_H+48 ; iy += 32)
 		{
 			indexX = sDivX+m_pMapData->m_sPivotX;
-			for (ix = -sModX; ix < 640+48 ; ix += 32)
+			for (ix = -sModX; ix < VIRTUAL_W+48 ; ix += 32)
 			{
 				DrawLine(ix - 16 , iy - 16 , ix + 16 , iy - 16 , 6,13,13);
 				DrawLine(ix - 16 , iy - 16 , ix - 16 , iy + 16 , 6,13,13);
@@ -25693,7 +25717,7 @@ void CGame::UpdateScreen_OnVersionNotMatch()
 			m_pGSock = NULL;
 		}
 		pMI = new class CMouseInterface;
-		pMI->AddRect(0,0,640,480);
+		pMI->AddRect(0,0,VIRTUAL_W,VIRTUAL_H);
 		m_bEnterPressed = FALSE;
 	}
 	m_cGameModeCount++;
@@ -26860,6 +26884,10 @@ void CGame::UpdateScreen_OnGame()
  static DWORD dwPrevChatTime = 0;
  static int   imX = 0, imY = 0;
 
+	// GPU mode: begin a new frame every iteration (clears back buffer + sets viewport).
+	// Without this, the back buffer retains previous frame content causing cursor trails.
+	m_DDraw.BeginGPUFrame();
+
 	if (m_cGameModeCount == 0)
 	{	m_DDraw.ClearBackB4();
 		m_dwFPStime = m_dwCheckConnTime = m_dwCheckSprTime = m_dwCheckChatTime = dwTime;
@@ -27643,6 +27671,10 @@ CP_SKIPMOUSEBUTTONSTATUS:;
 		RequestTeleportAndWaitData();
 
 	// indexX, indexY
+	// Temporary guard: block world clicks below old bottom bar (Y=427) until UI is repositioned
+	if (cLB != 0 && msY > 427) cLB = 0;
+	if (cRB != 0 && msY > 427) cRB = 0;
+
 	if (cLB != 0) // Mouse Left button
 	{	if (m_bIsGetPointingMode == TRUE)
 		{	if ((m_sMCX != 0) || (m_sMCY != 0))
@@ -28292,6 +28324,7 @@ CP_SKIPMOUSEBUTTONSTATUS:;
 		}
 	}else if (cRB != 0) // Mouse Right button
 	{	m_cCommand = OBJECTSTOP;
+		m_bStopRequested = TRUE; // Latch stop so it survives command lock
 		if (m_bIsGetPointingMode == TRUE)
 		{	m_bIsGetPointingMode = FALSE;
 			AddEventList(COMMAND_PROCESSOR1, 10);
@@ -28525,6 +28558,14 @@ CP_SKIPMOUSEBUTTONSTATUS:;
 	}
 
 MOTION_COMMAND_PROCESS:;
+
+	// Latched right-click stop: overrides any pending movement command so the
+	// character stops immediately after the current step, even if left-click
+	// is still held.
+	if (m_bStopRequested) {
+		m_bStopRequested = FALSE;
+		m_cCommand = OBJECTSTOP;
+	}
 
 	if (m_cCommand != OBJECTSTOP)
 	{	if (m_iHP <= 0) return;
@@ -38344,6 +38385,7 @@ void CGame::UpdateItemSetVisibility()
 	for (int s = 0; s < MAXEQUIPSETS; s++) {
 		stEquipmentSet *pSet = &m_stEquipSets[s];
 		if (!pSet->bIsConfigured) continue;
+		if (s == m_iActiveEquipSet) continue; // Active set items are equipped, not in bag
 		for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
 			if (pSet->cEquipPos[sl] == 0) continue;
 			if (strlen(pSet->cItemName[sl]) == 0) continue;
@@ -38354,6 +38396,25 @@ void CGame::UpdateItemSetVisibility()
 				if (m_bItemHiddenBySet[i]) continue;
 				if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[sl], 20) == 0 &&
 					m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[sl]) {
+					m_bItemHiddenBySet[i] = true;
+					break;
+				}
+			}
+		}
+	}
+
+	// When a set is active, also hide the backed-up original equipment
+	// so displaced items don't clutter the bag
+	if (m_bEquipSetBackupSaved && m_stEquipSetBackup.bIsConfigured) {
+		for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+			if (m_stEquipSetBackup.cEquipPos[sl] == 0) continue;
+			if (strlen(m_stEquipSetBackup.cItemName[sl]) == 0) continue;
+			for (int i = 0; i < MAXITEMS; i++) {
+				if (m_pItemList[i] == NULL) continue;
+				if (m_bIsItemEquipped[i] == TRUE) continue;
+				if (m_bItemHiddenBySet[i]) continue;
+				if (memcmp(m_pItemList[i]->m_cName, m_stEquipSetBackup.cItemName[sl], 20) == 0 &&
+					m_pItemList[i]->m_cEquipPos == m_stEquipSetBackup.cEquipPos[sl]) {
 					m_bItemHiddenBySet[i] = true;
 					break;
 				}
@@ -38639,8 +38700,15 @@ static const GMCreature g_GMCreatures[] = {
 };
 static const int g_GMCreatureCount = sizeof(g_GMCreatures) / sizeof(g_GMCreatures[0]);
 
+// Creatures with no client-side sprites (NPC types 92-98)
+static bool _IsCreatureNoSprite(const char* name) {
+	static const char* list[] = {"Ghost","Vampire","Scarecrow","Fire-Pixie","Ice-Pixie","Earth-Pixie","Air-Pixie",NULL};
+	for (int i = 0; list[i]; i++) if (strcmp(name, list[i]) == 0) return true;
+	return false;
+}
+
 // --- Static item data (from Items/*.cfg) ---
-struct GMItem { const char* name; int category; };
+struct GMItem { const char* name; int category; bool rare; };
 static const char* g_GMItemCatNames[] = {
 	"Weapons","Armor","Bows","Rings","Necklaces","Scrolls",
 	"Potions","Wands","Manuals","Minerals","Food","Dyes","Farming","Parts","Misc"
@@ -38648,160 +38716,160 @@ static const char* g_GMItemCatNames[] = {
 static const int g_GMItemCatCount = 15;
 
 static const GMItem g_GMItems[] = {
-	// Weapons (0)
-	{"Dagger",0},{"Dagger(S.C)",0},{"Dagger(Swd.breaker)",0},{"Dagger+1",0},{"KightDagger",0},
-	{"Dirk",0},{"ShortSword",0},{"ShortSword+1",0},{"ShortSword(S.C)",0},
-	{"MainGauche",0},{"MainGauche+1",0},{"MainGauche(S.C)",0},
-	{"Gradius",0},{"Gradius+1",0},{"LongSword",0},{"LongSword+1",0},{"LongSword+2",0},
-	{"Excaliber",0},{"LongSword(S.C)",0},{"Sabre",0},{"Sabre+1",0},{"Sabre+2",0},
-	{"Scimitar",0},{"Scimitar+1",0},{"Scimitar+2",0},{"Falchion",0},{"Falchion+1",0},{"Falchion+2",0},
-	{"Esterk",0},{"Esterk+1",0},{"Esterk+2",0},{"Rapier",0},{"Rapier+1",0},{"Rapier+2",0},
-	{"TemplerSword",0},{"BroadSword",0},{"BroadSword+1",0},{"BroadSword+2",0},{"BroadSword(S.C)",0},
-	{"BastadSword",0},{"BastadSword+1",0},{"BastadSword+2",0},{"BastadSword(S.C)",0},
-	{"Claymore",0},{"Claymore+1",0},{"Claymore+2",0},{"Claymore(S.C)",0},
-	{"GreatSword",0},{"GreatSword+1",0},{"GreatSword+2",0},{"GreatSword(S.C)",0},
-	{"Flameberge",0},{"Flameberge+1",0},{"Flameberge+2",0},{"Flameberge(S.C)",0},
-	{"LightAxe",0},{"LightAxe+1",0},{"LightAxe+2",0},
-	{"Tomahoc",0},{"Tomahoc+1",0},{"Tomahoc+2",0},
-	{"SexonAxe",0},{"SexonAxe+1",0},{"SexonAxe+2",0},
-	{"DoubleAxe",0},{"DoubleAxe+1",0},{"DoubleAxe+2",0},
-	{"WarAxe",0},{"WarAxe+1",0},{"WarAxe+2",0},{"4BladeGoldenAxe",0},
-	{"Hammer",0},{"BattleAxe",0},{"BattleHammer",0},{"BlackShadowSword",0},{"BarbarianHammer",0},
-	{"KnightRapier",0},{"KnightGreatSword",0},{"KnightFlameberge",0},{"KnightWarAxe",0},
-	{"GoldenAxe(LLF)",0},{"Flameberge+3(LLF)",0},
-	{"XelimaBlade",0},{"XelimaAxe",0},{"XelimaRapier",0},
-	{"SwordofMedusa",0},{"SwordofIceElemental",0},{"GiantSword",0},{"DemonSlayer",0},
-	{"BloodSword",0},{"BloodAxe",0},{"BloodRapier",0},
-	{"StormBringer",0},{"The_Devastator",0},{"DarkExecutor",0},{"LightingBlade",0},
-	{"KlonessBlade",0},{"KlonessAxe",0},{"KlonessEsterk",0},{"GiantBattleHammer",0},
-	{"DKRapier",0},{"DKGreatSword",0},{"DKFlameberg",0},{"DKGiantSword",0},{"BlackKnightTemple",0},
-	// Armor (1)
-	{"AresdenHeroCape",1},{"ElvineHeroCape",1},{"Cape",1},
-	{"aHeroHelm(M)",1},{"aHeroHelm(W)",1},{"eHeroHelm(M)",1},{"eHeroHelm(W)",1},
-	{"aHeroCap(M)",1},{"aHeroCap(W)",1},{"eHeroCap(M)",1},{"eHeroCap(W)",1},
-	{"aHeroArmor(M)",1},{"aHeroArmor(W)",1},{"eHeroArmor(M)",1},{"eHeroArmor(W)",1},
-	{"aHeroRobe(M)",1},{"aHeroRobe(W)",1},{"eHeroRobe(M)",1},{"eHeroRobe(W)",1},
-	{"aHeroHauberk(M)",1},{"aHeroHauberk(W)",1},{"eHeroHauberk(M)",1},{"eHeroHauberk(W)",1},
-	{"aHeroLeggings(M)",1},{"aHeroLeggings(W)",1},{"eHeroLeggings(M)",1},{"eHeroLeggings(W)",1},
-	{"AresdenHeroCape+1",1},{"ElvineHeroCape+1",1},{"Cape+1",1},
-	{"Shoes",1},{"LongBoots",1},{"SantaCostume(M)",1},{"SantaCostume(W)",1},
-	{"Shirt(M)",1},{"Hauberk(M)",1},{"LeatherArmor(M)",1},{"ChainMail(M)",1},{"ScaleMail(M)",1},{"PlateMail(M)",1},
-	{"Trousers(M)",1},{"KneeTrousers(M)",1},{"ChainHose(M)",1},{"PlateLeggings(M)",1},
-	{"Chemise(W)",1},{"Shirt(W)",1},{"Hauberk(W)",1},{"Bodice(W)",1},{"LongBodice(W)",1},
-	{"LeatherArmor(W)",1},{"ChainMail(W)",1},{"ScaleMail(W)",1},{"PlateMail(W)",1},
-	{"Skirt(W)",1},{"Trousers(W)",1},{"KneeTrousers(W)",1},{"ChainHose(W)",1},{"PlateLeggings(W)",1},
-	{"Tunic(M)",1},{"Robe(M)",1},{"Robe(W)",1},
-	{"Helm(M)",1},{"FullHelm(M)",1},{"Helm(W)",1},{"FullHelm(W)",1},
-	{"KnightPlateMail(M)",1},{"KnightPlateMail(W)",1},{"KnightPlateLeg(M)",1},{"KnightPlateLeg(W)",1},
-	{"KnightFullHelm(M)",1},{"KnightFullHelm(W)",1},
-	{"WizardHauberk(M)",1},{"WizardHauberk(W)",1},
-	{"WizMagicWand(MS20)",1},{"WizMagicWand(MS10)",1},{"WizardRobe(M)",1},{"WizardRobe(W)",1},
-	{"KnightHauberk(M)",1},{"KnightHauberk(W)",1},
-	{"Horned-Helm(M)",1},{"Wings-Helm(M)",1},{"Wizard-Cap(M)",1},{"Wizard-Hat(M)",1},
-	{"Horned-Helm(W)",1},{"Wings-Helm(W)",1},{"Wizard-Cap(W)",1},{"Wizard-Hat(W)",1},
-	{"DKFullHelm(M)",1},{"DKHauberk(M)",1},{"DKPlateMail(M)",1},{"DKLeggings(M)",1},
-	{"DKFullHelm(W)",1},{"DKHauberk(W)",1},{"DKPlateMail(W)",1},{"DKLeggings(W)",1},
-	{"DMHat(M)",1},{"DMHauberk(M)",1},{"DMRobe(M)",1},{"DMChainMail(M)",1},{"DMLeggings(M)",1},
-	{"DMHat(W)",1},{"DMHauberk(W)",1},{"DMRobe(W)",1},{"DMChainMail(W)",1},{"DMLeggings(W)",1},
-	{"MerienShield",1},{"MerienPlateMailM",1},{"MerienPlateMailW",1},{"GM-Shield",1},
-	{"WoodShield",1},{"LeatherShield",1},{"TargeShield",1},{"ScootermShield",1},
-	{"BlondeShield",1},{"IronShield",1},{"LagiShield",1},{"KnightShield",1},{"TowerShield",1},
+	// Weapons (0) — rare=true for unique/boss-drop weapons
+	{"Dagger",0,false},{"Dagger(S.C)",0,false},{"Dagger(Swd.breaker)",0,false},{"Dagger+1",0,false},{"KightDagger",0,false},
+	{"Dirk",0,false},{"ShortSword",0,false},{"ShortSword+1",0,false},{"ShortSword(S.C)",0,false},
+	{"MainGauche",0,false},{"MainGauche+1",0,false},{"MainGauche(S.C)",0,false},
+	{"Gradius",0,false},{"Gradius+1",0,false},{"LongSword",0,false},{"LongSword+1",0,false},{"LongSword+2",0,false},
+	{"Excaliber",0,true},{"LongSword(S.C)",0,false},{"Sabre",0,false},{"Sabre+1",0,false},{"Sabre+2",0,false},
+	{"Scimitar",0,false},{"Scimitar+1",0,false},{"Scimitar+2",0,false},{"Falchion",0,false},{"Falchion+1",0,false},{"Falchion+2",0,false},
+	{"Esterk",0,false},{"Esterk+1",0,false},{"Esterk+2",0,false},{"Rapier",0,false},{"Rapier+1",0,false},{"Rapier+2",0,false},
+	{"TemplerSword",0,false},{"BroadSword",0,false},{"BroadSword+1",0,false},{"BroadSword+2",0,false},{"BroadSword(S.C)",0,false},
+	{"BastadSword",0,false},{"BastadSword+1",0,false},{"BastadSword+2",0,false},{"BastadSword(S.C)",0,false},
+	{"Claymore",0,false},{"Claymore+1",0,false},{"Claymore+2",0,false},{"Claymore(S.C)",0,false},
+	{"GreatSword",0,false},{"GreatSword+1",0,false},{"GreatSword+2",0,false},{"GreatSword(S.C)",0,false},
+	{"Flameberge",0,false},{"Flameberge+1",0,false},{"Flameberge+2",0,false},{"Flameberge(S.C)",0,false},
+	{"LightAxe",0,false},{"LightAxe+1",0,false},{"LightAxe+2",0,false},
+	{"Tomahoc",0,false},{"Tomahoc+1",0,false},{"Tomahoc+2",0,false},
+	{"SexonAxe",0,false},{"SexonAxe+1",0,false},{"SexonAxe+2",0,false},
+	{"DoubleAxe",0,false},{"DoubleAxe+1",0,false},{"DoubleAxe+2",0,false},
+	{"WarAxe",0,false},{"WarAxe+1",0,false},{"WarAxe+2",0,false},{"4BladeGoldenAxe",0,false},
+	{"Hammer",0,false},{"BattleAxe",0,false},{"BattleHammer",0,false},{"BlackShadowSword",0,true},{"BarbarianHammer",0,false},
+	{"KnightRapier",0,false},{"KnightGreatSword",0,false},{"KnightFlameberge",0,false},{"KnightWarAxe",0,false},
+	{"GoldenAxe(LLF)",0,true},{"Flameberge+3(LLF)",0,true},
+	{"XelimaBlade",0,true},{"XelimaAxe",0,true},{"XelimaRapier",0,true},
+	{"SwordofMedusa",0,true},{"SwordofIceElemental",0,true},{"GiantSword",0,true},{"DemonSlayer",0,true},
+	{"BloodSword",0,true},{"BloodAxe",0,true},{"BloodRapier",0,true},
+	{"StormBringer",0,true},{"The_Devastator",0,true},{"DarkExecutor",0,true},{"LightingBlade",0,true},
+	{"KlonessBlade",0,true},{"KlonessAxe",0,true},{"KlonessEsterk",0,true},{"GiantBattleHammer",0,true},
+	{"DKRapier",0,false},{"DKGreatSword",0,false},{"DKFlameberg",0,false},{"DKGiantSword",0,false},{"BlackKnightTemple",0,false},
+	// Armor (1) — rare=true for Merien set + GM shield
+	{"AresdenHeroCape",1,false},{"ElvineHeroCape",1,false},{"Cape",1,false},
+	{"aHeroHelm(M)",1,false},{"aHeroHelm(W)",1,false},{"eHeroHelm(M)",1,false},{"eHeroHelm(W)",1,false},
+	{"aHeroCap(M)",1,false},{"aHeroCap(W)",1,false},{"eHeroCap(M)",1,false},{"eHeroCap(W)",1,false},
+	{"aHeroArmor(M)",1,false},{"aHeroArmor(W)",1,false},{"eHeroArmor(M)",1,false},{"eHeroArmor(W)",1,false},
+	{"aHeroRobe(M)",1,false},{"aHeroRobe(W)",1,false},{"eHeroRobe(M)",1,false},{"eHeroRobe(W)",1,false},
+	{"aHeroHauberk(M)",1,false},{"aHeroHauberk(W)",1,false},{"eHeroHauberk(M)",1,false},{"eHeroHauberk(W)",1,false},
+	{"aHeroLeggings(M)",1,false},{"aHeroLeggings(W)",1,false},{"eHeroLeggings(M)",1,false},{"eHeroLeggings(W)",1,false},
+	{"AresdenHeroCape+1",1,false},{"ElvineHeroCape+1",1,false},{"Cape+1",1,false},
+	{"Shoes",1,false},{"LongBoots",1,false},{"SantaCostume(M)",1,false},{"SantaCostume(W)",1,false},
+	{"Shirt(M)",1,false},{"Hauberk(M)",1,false},{"LeatherArmor(M)",1,false},{"ChainMail(M)",1,false},{"ScaleMail(M)",1,false},{"PlateMail(M)",1,false},
+	{"Trousers(M)",1,false},{"KneeTrousers(M)",1,false},{"ChainHose(M)",1,false},{"PlateLeggings(M)",1,false},
+	{"Chemise(W)",1,false},{"Shirt(W)",1,false},{"Hauberk(W)",1,false},{"Bodice(W)",1,false},{"LongBodice(W)",1,false},
+	{"LeatherArmor(W)",1,false},{"ChainMail(W)",1,false},{"ScaleMail(W)",1,false},{"PlateMail(W)",1,false},
+	{"Skirt(W)",1,false},{"Trousers(W)",1,false},{"KneeTrousers(W)",1,false},{"ChainHose(W)",1,false},{"PlateLeggings(W)",1,false},
+	{"Tunic(M)",1,false},{"Robe(M)",1,false},{"Robe(W)",1,false},
+	{"Helm(M)",1,false},{"FullHelm(M)",1,false},{"Helm(W)",1,false},{"FullHelm(W)",1,false},
+	{"KnightPlateMail(M)",1,false},{"KnightPlateMail(W)",1,false},{"KnightPlateLeg(M)",1,false},{"KnightPlateLeg(W)",1,false},
+	{"KnightFullHelm(M)",1,false},{"KnightFullHelm(W)",1,false},
+	{"WizardHauberk(M)",1,false},{"WizardHauberk(W)",1,false},
+	{"WizMagicWand(MS20)",1,false},{"WizMagicWand(MS10)",1,false},{"WizardRobe(M)",1,false},{"WizardRobe(W)",1,false},
+	{"KnightHauberk(M)",1,false},{"KnightHauberk(W)",1,false},
+	{"Horned-Helm(M)",1,false},{"Wings-Helm(M)",1,false},{"Wizard-Cap(M)",1,false},{"Wizard-Hat(M)",1,false},
+	{"Horned-Helm(W)",1,false},{"Wings-Helm(W)",1,false},{"Wizard-Cap(W)",1,false},{"Wizard-Hat(W)",1,false},
+	{"DKFullHelm(M)",1,false},{"DKHauberk(M)",1,false},{"DKPlateMail(M)",1,false},{"DKLeggings(M)",1,false},
+	{"DKFullHelm(W)",1,false},{"DKHauberk(W)",1,false},{"DKPlateMail(W)",1,false},{"DKLeggings(W)",1,false},
+	{"DMHat(M)",1,false},{"DMHauberk(M)",1,false},{"DMRobe(M)",1,false},{"DMChainMail(M)",1,false},{"DMLeggings(M)",1,false},
+	{"DMHat(W)",1,false},{"DMHauberk(W)",1,false},{"DMRobe(W)",1,false},{"DMChainMail(W)",1,false},{"DMLeggings(W)",1,false},
+	{"MerienShield",1,true},{"MerienPlateMailM",1,true},{"MerienPlateMailW",1,true},{"GM-Shield",1,true},
+	{"WoodShield",1,false},{"LeatherShield",1,false},{"TargeShield",1,false},{"ScootermShield",1,false},
+	{"BlondeShield",1,false},{"IronShield",1,false},{"LagiShield",1,false},{"KnightShield",1,false},{"TowerShield",1,false},
 	// Bows (2)
-	{"ShortBow",2},{"LongBow",2},{"Fire-Bow",2},{"Direction-Bow",2},{"CompositeBow",2},{"DarkElfBow",2},{"Arrow",2},{"PoisonArrow",2},
-	// Rings (3)
-	{"GoldRing",3},{"SilverRing",3},{"PlatinumRing",3},{"LuckyGoldRing",3},
-	{"EmeraldRing",3},{"SapphireRing",3},{"RubyRing",3},{"MemorialRing",3},{"ThirdMemorialRing",3},
-	{"RingoftheXelima",3},{"RingoftheAbaddon",3},{"RingofOgrepower",3},{"RingofDemonpower",3},
-	{"RingofWizard",3},{"RingofMage",3},{"RingofGrandMage",3},{"RingofArcmage",3},{"RingofDragonpower",3},
-	{"MaginDiamond",3},{"MaginRuby",3},{"MagicEmerald",3},{"MagicSapphire",3},
-	{"AngelicPendant(STR)",3},{"AngelicPendant(DEX)",3},{"AngelicPendant(INT)",3},{"AngelicPendant(MAG)",3},
-	// Necklaces (4)
-	{"GoldNecklace",4},{"SilverNecklace",4},
-	{"KnecklaceOfLightPro",4},{"KnecklaceOfFirePro",4},{"KnecklaceOfPoisonPro",4},
-	{"KnecklaceOfSufferent",4},{"KnecklaceOfMedusa",4},{"KnecklaceOfIcePro",4},
-	{"KnecklaceOfIceEle",4},{"KnecklaceOfAirEle",4},{"KnecklaceOfEfreet",4},
-	{"NecklaceOfBeholder",4},{"NecklaceOfStoneGol",4},{"NecklaceOfLiche",4},
-	{"NecklaceOfMerien",4},{"NecklaceOfKloness",4},{"NecklaceOfXelima",4},
-	{"MagicNecklace(RM10)",4},{"MagicNecklace(DM+1)",4},{"MagicNecklace(MS10)",4},
-	{"MagicNecklace(DF+10)",4},{"MagicNecklace(DF+15)",4},{"MagicNecklace(DF+20)",4},
-	{"MagicNecklace(DF+25)",4},{"MagicNecklace(DF+30)",4},
-	{"MagicNecklace(DM+2)",4},{"MagicNecklace(DM+3)",4},{"MagicNecklace(DM+4)",4},{"MagicNecklace(DM+5)",4},
-	{"MagicNecklace(MS12)",4},{"MagicNecklace(MS14)",4},{"MagicNecklace(MS16)",4},{"MagicNecklace(MS18)",4},
-	{"MagicNecklace(RM15)",4},{"MagicNecklace(RM20)",4},{"MagicNecklace(RM25)",4},{"MagicNecklace(RM30)",4},
+	{"ShortBow",2,false},{"LongBow",2,false},{"Fire-Bow",2,false},{"Direction-Bow",2,false},{"CompositeBow",2,false},{"DarkElfBow",2,false},{"Arrow",2,false},{"PoisonArrow",2,false},
+	// Rings (3) — rare=true for Xelima ring + Angelic Pendants
+	{"GoldRing",3,false},{"SilverRing",3,false},{"PlatinumRing",3,false},{"LuckyGoldRing",3,false},
+	{"EmeraldRing",3,false},{"SapphireRing",3,false},{"RubyRing",3,false},{"MemorialRing",3,false},{"ThirdMemorialRing",3,false},
+	{"RingoftheXelima",3,true},{"RingoftheAbaddon",3,false},{"RingofOgrepower",3,false},{"RingofDemonpower",3,false},
+	{"RingofWizard",3,false},{"RingofMage",3,false},{"RingofGrandMage",3,false},{"RingofArcmage",3,false},{"RingofDragonpower",3,false},
+	{"MaginDiamond",3,false},{"MaginRuby",3,false},{"MagicEmerald",3,false},{"MagicSapphire",3,false},
+	{"AngelicPendant(STR)",3,true},{"AngelicPendant(DEX)",3,true},{"AngelicPendant(INT)",3,true},{"AngelicPendant(MAG)",3,true},
+	// Necklaces (4) — rare=true for Merien/Kloness/Xelima necklaces
+	{"GoldNecklace",4,false},{"SilverNecklace",4,false},
+	{"KnecklaceOfLightPro",4,false},{"KnecklaceOfFirePro",4,false},{"KnecklaceOfPoisonPro",4,false},
+	{"KnecklaceOfSufferent",4,false},{"KnecklaceOfMedusa",4,false},{"KnecklaceOfIcePro",4,false},
+	{"KnecklaceOfIceEle",4,false},{"KnecklaceOfAirEle",4,false},{"KnecklaceOfEfreet",4,false},
+	{"NecklaceOfBeholder",4,false},{"NecklaceOfStoneGol",4,false},{"NecklaceOfLiche",4,false},
+	{"NecklaceOfMerien",4,true},{"NecklaceOfKloness",4,true},{"NecklaceOfXelima",4,true},
+	{"MagicNecklace(RM10)",4,false},{"MagicNecklace(DM+1)",4,false},{"MagicNecklace(MS10)",4,false},
+	{"MagicNecklace(DF+10)",4,false},{"MagicNecklace(DF+15)",4,false},{"MagicNecklace(DF+20)",4,false},
+	{"MagicNecklace(DF+25)",4,false},{"MagicNecklace(DF+30)",4,false},
+	{"MagicNecklace(DM+2)",4,false},{"MagicNecklace(DM+3)",4,false},{"MagicNecklace(DM+4)",4,false},{"MagicNecklace(DM+5)",4,false},
+	{"MagicNecklace(MS12)",4,false},{"MagicNecklace(MS14)",4,false},{"MagicNecklace(MS16)",4,false},{"MagicNecklace(MS18)",4,false},
+	{"MagicNecklace(RM15)",4,false},{"MagicNecklace(RM20)",4,false},{"MagicNecklace(RM25)",4,false},{"MagicNecklace(RM30)",4,false},
 	// Scrolls (5)
-	{"RecallScroll",5},{"InvisibilityScroll",5},{"DetectInviScroll",5},
-	{"BleedingIslandTicket",5},{"GuildAdmissionTicket",5},{"GuildSecessionTicket",5},{"LuckyPrizeTicket",5},
-	{"SummonScroll(SOR)",5},{"SummonScroll(ATK)",5},{"SummonScroll(ELF)",5},
-	{"SummonScroll(DSK)",5},{"SummonScroll(HBT)",5},{"SummonScroll(BAR)",5},
-	{"ArenaTicket",5},{"ArenaTicket(2)",5},{"ArenaTicket(3)",5},{"ArenaTicket(4)",5},
-	{"ArenaTicket(5)",5},{"ArenaTicket(6)",5},{"ArenaTicket(7)",5},{"ArenaTicket(8)",5},{"ArenaTicket(9)",5},
+	{"RecallScroll",5,false},{"InvisibilityScroll",5,false},{"DetectInviScroll",5,false},
+	{"BleedingIslandTicket",5,false},{"GuildAdmissionTicket",5,false},{"GuildSecessionTicket",5,false},{"LuckyPrizeTicket",5,false},
+	{"SummonScroll(SOR)",5,false},{"SummonScroll(ATK)",5,false},{"SummonScroll(ELF)",5,false},
+	{"SummonScroll(DSK)",5,false},{"SummonScroll(HBT)",5,false},{"SummonScroll(BAR)",5,false},
+	{"ArenaTicket",5,false},{"ArenaTicket(2)",5,false},{"ArenaTicket(3)",5,false},{"ArenaTicket(4)",5,false},
+	{"ArenaTicket(5)",5,false},{"ArenaTicket(6)",5,false},{"ArenaTicket(7)",5,false},{"ArenaTicket(8)",5,false},{"ArenaTicket(9)",5,false},
 	// Potions (6)
-	{"RedPotion",6},{"BigRedPotion",6},{"BluePotion",6},{"BigBluePotion",6},
-	{"GreenPotion",6},{"BigGreenPotion",6},{"DilutionPotion",6},
-	{"HairColorPotion",6},{"HairStylePotion",6},{"SkinColorPotion",6},
-	{"InvisibilityPotion",6},{"SexChangePotion",6},{"OgrePotion",6},{"UnderWearPotion",6},
-	{"AresdenMinePotion",6},{"ElvineMinePotion",6},{"UnfreezePotion",6},
-	{"SuperRedPotion",6},{"SuperBluePotion",6},{"SuperGreenPotion",6},
-	{"RedCandy",6},{"BlueCandy",6},{"GreenCandy",6},{"PowerGreenPotion",6},
+	{"RedPotion",6,false},{"BigRedPotion",6,false},{"BluePotion",6,false},{"BigBluePotion",6,false},
+	{"GreenPotion",6,false},{"BigGreenPotion",6,false},{"DilutionPotion",6,false},
+	{"HairColorPotion",6,false},{"HairStylePotion",6,false},{"SkinColorPotion",6,false},
+	{"InvisibilityPotion",6,false},{"SexChangePotion",6,false},{"OgrePotion",6,false},{"UnderWearPotion",6,false},
+	{"AresdenMinePotion",6,false},{"ElvineMinePotion",6,false},{"UnfreezePotion",6,false},
+	{"SuperRedPotion",6,false},{"SuperBluePotion",6,false},{"SuperGreenPotion",6,false},
+	{"RedCandy",6,false},{"BlueCandy",6,false},{"GreenCandy",6,false},{"PowerGreenPotion",6,false},
 	// Wands (7)
-	{"MagicWand(MS20)",7},{"MagicWand(MS10)",7},{"MagicWand(MS0)",7},
-	{"DMMagicStaff",7},{"DMMagicWand",7},{"BlackMageTemple",7},{"MagicWand(M.Shield)",7},
-	{"MagicWand(MS30-LLF)",7},{"BerserkWand(MS.20)",7},{"BerserkWand(MS.10)",7},
-	{"KlonessWand(MS.20)",7},{"KlonessWand(MS.10)",7},{"ResurWand(MS.20)",7},{"ResurWand(MS.10)",7},
+	{"MagicWand(MS20)",7,false},{"MagicWand(MS10)",7,false},{"MagicWand(MS0)",7,false},
+	{"DMMagicStaff",7,false},{"DMMagicWand",7,false},{"BlackMageTemple",7,false},{"MagicWand(M.Shield)",7,false},
+	{"MagicWand(MS30-LLF)",7,false},{"BerserkWand(MS.20)",7,false},{"BerserkWand(MS.10)",7,false},
+	{"KlonessWand(MS.20)",7,false},{"KlonessWand(MS.10)",7,false},{"ResurWand(MS.20)",7,false},{"ResurWand(MS.10)",7,false},
 	// Manuals (8)
-	{"PretendCorpseManual",8},{"ArcheryManual",8},{"ShieldManual",8},{"LongSwordManual",8},
-	{"FencingManual",8},{"FishingManual",8},{"AxeManual",8},{"MagicResistManual",8},
-	{"AlchemyManual",8},{"MiningManual",8},{"ManufacturingManual",8},{"HammerAttackManual",8},
-	{"WandAttackManual",8},{"FarmingManual",8},{"HandAttackManual",8},{"ShortSwordManual",8},
-	{"IceStormManual",8},{"MassFireStrikeManual",8},{"BloodyShockW.Manual",8},
-	{"CancelManual",8},{"E.S.W.Manual",8},{"I.M.CManual",8},
+	{"PretendCorpseManual",8,false},{"ArcheryManual",8,false},{"ShieldManual",8,false},{"LongSwordManual",8,false},
+	{"FencingManual",8,false},{"FishingManual",8,false},{"AxeManual",8,false},{"MagicResistManual",8,false},
+	{"AlchemyManual",8,false},{"MiningManual",8,false},{"ManufacturingManual",8,false},{"HammerAttackManual",8,false},
+	{"WandAttackManual",8,false},{"FarmingManual",8,false},{"HandAttackManual",8,false},{"ShortSwordManual",8,false},
+	{"IceStormManual",8,false},{"MassFireStrikeManual",8,false},{"BloodyShockW.Manual",8,false},
+	{"CancelManual",8,false},{"E.S.W.Manual",8,false},{"I.M.CManual",8,false},
 	// Minerals (9)
-	{"Diamond",9},{"Ruby",9},{"Sapphire",9},{"Emerald",9},{"GoldNugget",9},{"Coal",9},
-	{"SilverNugget",9},{"IronOre",9},{"Crystal",9},{"IronIngot",9},
-	{"SuperCoal",9},{"UltraCoal",9},{"GoldIngot",9},{"SilverIngot",9},{"BlondeIngot",9},
-	{"MithralIngot",9},{"BlondeStone",9},{"Mithral",9},
-	{"DiamondWare",9},{"RubyWare",9},{"SapphireWare",9},{"EmeraldWare",9},{"CrystalWare",9},
+	{"Diamond",9,false},{"Ruby",9,false},{"Sapphire",9,false},{"Emerald",9,false},{"GoldNugget",9,false},{"Coal",9,false},
+	{"SilverNugget",9,false},{"IronOre",9,false},{"Crystal",9,false},{"IronIngot",9,false},
+	{"SuperCoal",9,false},{"UltraCoal",9,false},{"GoldIngot",9,false},{"SilverIngot",9,false},{"BlondeIngot",9,false},
+	{"MithralIngot",9,false},{"BlondeStone",9,false},{"Mithral",9,false},
+	{"DiamondWare",9,false},{"RubyWare",9,false},{"SapphireWare",9,false},{"EmeraldWare",9,false},{"CrystalWare",9,false},
 	// Food (10)
-	{"Baguette",10},{"Meat",10},{"Fish",10},{"RedFish",10},{"GreenFish",10},{"YellowFish",10},
-	{"RedCarp",10},{"GreenCarp",10},{"GoldCarp",10},{"CrucianCarp",10},
-	{"BlueSeaBream",10},{"Salmon",10},{"RedSeaBream",10},{"GrayMullet",10},
+	{"Baguette",10,false},{"Meat",10,false},{"Fish",10,false},{"RedFish",10,false},{"GreenFish",10,false},{"YellowFish",10,false},
+	{"RedCarp",10,false},{"GreenCarp",10,false},{"GoldCarp",10,false},{"CrucianCarp",10,false},
+	{"BlueSeaBream",10,false},{"Salmon",10,false},{"RedSeaBream",10,false},{"GrayMullet",10,false},
 	// Dyes (11)
-	{"Dye(Indigo)",11},{"Dye(Crimson-Red)",11},{"Dye(Brown)",11},{"Dye(Gold)",11},
-	{"Dye(Green)",11},{"Dye(Gray)",11},{"Dye(Aqua)",11},{"Dye(Pink)",11},
-	{"Dye(Violet)",11},{"Dye(Blue)",11},{"Dye(Tan)",11},{"Dye(Khaki)",11},
-	{"Dye(Yellow)",11},{"Dye(Red)",11},{"Dye(Black)",11},{"DecolorationPotion",11},
-	{"ArmorDye(Indigo)",11},{"ArmorDye(CrimsonRed)",11},{"ArmorDye(Gold)",11},
-	{"ArmorDye(Aqua)",11},{"ArmorDye(Pink)",11},{"ArmorDye(Violet)",11},
-	{"ArmorDye(Blue)",11},{"ArmorDye(Khaki)",11},{"ArmorDye(Yellow)",11},{"ArmorDye(Red)",11},
+	{"Dye(Indigo)",11,false},{"Dye(Crimson-Red)",11,false},{"Dye(Brown)",11,false},{"Dye(Gold)",11,false},
+	{"Dye(Green)",11,false},{"Dye(Gray)",11,false},{"Dye(Aqua)",11,false},{"Dye(Pink)",11,false},
+	{"Dye(Violet)",11,false},{"Dye(Blue)",11,false},{"Dye(Tan)",11,false},{"Dye(Khaki)",11,false},
+	{"Dye(Yellow)",11,false},{"Dye(Red)",11,false},{"Dye(Black)",11,false},{"DecolorationPotion",11,false},
+	{"ArmorDye(Indigo)",11,false},{"ArmorDye(CrimsonRed)",11,false},{"ArmorDye(Gold)",11,false},
+	{"ArmorDye(Aqua)",11,false},{"ArmorDye(Pink)",11,false},{"ArmorDye(Violet)",11,false},
+	{"ArmorDye(Blue)",11,false},{"ArmorDye(Khaki)",11,false},{"ArmorDye(Yellow)",11,false},{"ArmorDye(Red)",11,false},
 	// Farming (12)
-	{"SeedBag(WaterMelon)",12},{"SeedBag(Pumpkin)",12},{"SeedBag(Garlic)",12},{"SeedBag(Barley)",12},
-	{"SeedBag(Carrot)",12},{"SeedBag(Radish)",12},{"SeedBag(Corn)",12},{"SeedBag(CBellflower)",12},
-	{"SeedBag(Melone)",12},{"SeedBag(Tommato)",12},{"SeedBag(Grapes)",12},{"SeedBag(BlueGrapes)",12},
-	{"SeedBag(Mushroom)",12},{"SeedBag(Ginseng)",12},
-	{"WaterMelon",12},{"Pumpkin",12},{"Garlic",12},{"Barley",12},{"Carrot",12},{"Radish",12},
-	{"Corn",12},{"ChineseBellflower",12},{"Melone",12},{"Tommato",12},{"Grapes",12},{"BlueGrapes",12},{"Mushroom",12},
+	{"SeedBag(WaterMelon)",12,false},{"SeedBag(Pumpkin)",12,false},{"SeedBag(Garlic)",12,false},{"SeedBag(Barley)",12,false},
+	{"SeedBag(Carrot)",12,false},{"SeedBag(Radish)",12,false},{"SeedBag(Corn)",12,false},{"SeedBag(CBellflower)",12,false},
+	{"SeedBag(Melone)",12,false},{"SeedBag(Tommato)",12,false},{"SeedBag(Grapes)",12,false},{"SeedBag(BlueGrapes)",12,false},
+	{"SeedBag(Mushroom)",12,false},{"SeedBag(Ginseng)",12,false},
+	{"WaterMelon",12,false},{"Pumpkin",12,false},{"Garlic",12,false},{"Barley",12,false},{"Carrot",12,false},{"Radish",12,false},
+	{"Corn",12,false},{"ChineseBellflower",12,false},{"Melone",12,false},{"Tommato",12,false},{"Grapes",12,false},{"BlueGrapes",12,false},{"Mushroom",12,false},
 	// Parts (13)
-	{"SnakeMeat",13},{"SnakeSkin",13},{"SnakeTeeth",13},{"SnakeTongue",13},
-	{"AntLeg",13},{"AntFeeler",13},
-	{"CyclopsEye",13},{"CyclopsHandEdge",13},{"CyclopsHeart",13},{"CyclopsMeat",13},{"CyclopsLeather",13},
-	{"HelboundHeart",13},{"HelboundLeather",13},{"HelboundTail",13},{"HelboundTeeth",13},{"HelboundClaw",13},{"HelboundTongue",13},
-	{"LumpofClay",13},{"OrcMeat",13},{"OrcLeather",13},{"OrcTeeth",13},
-	{"OgreHair",13},{"OgreHeart",13},{"OgreMeat",13},{"OgreLeather",13},{"OgreTeeth",13},{"OgreClaw",13},
-	{"ScorpionPincers",13},{"ScorpionMeat",13},{"ScorpionSting",13},{"ScorpionSkin",13},
-	{"SkeletonBones",13},{"SlimeJelly",13},{"StoneGolemPiece",13},
-	{"TrollHeart",13},{"TrollMeat",13},{"TrollLeather",13},{"TrollClaw",13},
-	{"DemonEye",13},{"DemonHeart",13},{"DemonMeat",13},{"DemonLeather",13},
-	{"UnicornHeart",13},{"UnicornHorn",13},{"UnicornMeat",13},{"UnicornLeather",13},
-	{"WerewolfHeart",13},{"WerewolfNail",13},{"WerewolfMeat",13},{"WerewolfTail",13},{"WerewolfTeeth",13},{"WerewolfLeather",13},{"WerewolfClaw",13},
+	{"SnakeMeat",13,false},{"SnakeSkin",13,false},{"SnakeTeeth",13,false},{"SnakeTongue",13,false},
+	{"AntLeg",13,false},{"AntFeeler",13,false},
+	{"CyclopsEye",13,false},{"CyclopsHandEdge",13,false},{"CyclopsHeart",13,false},{"CyclopsMeat",13,false},{"CyclopsLeather",13,false},
+	{"HelboundHeart",13,false},{"HelboundLeather",13,false},{"HelboundTail",13,false},{"HelboundTeeth",13,false},{"HelboundClaw",13,false},{"HelboundTongue",13,false},
+	{"LumpofClay",13,false},{"OrcMeat",13,false},{"OrcLeather",13,false},{"OrcTeeth",13,false},
+	{"OgreHair",13,false},{"OgreHeart",13,false},{"OgreMeat",13,false},{"OgreLeather",13,false},{"OgreTeeth",13,false},{"OgreClaw",13,false},
+	{"ScorpionPincers",13,false},{"ScorpionMeat",13,false},{"ScorpionSting",13,false},{"ScorpionSkin",13,false},
+	{"SkeletonBones",13,false},{"SlimeJelly",13,false},{"StoneGolemPiece",13,false},
+	{"TrollHeart",13,false},{"TrollMeat",13,false},{"TrollLeather",13,false},{"TrollClaw",13,false},
+	{"DemonEye",13,false},{"DemonHeart",13,false},{"DemonMeat",13,false},{"DemonLeather",13,false},
+	{"UnicornHeart",13,false},{"UnicornHorn",13,false},{"UnicornMeat",13,false},{"UnicornLeather",13,false},
+	{"WerewolfHeart",13,false},{"WerewolfNail",13,false},{"WerewolfMeat",13,false},{"WerewolfTail",13,false},{"WerewolfTeeth",13,false},{"WerewolfLeather",13,false},{"WerewolfClaw",13,false},
 	// Misc (14)
-	{"Gold",14},{"Map",14},{"FishingRod",14},{"AlchemyBowl",14},{"PickAxe",14},{"Hoe",14},
-	{"ManufacturingHammer",14},{"CraftingVessel",14},
-	{"AresdenFlag(Master)",14},{"ElvineFlag(Master)",14},{"AresdenFlag",14},{"ElvineFlag",14},
-	{"Bouquette",14},{"FlowerBasket",14},{"Flowerpot",14},{"ZemstoneofSacrifice",14},
-	{"GreenBall",14},{"RedBall",14},{"YellowBall",14},{"BlueBall",14},{"PearlBall",14},
-	{"StoneOfXelima",14},{"StoneOfMerien",14},{"Songpyon",14},{"Ginseng",14},{"BeefRibSet",14},{"Wine",14},
-	{"5000GoldPocket",14},{"10000GoldPocket",14},{"50000GoldPocket",14},{"100000GoldPocket",14},{"1000000GoldPocket",14},
-	{"AcientTablet",14},{"AcientTablet(LU)",14},{"AcientTablet(LD)",14},{"AcientTablet(RU)",14},{"AcientTablet(RD)",14},
+	{"Gold",14,false},{"Map",14,false},{"FishingRod",14,false},{"AlchemyBowl",14,false},{"PickAxe",14,false},{"Hoe",14,false},
+	{"ManufacturingHammer",14,false},{"CraftingVessel",14,false},
+	{"AresdenFlag(Master)",14,false},{"ElvineFlag(Master)",14,false},{"AresdenFlag",14,false},{"ElvineFlag",14,false},
+	{"Bouquette",14,false},{"FlowerBasket",14,false},{"Flowerpot",14,false},{"ZemstoneofSacrifice",14,false},
+	{"GreenBall",14,false},{"RedBall",14,false},{"YellowBall",14,false},{"BlueBall",14,false},{"PearlBall",14,false},
+	{"StoneOfXelima",14,false},{"StoneOfMerien",14,false},{"Songpyon",14,false},{"Ginseng",14,false},{"BeefRibSet",14,false},{"Wine",14,false},
+	{"5000GoldPocket",14,false},{"10000GoldPocket",14,false},{"50000GoldPocket",14,false},{"100000GoldPocket",14,false},{"1000000GoldPocket",14,false},
+	{"AcientTablet",14,false},{"AcientTablet(LU)",14,false},{"AcientTablet(LD)",14,false},{"AcientTablet(RU)",14,false},{"AcientTablet(RD)",14,false},
 };
 static const int g_GMItemCount = sizeof(g_GMItems) / sizeof(g_GMItems[0]);
 
@@ -39143,10 +39211,16 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 			int ry = listY + row * rowH;
 			if (ry + rowH > sY + szY - 18) break;
 
-			BOOL hover = (msX >= btnLeft && msX <= btnRight - 10 && msY >= ry && msY < ry + rowH);
+			bool bNoSprite = _IsCreatureNoSprite(g_GMCreatures[idx].name);
+			BOOL hover = !bNoSprite && (msX >= btnLeft && msX <= btnRight - 10 && msY >= ry && msY < ry + rowH);
 			if (hover) gpu->DrawFilledRect(btnLeft, ry, contentW - 10, rowH - 1, 0.15f, 0.15f, 0.25f, 0.7f);
-			PutString(btnLeft + 4, ry + 1, (char*)g_GMCreatures[idx].name,
-				hover ? RGB(255,255,200) : RGB(190,190,220));
+			COLORREF clr = bNoSprite ? RGB(80,80,100) : (hover ? RGB(255,255,200) : RGB(190,190,220));
+			PutString(btnLeft + 4, ry + 1, (char*)g_GMCreatures[idx].name, clr);
+			if (bNoSprite) {
+				int nameLen = (int)strlen(g_GMCreatures[idx].name) * 8; // ~8px per char
+				int lineY = ry + rowH / 2;
+				gpu->DrawFilledRect(btnLeft + 4, lineY, nameLen, 1, 0.35f, 0.35f, 0.45f, 0.8f);
+			}
 		}
 
 		// Scrollbar
@@ -39254,9 +39328,12 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 			y += 16;
 			gpu->DrawFilledRect(sX + 4, y, szX - 8, 1, 0.3f, 0.3f, 0.5f, 0.6f); y += 4;
 
-			if (itemType == 3) {
-				// Non-equipment: no stats, just amount
-				PutString(btnLeft, y, "No stat options for this item type.", RGB(180, 150, 100));
+			if (itemType == 3 || g_GMItems[m_iGMPanelItemSelected].rare) {
+				// Non-equipment or rare: no stat customization
+				const char* noStatMsg = g_GMItems[m_iGMPanelItemSelected].rare
+					? "Rare item - stats are innate." : "No stat options for this item type.";
+				PutString(btnLeft, y, (char*)noStatMsg,
+					g_GMItems[m_iGMPanelItemSelected].rare ? RGB(255,180,80) : RGB(180,150,100));
 				y += 18;
 			} else {
 				// Prefix selector (filtered by item type)
@@ -39687,6 +39764,7 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			int clickedRow = (msY - listY) / rowH + m_iGMPanelScroll;
 			if (clickedRow >= 0 && clickedRow < filteredCount) {
 				int idx = filteredIdx[clickedRow];
+				if (_IsCreatureNoSprite(g_GMCreatures[idx].name)) return; // no client sprites
 				char cCmd[128];
 				if (m_iGMPanelSpawnAbility > 0)
 					wsprintf(cCmd, "/summon %s %d 0 %d", g_GMCreatures[idx].name, m_iGMPanelSpawnCount, m_iGMPanelSpawnAbility);
@@ -39781,8 +39859,8 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			}
 			y += 16 + 4; // header + separator
 
-			if (itemType == 3) {
-				// Non-equipment: skip stat controls
+			if (itemType == 3 || g_GMItems[m_iGMPanelItemSelected].rare) {
+				// Non-equipment or rare: skip stat controls
 				y += 18;
 			} else {
 				// Prefix buttons (filtered)

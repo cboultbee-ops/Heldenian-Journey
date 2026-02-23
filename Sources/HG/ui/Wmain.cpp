@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <winbase.h>
 #include <mmsystem.h>
-#include <time.h>		   
+#include <time.h>
+#include <io.h>
+#include <fcntl.h>
 #include "winmain.h"
 #include "..\HG.h"
 #include "..\net\UserMessages.h"
@@ -166,6 +168,19 @@ LRESULT CALLBACK WndProc( HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam )
 int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
                LPSTR lpCmdLine, int nCmdShow )
 {
+	// Enable printf output for pipe-captured or console-attached processes
+	HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+	if (hOut != INVALID_HANDLE_VALUE && hOut != NULL) {
+		int fd = _open_osfhandle((intptr_t)hOut, _O_TEXT);
+		if (fd >= 0) {
+			FILE* fp = _fdopen(fd, "w");
+			if (fp) {
+				*stdout = *fp;
+				setvbuf(stdout, NULL, _IONBF, 0);
+			}
+		}
+	}
+
 	LogMsg.CurMsg = MAXLOGMSGS-1;
 	sprintf( szAppClass, "GameServer%d", hInstance);
 	if (!InitApplication( hInstance))		return (FALSE);

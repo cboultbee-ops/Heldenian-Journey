@@ -85,12 +85,12 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 		// GPU renderer handles viewport clipping via projection matrix.
 		// Widen the CPU clip area so sprites near edges aren't truncated
 		// before reaching the GPU (fixes right-side clipping on UI panels).
-		SetRect(&m_rcClipArea, -200, -200, 840, 680);
+		SetRect(&m_rcClipArea, -400, -400, VIRTUAL_W + 400, VIRTUAL_H + 400);
 		OutputDebugString("GPU Renderer initialized - skipping DirectDraw display setup\n");
 		// No primary surface needed - GPU handles display via OpenGL
 		m_lpFrontB4 = NULL;
 		m_lpBackB4flip = NULL;
-		SetRect(&m_rcFlipping, 0, 0, 640, 480);
+		SetRect(&m_rcFlipping, 0, 0, VIRTUAL_W, VIRTUAL_H);
 
 		// If fullscreen mode requested, resize window to fill monitor
 		if (m_bFullMode == TRUE) {
@@ -98,7 +98,7 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 			int screenH = GetSystemMetrics(SM_CYSCREEN);
 			// Borderless fullscreen: cover entire screen including taskbar area
 			SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
-			SetWindowLong(hWnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
+			SetWindowLong(hWnd, GWL_EXSTYLE, WS_EX_APPWINDOW | WS_EX_TOPMOST);
 			SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, screenW, screenH,
 				SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 			SetForegroundWindow(hWnd);
@@ -799,14 +799,14 @@ bool DXC_ddraw::InitGPURenderer()
 	}
 
 	// Initialize GPU renderer on the Win32 window using WGL
-	if (!m_pGPURenderer->Init(G_hWnd, 640, 480)) {
+	if (!m_pGPURenderer->Init(G_hWnd, VIRTUAL_W, VIRTUAL_H)) {
 		delete m_pGPURenderer;
 		m_pGPURenderer = NULL;
 		return false;
 	}
 
-	m_iRenderWidth = 640;
-	m_iRenderHeight = 480;
+	m_iRenderWidth = VIRTUAL_W;
+	m_iRenderHeight = VIRTUAL_H;
 	m_fScaleX = 1.0f;
 	m_fScaleY = 1.0f;
 
@@ -867,7 +867,7 @@ void DXC_ddraw::UpdateGPUMapTexture()
 void DXC_ddraw::RenderGPUMapBackground(int srcX, int srcY)
 {
 	if (!m_bUseGPU || m_pGPURenderer == NULL) return;
-	m_pGPURenderer->RenderMapQuad(srcX, srcY, 640, 480);
+	m_pGPURenderer->RenderMapQuad(srcX, srcY, VIRTUAL_W, VIRTUAL_H);
 }
 
 //---------------------------------------------------------------------------
