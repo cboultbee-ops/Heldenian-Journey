@@ -85,7 +85,21 @@ bool CNpc::initNpcAttr(char * pNpcName, char cSA)
 	ZeroMemory(cTmpName, sizeof(cTmpName));
 	strcpy(cTmpName, pNpcName);
 
-	for (i = 0; i < MAXNPCTYPES; i++) 
+	// Debug: count non-NULL entries in config list
+	static bool bFirstCall = true;
+	if (bFirstCall) {
+		int npcCount = 0;
+		for (int dbg = 0; dbg < MAXNPCTYPES; dbg++)
+			if (g_npcConfigList[dbg] != NULL) npcCount++;
+		char dbgTxt[120];
+		wsprintf(dbgTxt, "(DEBUG) initNpcAttr first call: g_npcConfigList has %d entries, looking for '%s'", npcCount, pNpcName);
+		// Use extern PutLogList
+		extern void PutLogList(const char *);
+		PutLogList(dbgTxt);
+		bFirstCall = false;
+	}
+
+	for (i = 0; i < MAXNPCTYPES; i++)
 	{
 		if (g_npcConfigList[i] != NULL) {
 			if (memcmp(cTmpName, g_npcConfigList[i]->m_cNpcName, 20) == 0) {
@@ -916,7 +930,7 @@ bool CNpc::behavior_manaCollector()
 					if (m_side == g_clientList[sOwnerH]->m_side) {
 						iMaxMP = g_clientList[sOwnerH]->GetMaxMP();
 						if (g_clientList[sOwnerH]->m_iMP < iMaxMP) {
-							iTotal = dice(1, (g_clientList[sOwnerH]->GetMag()) ); // Mana Point´Â 1D(Magic)
+							iTotal = dice(1, (g_clientList[sOwnerH]->GetMag()) ); // Mana Pointï¿½ï¿½ 1D(Magic)
 							if (g_clientList[sOwnerH]->m_iAddMP != 0) {
 								dV2 = (double)iTotal;
 								dV3 = (double)g_clientList[sOwnerH]->m_iAddMP;

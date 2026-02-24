@@ -54,6 +54,7 @@ public:
 	void PutShiftTransSprite2(int sX, int sY, int shX, int shY, int sFrame, DWORD dwTime);
 	void PutSpriteFastFrontBuffer(int sX, int sY, int sFrame, DWORD dwTime);
 	void PutSpriteFastWidth(int sX, int sY, int sFrame, int sWidth, DWORD dwTime);
+	void PutSpriteFastHeight(int sX, int sY, int sFrame, int sHeight, DWORD dwTime);
 	void PutSpriteFastNoColorKey(int sX, int sY, int sFrame, DWORD dwTime);
 	void PutSpriteFastDst(LPDIRECTDRAWSURFACE7 lpDstS, int sX, int sY, int sFrame, DWORD dwTime);
 	void PutSpriteFastNoColorKeyDst(LPDIRECTDRAWSURFACE7 lpDstS, int sX, int sY, int sFrame, DWORD dwTime);

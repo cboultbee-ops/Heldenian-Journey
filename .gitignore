@@ -102,3 +102,29 @@ Sources/Shared/lib/*(*).lib
 
 # Lib files are needed for building but are binary
 # Keep them tracked since they're required for compilation
+
+# Asset pipeline directories (large binary assets)
+gigapixel_input/
+gigapixel_output/
+gigapixel_output_backup/
+gigapixel_staging/
+gigapixel_staging_out/
+gigapixel_v4_test/
+
+# Client save data (screenshots)
+Client/SAVE/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.spec
+
+# Large binary installers
+*.msi
+
+# Video frames (temp extraction)
+video_frames/
+
+# GUI extraction temp directories
+GUI_FRAMES/
+GUI_PAK_EXTRACT/

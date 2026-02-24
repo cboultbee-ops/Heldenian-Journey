@@ -5,8 +5,11 @@ import os
 import threading
 import time
 import datetime
+import queue
+import sys
 
 BASE_DIR = r"C:\Helbreath Project"
+LOG_DIR = os.path.join(BASE_DIR, "server_logs")
 
 SERVERS = {
     "Login": {
@@ -222,11 +225,23 @@ class ServerManager(tk.Tk):
         self.logout_timer_var = tk.StringVar(value="10")
         self.instant_logout_var = tk.IntVar(value=0)
 
+        # Debug console state
+        self._server_procs = {}      # name -> subprocess.Popen
+        self._log_queue = queue.Queue()
+        self._log_file = None
+        self._log_file_path = None
+        self._debug_mode = False     # True = capture output, False = legacy consoles
+        self._debug_filter_var = tk.StringVar(value="")
+        self._debug_paused = False
+        self._debug_buffer = []      # all lines for filtering
+        self._max_buffer = 50000     # max lines to keep
+
         self._build_top_bar()
         self._build_tabs()
         self._build_log_area()
 
         self._refresh_status()
+        self._poll_log_queue()
 
     # ---- Top Bar (always visible) ----
     def _build_top_bar(self):
@@ -265,11 +280,290 @@ class ServerManager(tk.Tk):
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(fill="both", expand=True, padx=10, pady=(0, 4))
 
+        self._build_tab_debug_console()
         self._build_tab_server_settings()
         self._build_tab_gameplay_tuning()
         self._build_tab_display()
         self._build_tab_quick_actions()
         self._build_tab_gm_commands()
+
+    # ---- Tab: Debug Console ----
+    def _build_tab_debug_console(self):
+        tab = ttk.Frame(self.notebook, padding=0)
+        self.notebook.add(tab, text="Debug Console")
+
+        # Toolbar at top
+        toolbar = ttk.Frame(tab, padding=(8, 6, 8, 4))
+        toolbar.pack(fill="x")
+
+        ttk.Button(toolbar, text="Clear", command=self._debug_clear).pack(side="left", padx=2)
+        ttk.Button(toolbar, text="Save Log", command=self._debug_save_log).pack(side="left", padx=2)
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Button(toolbar, text="Save for Claude", command=self._save_for_claude).pack(side="left", padx=2)
+
+        ttk.Separator(toolbar, orient="vertical").pack(side="left", fill="y", padx=8)
+
+        # Filter
+        ttk.Label(toolbar, text="Filter:").pack(side="left", padx=(0, 4))
+        self._debug_filter_var.trace_add("write", self._debug_on_filter)
+        filter_entry = ttk.Entry(toolbar, textvariable=self._debug_filter_var, width=20)
+        filter_entry.pack(side="left", padx=(0, 6))
+
+        # Server toggle checkbuttons
+        self._debug_server_vars = {}
+        for name in ["Login", "Towns", "Neutrals", "Middleland", "Events"]:
+            var = tk.IntVar(value=1)
+            cb = ttk.Checkbutton(toolbar, text=name[:3], variable=var,
+                                 command=self._debug_refilter)
+            cb.pack(side="left", padx=1)
+            self._debug_server_vars[name] = var
+
+        # Log file indicator
+        self._debug_logfile_label = ttk.Label(toolbar, text="", font=("Segoe UI", 7),
+                                               foreground="gray")
+        self._debug_logfile_label.pack(side="right", padx=4)
+
+        ttk.Separator(tab, orient="horizontal").pack(fill="x")
+
+        # Console text area
+        console_frame = ttk.Frame(tab)
+        console_frame.pack(fill="both", expand=True)
+
+        scrollbar = ttk.Scrollbar(console_frame, orient="vertical")
+        scrollbar.pack(side="right", fill="y")
+
+        self._debug_text = tk.Text(
+            console_frame, font=("Consolas", 9), wrap="none",
+            bg="#0c0c0c", fg="#cccccc", insertbackground="#cccccc",
+            state="disabled", yscrollcommand=scrollbar.set,
+            padx=6, pady=4,
+        )
+        self._debug_text.pack(fill="both", expand=True)
+        scrollbar.config(command=self._debug_text.yview)
+
+        # Horizontal scrollbar
+        hscroll = ttk.Scrollbar(tab, orient="horizontal", command=self._debug_text.xview)
+        hscroll.pack(fill="x")
+        self._debug_text.config(xscrollcommand=hscroll.set)
+
+        # Configure color tags per server
+        server_colors = {
+            "Login":      "#4fc3f7",  # light blue
+            "Towns":      "#81c784",  # green
+            "Neutrals":   "#ffcc80",  # orange
+            "Middleland": "#ce93d8",  # purple
+            "Events":     "#ef5350",  # red
+            "System":     "#888888",  # gray
+        }
+        for name, color in server_colors.items():
+            self._debug_text.tag_configure(f"srv_{name}", foreground=color)
+        # Special tags for debug markers
+        self._debug_text.tag_configure("tag_error",
+            foreground="#ff5252", font=("Consolas", 9, "bold"))
+        self._debug_text.tag_configure("tag_admin",
+            foreground="#ffeb3b")
+        self._debug_text.tag_configure("tag_connect",
+            foreground="#69f0ae")
+        self._debug_text.tag_configure("tag_teleport",
+            foreground="#40c4ff")
+        self._debug_text.tag_configure("tag_item",
+            foreground="#ff80ab")
+        self._debug_text.tag_configure("tag_timestamp",
+            foreground="#666666")
+
+        # Mousewheel binding
+        self._debug_text.bind("<Enter>", lambda e: self._debug_text.bind_all(
+            "<MouseWheel>", lambda ev: self._debug_text.yview_scroll(
+                int(-1 * (ev.delta / 120)), "units")))
+        self._debug_text.bind("<Leave>", lambda e: self._debug_text.unbind_all("<MouseWheel>"))
+
+    def _launch_server_debug(self, name):
+        """Launch a single server with stdout/stderr capture."""
+        info = SERVERS[name]
+        exe = info["exe"]
+        cwd = info["cwd"]
+
+        if not os.path.exists(exe):
+            self._debug_append("System", f"ERROR: {exe} not found!")
+            return
+
+        try:
+            proc = subprocess.Popen(
+                [exe],
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=0,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+            self._server_procs[name] = proc
+            self._debug_append("System", f"Started {name} (PID {proc.pid})")
+
+            # Start reader thread
+            t = threading.Thread(target=self._reader_thread, args=(name, proc),
+                               daemon=True)
+            t.start()
+        except Exception as e:
+            self._debug_append("System", f"ERROR starting {name}: {e}")
+
+    def _reader_thread(self, name, proc):
+        """Background thread that reads server stdout line by line."""
+        try:
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                if text:
+                    self._log_queue.put((name, text))
+        except Exception as e:
+            self._log_queue.put((name, f"[Reader error: {e}]"))
+        finally:
+            ret = proc.poll()
+            self._log_queue.put((name, f"[Process exited, code={ret}]"))
+            self._server_procs.pop(name, None)
+
+    def _poll_log_queue(self):
+        """Drain the queue and update the debug console (runs on main thread)."""
+        batch = []
+        try:
+            while True:
+                batch.append(self._log_queue.get_nowait())
+        except queue.Empty:
+            pass
+
+        if batch:
+            for server_name, text in batch:
+                self._debug_append(server_name, text)
+
+        self.after(50, self._poll_log_queue)  # 50ms polling = responsive
+
+    def _debug_append(self, server_name, text):
+        """Append a line to the debug console and log file."""
+        ts = datetime.datetime.now().strftime("%H:%M:%S.") + \
+             f"{datetime.datetime.now().microsecond // 1000:03d}"
+        line = f"[{ts}] [{server_name:11s}] {text}"
+
+        # Write to log file
+        if self._log_file:
+            try:
+                self._log_file.write(line + "\n")
+                self._log_file.flush()
+            except Exception:
+                pass
+
+        # Store in buffer
+        self._debug_buffer.append((server_name, line))
+        if len(self._debug_buffer) > self._max_buffer:
+            self._debug_buffer = self._debug_buffer[-self._max_buffer:]
+
+        # Check filter
+        if not self._debug_should_show(server_name, text):
+            return
+
+        # Determine tag based on content
+        tags = [f"srv_{server_name}"]
+        text_upper = text.upper()
+        if "ERROR" in text_upper or "FAIL" in text_upper or "CRITICAL" in text_upper:
+            tags = ["tag_error"]
+        elif text.startswith("[Admin]") or text.startswith("[ChatMsg]"):
+            tags.append("tag_admin")
+        elif text.startswith("[Connect]") or text.startswith("[Disconnect]"):
+            tags.append("tag_connect")
+        elif text.startswith("[Teleport]"):
+            tags.append("tag_teleport")
+        elif text.startswith("[CreateItem]") or text.startswith("[Summon]"):
+            tags.append("tag_item")
+
+        # Append to text widget
+        self._debug_text.config(state="normal")
+        self._debug_text.insert("end", line + "\n", tuple(tags))
+        self._debug_text.see("end")
+        self._debug_text.config(state="disabled")
+
+    def _debug_should_show(self, server_name, text):
+        """Check if a line passes the current filter."""
+        # Server filter
+        if server_name in self._debug_server_vars:
+            if not self._debug_server_vars[server_name].get():
+                return False
+        # Text filter
+        ft = self._debug_filter_var.get().strip().lower()
+        if ft and ft not in text.lower() and ft not in server_name.lower():
+            return False
+        return True
+
+    def _debug_on_filter(self, *args):
+        """Re-render when filter text changes."""
+        self._debug_refilter()
+
+    def _debug_refilter(self):
+        """Re-render all buffered lines with current filter."""
+        self._debug_text.config(state="normal")
+        self._debug_text.delete("1.0", "end")
+
+        for server_name, line in self._debug_buffer:
+            # Extract text portion after the timestamp and server tag
+            parts = line.split("] ", 2)
+            text = parts[2] if len(parts) > 2 else line
+            if not self._debug_should_show(server_name, text):
+                continue
+
+            tags = [f"srv_{server_name}"]
+            text_upper = text.upper()
+            if "ERROR" in text_upper or "FAIL" in text_upper or "CRITICAL" in text_upper:
+                tags = ["tag_error"]
+            elif "[Admin]" in line or "[ChatMsg]" in line:
+                tags.append("tag_admin")
+            elif "[Connect]" in line or "[Disconnect]" in line:
+                tags.append("tag_connect")
+            elif "[Teleport]" in line:
+                tags.append("tag_teleport")
+            elif "[CreateItem]" in line or "[Summon]" in line:
+                tags.append("tag_item")
+
+            self._debug_text.insert("end", line + "\n", tuple(tags))
+
+        self._debug_text.see("end")
+        self._debug_text.config(state="disabled")
+
+    def _debug_clear(self):
+        """Clear the debug console."""
+        self._debug_buffer.clear()
+        self._debug_text.config(state="normal")
+        self._debug_text.delete("1.0", "end")
+        self._debug_text.config(state="disabled")
+
+    def _debug_save_log(self):
+        """Save current buffer to a new log file."""
+        if not self._debug_buffer:
+            self._log("No debug output to save")
+            return
+        os.makedirs(LOG_DIR, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(LOG_DIR, f"snapshot_{ts}.log")
+        with open(path, "w", encoding="utf-8") as f:
+            for _, line in self._debug_buffer:
+                f.write(line + "\n")
+        self._log(f"Log snapshot saved: {path}")
+
+    def _save_for_claude(self):
+        """Save recent debug output to a well-known file for Claude Code to read."""
+        os.makedirs(LOG_DIR, exist_ok=True)
+        path = os.path.join(LOG_DIR, "claude_review.log")
+        # Save last 2000 lines (or all if less)
+        recent = self._debug_buffer[-2000:] if len(self._debug_buffer) > 2000 else self._debug_buffer
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(f"# Debug log snapshot for Claude Code analysis\n")
+            f.write(f"# Saved: {datetime.datetime.now().isoformat()}\n")
+            f.write(f"# Lines: {len(recent)}\n")
+            if self._log_file_path:
+                f.write(f"# Full log: {self._log_file_path}\n")
+            f.write(f"#\n")
+            for _, line in recent:
+                f.write(line + "\n")
+        self._log(f"Saved {len(recent)} lines to {path} — tell Claude to read it")
+        self._debug_append("System", f"Log saved for Claude review: {path}")
 
     # ---- Tab 1: Server Settings ----
     def _build_tab_server_settings(self):
@@ -522,6 +816,8 @@ class ServerManager(tk.Tk):
         is_windowed = self.display_mode_var.get() == "windowed"
         state = "readonly" if is_windowed else "disabled"
         self.res_combo.config(state=state)
+        # Auto-save display settings when radio button changes
+        self._save_display_settings()
 
     def _save_display_settings(self):
         settings = {
@@ -923,91 +1219,126 @@ class ServerManager(tk.Tk):
 
     # ---- Server Control ----
     def _start_all(self):
-        def run():
-            self._log("Starting Login server...")
-            try:
-                subprocess.Popen(
-                    [SERVERS["Login"]["exe"]],
-                    cwd=SERVERS["Login"]["cwd"],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
-                self._log("Login server started")
-            except Exception as e:
-                self._log(f"Failed to start Login: {e}")
-                return
+        """Start all servers with stdout/stderr capture to Debug Console."""
+        if self._server_procs:
+            self._log("Servers already running. Stop first.")
+            return
 
-            self._log("Waiting 3s for Login to initialize...")
-            time.sleep(1)
+        self._debug_mode = True
 
+        # Switch to Debug Console tab
+        self.notebook.select(0)
+
+        # Create log directory and file
+        os.makedirs(LOG_DIR, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        self._log_file_path = os.path.join(LOG_DIR, f"debug_{ts}.log")
+        self._log_file = open(self._log_file_path, "w", encoding="utf-8", buffering=1)
+        self._debug_logfile_label.config(text=f"Log: debug_{ts}.log")
+
+        self._debug_append("System", f"--- Debug session started: {self._log_file_path} ---")
+        self._log(f"Debug log: {self._log_file_path}")
+
+        # Start Login first
+        self._launch_server_debug("Login")
+
+        def start_game_servers():
+            time.sleep(5)  # Wait for Login to fully initialize (gate port ready)
             for name in ["Towns", "Neutrals", "Middleland", "Events"]:
-                try:
-                    subprocess.Popen(
-                        [SERVERS[name]["exe"]],
-                        cwd=SERVERS[name]["cwd"],
-                        creationflags=subprocess.CREATE_NEW_CONSOLE,
-                    )
-                    self._log(f"{name} server started")
-                except Exception as e:
-                    self._log(f"Failed to start {name}: {e}")
-
+                self._launch_server_debug(name)
+                time.sleep(1.5)  # Allow each server to register before starting next
+            self._debug_append("System", "All servers launched")
             self._log("All servers started")
-        threading.Thread(target=run, daemon=True).start()
+            self.after(0, self._launch_client)
+
+        threading.Thread(target=start_game_servers, daemon=True).start()
 
     def _stop_all(self):
         def run():
             self._log("Stopping all servers...")
-            for proc_name in ["HGserver.exe", "Login.exe"]:
+
+            # If we have tracked debug processes, terminate them directly
+            if self._server_procs:
+                for name, proc in list(self._server_procs.items()):
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        self._debug_append("System", f"Stopped {name} (PID {proc.pid})")
+                    except Exception as e:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                        self._debug_append("System", f"Force-killed {name}: {e}")
+                self._server_procs.clear()
+            else:
+                # Legacy: kill by image name
+                for proc_name in ["HGserver.exe", "Login.exe"]:
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/F", "/IM", proc_name],
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                            capture_output=True, timeout=10,
+                        )
+                        self._log(f"Killed {proc_name}")
+                    except Exception as e:
+                        self._log(f"Could not kill {proc_name}: {e}")
+
+            # Close log file
+            if self._log_file:
+                self._debug_append("System", "--- Debug session ended ---")
                 try:
-                    subprocess.run(
-                        ["taskkill", "/F", "/IM", proc_name],
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                        capture_output=True, timeout=10,
-                    )
-                    self._log(f"Killed {proc_name}")
-                except Exception as e:
-                    self._log(f"Could not kill {proc_name}: {e}")
+                    self._log_file.close()
+                except Exception:
+                    pass
+                self._log_file = None
+
+            self._debug_mode = False
             self._log("All servers stopped")
         threading.Thread(target=run, daemon=True).start()
 
     def _restart_all(self):
         def run():
             self._log("Restarting all servers...")
-            for proc_name in ["HGserver.exe", "Login.exe"]:
+
+            # Stop existing processes
+            if self._server_procs:
+                for name, proc in list(self._server_procs.items()):
+                    try:
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                    except Exception:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+                self._server_procs.clear()
+            else:
+                for proc_name in ["HGserver.exe", "Login.exe"]:
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/F", "/IM", proc_name],
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                            capture_output=True, timeout=10,
+                        )
+                    except Exception:
+                        pass
+
+            # Close previous log file
+            if self._log_file:
+                self._debug_append("System", "--- Debug session ended (restart) ---")
                 try:
-                    subprocess.run(
-                        ["taskkill", "/F", "/IM", proc_name],
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                        capture_output=True, timeout=10,
-                    )
+                    self._log_file.close()
                 except Exception:
                     pass
+                self._log_file = None
+            self._debug_mode = False
 
             time.sleep(2)
-            self._log("Servers stopped, starting...")
+            self._log("Servers stopped, restarting...")
 
-            try:
-                subprocess.Popen(
-                    [SERVERS["Login"]["exe"]],
-                    cwd=SERVERS["Login"]["cwd"],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE,
-                )
-            except Exception as e:
-                self._log(f"Failed to start Login: {e}")
-                return
-
-            time.sleep(1)
-
-            for name in ["Towns", "Neutrals", "Middleland", "Events"]:
-                try:
-                    subprocess.Popen(
-                        [SERVERS[name]["exe"]],
-                        cwd=SERVERS[name]["cwd"],
-                        creationflags=subprocess.CREATE_NEW_CONSOLE,
-                    )
-                except Exception:
-                    pass
-
-            self._log("All servers restarted")
+            # Always restart in debug mode
+            self.after(0, self._start_all)
         threading.Thread(target=run, daemon=True).start()
 
     def _launch_client(self):
@@ -1243,6 +1574,19 @@ class ServerManager(tk.Tk):
             except Exception as e:
                 self._log(f"Git error: {e}")
         threading.Thread(target=run, daemon=True).start()
+
+
+    def destroy(self):
+        """Clean up on window close."""
+        # Close log file
+        if self._log_file:
+            try:
+                self._log_file.write(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] [System     ] --- Manager closed ---\n")
+                self._log_file.close()
+            except Exception:
+                pass
+            self._log_file = None
+        super().destroy()
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@
 #include "..\shared\common.h"
 #include "..\shared\NetMessages.h"
 #include "..\shared\items.h"
+#include "..\shared\magicID.h"
 
 #include "StrTok.h"
 #include "math.h"
@@ -352,6 +353,7 @@ public:
 	int iGetItemWeight(CItem * pItem, int iCount = 1);
 	void CancelQuestHandler(int iClientH);
 	void ActivateSpecialAbilityHandler(int iClientH);
+	void NewAbilityActivationHandler(int iClientH, int iAbilityIndex);
 	void EnergySphereProcessor(bool bIsAdminCreate = FALSE, int iClientH = NULL);
 	bool bCheckEnergySphereDestination(int iNpcH, short sAttackerH, char cAttackerType);
 	void JoinPartyHandler(int iClientH, int iV1, char * pMemberName);
@@ -765,6 +767,7 @@ public:
 	DWORD m_dwExitProcessTime;
 
 	DWORD m_dwWhetherTime, m_dwGameTime1, m_dwGameTime2, m_dwGameTime3, m_dwGameTime4, m_dwGameTime5, m_dwGameTime6, m_dwFishTime;
+	DWORD m_dwConnectionAttemptTime;
 
 	char  m_cDayOrNight;
  	int   m_iSkillSSNpoint[102];

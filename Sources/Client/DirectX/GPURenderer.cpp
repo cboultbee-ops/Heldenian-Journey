@@ -521,6 +521,37 @@ void CGPURenderer::UpdateProjectionMatrix()
     m_projectionMatrix[15] = 1.0f;
 }
 
+void CGPURenderer::SetProjectionZoom(float zoom)
+{
+    if (!m_bInitialized) return;
+
+    // Flush pending draws before changing projection
+    Flush();
+
+    // Compute zoomed orthographic bounds centered on virtual screen center
+    float centerX = (float)m_renderConfig.virtualWidth * 0.5f;   // 320
+    float centerY = (float)m_renderConfig.virtualHeight * 0.5f;  // 240
+    float halfW = centerX * zoom;  // 368 at zoom=1.15
+    float halfH = centerY * zoom;  // 276 at zoom=1.15
+
+    float left = centerX - halfW;     // -48 at zoom=1.15
+    float right = centerX + halfW;    // 688
+    float top = centerY - halfH;      // -36 (Y-down: top < bottom)
+    float bottom = centerY + halfH;   // 516
+    float nearPlane = -1.0f;
+    float farPlane = 1.0f;
+
+    // Column-major orthographic matrix (same layout as UpdateProjectionMatrix)
+    memset(m_projectionMatrix, 0, sizeof(m_projectionMatrix));
+    m_projectionMatrix[0] = 2.0f / (right - left);
+    m_projectionMatrix[5] = 2.0f / (top - bottom);
+    m_projectionMatrix[10] = -2.0f / (farPlane - nearPlane);
+    m_projectionMatrix[12] = -(right + left) / (right - left);
+    m_projectionMatrix[13] = -(top + bottom) / (top - bottom);
+    m_projectionMatrix[14] = -(farPlane + nearPlane) / (farPlane - nearPlane);
+    m_projectionMatrix[15] = 1.0f;
+}
+
 void CGPURenderer::BeginFrame()
 {
     if (!m_bInitialized) return;
@@ -766,6 +797,43 @@ void CGPURenderer::DrawFilledRect(int x, int y, int w, int h, float r, float g, 
     m_drawCmds.push_back(cmd);
 }
 
+void CGPURenderer::QueueFilledRect(int x, int y, int w, int h, float r, float g, float b, float a)
+{
+    if (!m_bInitialized) return;
+    // No Flush() — caller is responsible for flushing before and after batched calls
+
+    float x0 = (float)x, y0 = (float)y;
+    float x1 = (float)(x + w), y1 = (float)(y + h);
+
+    GLuint baseIndex = (GLuint)m_vertices.size();
+    SpriteVertex v;
+    v.r = r; v.g = g; v.b = b; v.a = a;
+    v.u = 0.0f; v.v = 0.0f;
+
+    v.x = x0; v.y = y0; m_vertices.push_back(v);
+    v.x = x1; v.y = y0; m_vertices.push_back(v);
+    v.x = x1; v.y = y1; m_vertices.push_back(v);
+    v.x = x0; v.y = y1; m_vertices.push_back(v);
+
+    m_indices.push_back(baseIndex + 0);
+    m_indices.push_back(baseIndex + 1);
+    m_indices.push_back(baseIndex + 2);
+    m_indices.push_back(baseIndex + 0);
+    m_indices.push_back(baseIndex + 2);
+    m_indices.push_back(baseIndex + 3);
+
+    SpriteDrawCmd cmd;
+    cmd.textureID = m_glWhiteTexture;
+    cmd.blendMode = BLEND_COLORKEY;
+    cmd.alpha = 1.0f;
+    cmd.colorR = 0.0f; cmd.colorG = 0.0f; cmd.colorB = 0.0f;
+    cmd.dstX = x; cmd.dstY = y;
+    cmd.srcX = 0; cmd.srcY = 0;
+    cmd.width = w; cmd.height = h;
+    cmd.texWidth = 1; cmd.texHeight = 1;
+    m_drawCmds.push_back(cmd);
+}
+
 void CGPURenderer::QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b)
 {
     // Queue two vertices for a line segment (drawn with GL_LINES)
@@ -880,6 +948,59 @@ void CGPURenderer::Clear(float r, float g, float b, float a)
 {
     glClearColor(r, g, b, a);
     glClear(GL_COLOR_BUFFER_BIT);
+}
+
+bool CGPURenderer::SaveScreenshot(const char* filename)
+{
+    if (!m_bInitialized) return false;
+
+    int w = m_renderConfig.viewportW;
+    int h = m_renderConfig.viewportH;
+    int x = m_renderConfig.viewportX;
+    int y = m_renderConfig.viewportY;
+
+    // Read pixels from the OpenGL front buffer (what's currently displayed)
+    uint8_t* pixels = new uint8_t[w * h * 3];
+    glReadBuffer(GL_FRONT);
+    glReadPixels(x, y, w, h, GL_BGR_EXT, GL_UNSIGNED_BYTE, pixels);
+
+    // Write BMP file (bottom-up, matches OpenGL's bottom-left origin)
+    FILE* fp = fopen(filename, "wb");
+    if (!fp) { delete[] pixels; return false; }
+
+    BITMAPFILEHEADER bfh;
+    BITMAPINFOHEADER bih;
+    int rowBytes = ((w * 3 + 3) & ~3); // Pad rows to 4-byte boundary
+    int imageSize = rowBytes * h;
+
+    ZeroMemory(&bfh, sizeof(bfh));
+    bfh.bfType = 0x4D42; // 'BM'
+    bfh.bfSize = sizeof(bfh) + sizeof(bih) + imageSize;
+    bfh.bfOffBits = sizeof(bfh) + sizeof(bih);
+
+    ZeroMemory(&bih, sizeof(bih));
+    bih.biSize = sizeof(bih);
+    bih.biWidth = w;
+    bih.biHeight = h; // positive = bottom-up (matches GL)
+    bih.biPlanes = 1;
+    bih.biBitCount = 24;
+    bih.biCompression = BI_RGB;
+    bih.biSizeImage = imageSize;
+
+    fwrite(&bfh, sizeof(bfh), 1, fp);
+    fwrite(&bih, sizeof(bih), 1, fp);
+
+    // Write rows with padding
+    for (int row = 0; row < h; row++) {
+        fwrite(pixels + row * w * 3, w * 3, 1, fp);
+        // Pad to 4-byte boundary
+        int pad = rowBytes - w * 3;
+        if (pad > 0) { uint8_t zeros[4] = {0}; fwrite(zeros, pad, 1, fp); }
+    }
+
+    fclose(fp);
+    delete[] pixels;
+    return true;
 }
 
 //////////////////////////////////////////////////////////////////////

@@ -28,6 +28,7 @@
 
 #include "..\shared\common.h"
 #include "..\shared\NetMessages.h"
+#include "..\shared\magicID.h"
 #include "..\shared\items.h"
 #include "..\shared\npcType.h"
 
@@ -468,6 +469,13 @@ public:
 	void _DrawThunderEffect(int sX, int sY, int dX, int dY, int rX, int rY, char cType);
 	void DrawLine2(int x0, int y0, int x1, int y1, int iR, int iG, int iB);
 	void DrawLine(int x0, int y0, int x1, int y1, int iR, int iG, int iB);
+	void DrawTileOverlay(int tileX, int tileY, float r, float g, float b, float a);
+
+	// Spell Targeting Guides
+	void DrawSpellTargetingCorridor(short msX, short msY);
+	void DrawAoETargetingCircle(short msX, short msY);
+	bool IsCorridorSpell(int iMagicNo);
+	bool IsAoESpell(int iMagicNo);
 	void SetWhetherStatus(BOOL bStart, char cType);
 	void WhetherObjectFrameCounter();
 	void DrawWhetherEffects();
@@ -855,6 +863,45 @@ public:
 	int	m_iSpecialAbilityTimeLeftSec;
 	int m_iDrawFlag;
 	int m_iSpecialAbilityType;
+
+	// Equilibrium Combat Update — Special Abilities
+	struct SpecialAbility {
+		bool bUnlocked;
+		DWORD dwCooldownEnd;
+		DWORD dwActiveEnd;
+		bool bActive;
+	};
+	SpecialAbility m_stAbility[4]; // 0=MinorBerzerk, 1=SuperBerzerk, 2=SpeedBurst, 3=GlacialStrike
+	void InitSpecialAbilities();
+	void DrawOrb(int cx, int cy, int radius, float fillPercent,
+		float liquidR, float liquidG, float liquidB,
+		float emptyR, float emptyG, float emptyB,
+		float borderR, float borderG, float borderB,
+		bool bPulse = false, bool bWaveEffect = true);
+	void DrawOrbMounting(int cx, int cy, int radius, float tintR = 0.0f, float tintG = 0.0f, float tintB = 0.0f, float angleOffset = 0.0f);
+	void DrawSpecialAbilityCircles();
+	void UpdateSpecialAbilityTimers();
+	bool HandleSpecialAbilityClick(short msX, short msY);
+	bool ActivateSpecialAbility(int iAbilityIndex);
+	void SendSpecialAbilityActivation(int iAbilityIndex);
+	void ApplySpeedBuff(bool bActivate);
+
+	// Speed buff (client-side animation override)
+	bool  m_bSpeedBuffActive;
+	DWORD m_dwSpeedBuffEndTime;
+	short m_sPreBuffWalkTime;  // captured frame time before buff applied
+	short m_sPreBuffRunTime;   // captured frame time before buff applied
+
+	// Glacial Strike ice trail
+	static const int ICE_TRAIL_MAX = 20;
+	struct IceTrailPoint { int tileX, tileY; DWORD dwTime; };
+	IceTrailPoint m_iceTrail[20];
+	int m_iIceTrailHead;
+	int m_iIceTrailCount;
+	DWORD m_dwLastIceTrailTime;
+	void AddIceTrailPoint(int tileX, int tileY);
+	void DrawIceTrail();
+
 	int m_iTimeLeftSecAccount, m_iTimeLeftSecIP;
 	int m_iCrusadeDuty;
 	int m_iLogServerPort;

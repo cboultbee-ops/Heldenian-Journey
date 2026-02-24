@@ -118,7 +118,7 @@ LRESULT CALLBACK WndProc(HWND hWnd,UINT message,WPARAM wParam, LPARAM lParam)
 			if (G_pGame->m_DDraw.m_bFullMode && G_pGame->m_DDraw.m_bUseGPU) {
 				SetWindowPos(hWnd, HWND_NOTOPMOST, 0, 0, 0, 0,
 					SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
-			}
+				}
 		}else
 		{	G_pGame->m_bIsProgramActive = TRUE;
 			G_pGame->m_DInput.SetAcquire(TRUE);

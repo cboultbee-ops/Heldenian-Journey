@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <winbase.h>
 #include <mmsystem.h>
-#include <time.h>		   
+#include <time.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
 #include "winmain.h"
 #include "..\HG.h"
 #include "..\net\UserMessages.h"
@@ -12,6 +14,46 @@
 #include "..\res\Resource.h"
 
 // --------------------------------------------------------------
+
+static LONG WINAPI CrashDumpHandler(EXCEPTION_POINTERS* pExInfo) {
+	// Write crash dump file next to the executable
+	char dumpPath[MAX_PATH];
+	GetModuleFileNameA(NULL, dumpPath, MAX_PATH);
+	// Replace .exe with _crash.dmp
+	char* dot = strrchr(dumpPath, '.');
+	if (dot) strcpy(dot, "_crash.dmp");
+	else strcat(dumpPath, "_crash.dmp");
+
+	HANDLE hFile = CreateFileA(dumpPath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile != INVALID_HANDLE_VALUE) {
+		MINIDUMP_EXCEPTION_INFORMATION mei;
+		mei.ThreadId = GetCurrentThreadId();
+		mei.ExceptionPointers = pExInfo;
+		mei.ClientPointers = FALSE;
+		MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
+			(MINIDUMP_TYPE)(MiniDumpWithDataSegs | MiniDumpWithHandleData), &mei, NULL, NULL);
+		CloseHandle(hFile);
+	}
+
+	// Also write a text crash log with key addresses
+	if (dot) strcpy(dot, "_crash.txt");
+	else strcat(dumpPath, "_crash.txt");
+	FILE* f = fopen(dumpPath, "w");
+	if (f) {
+		fprintf(f, "CRASH at %p\n", pExInfo->ExceptionRecord->ExceptionAddress);
+		fprintf(f, "Code: 0x%08X\n", pExInfo->ExceptionRecord->ExceptionCode);
+		fprintf(f, "EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
+			pExInfo->ContextRecord->Eax, pExInfo->ContextRecord->Ebx,
+			pExInfo->ContextRecord->Ecx, pExInfo->ContextRecord->Edx);
+		fprintf(f, "ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
+			pExInfo->ContextRecord->Esi, pExInfo->ContextRecord->Edi,
+			pExInfo->ContextRecord->Ebp, pExInfo->ContextRecord->Esp);
+		fprintf(f, "EIP=%08X\n", pExInfo->ContextRecord->Eip);
+		fclose(f);
+	}
+
+	return EXCEPTION_EXECUTE_HANDLER;
+}
 
 #define WM_USER_TIMERSIGNAL		WM_USER + 500
 
@@ -166,6 +208,7 @@ LRESULT CALLBACK WndProc( HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam )
 int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
                LPSTR lpCmdLine, int nCmdShow )
 {
+	SetUnhandledExceptionFilter(CrashDumpHandler);
 	LogMsg.CurMsg = MAXLOGMSGS-1;
 	sprintf( szAppClass, "GameServer%d", hInstance);
 	if (!InitApplication( hInstance))		return (FALSE);
@@ -472,6 +515,7 @@ void PutLogFileList(const char * cStr, char *FileName)
 	strcat(cBuffer, "\n");
 
 	fwrite(cBuffer, 1, strlen(cBuffer), pFile);
+	fflush(pFile);
 }
 
 void Assertion(const char * assertion, const char * file, const uint32 line)

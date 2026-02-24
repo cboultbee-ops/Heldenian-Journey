@@ -395,6 +395,13 @@ public:
 	DWORD m_dwWarmEffectTime; 
 
 	bool  m_bIsRight;
+
+	// Equilibrium Combat: New ability system (appended at end to preserve struct layout)
+	DWORD m_dwNewAbilityCooldown[4];
+	bool  m_bGlacialStrikeActive;
+	DWORD m_dwGlacialStrikeStart;
+	DWORD m_dwLastFreezeEndTime;
+
 private:
 	int _str, _int, _dex, _mag;
 	int _angelStr, _angelInt, _angelDex, _angelMag;

@@ -55,6 +55,10 @@ void Unit::SetMagicFlag(short magicType, bool enabled)
 			break;
 		case MAGICTYPE_BERSERK:
 			flag = STATUS_BERSERK;
+			if (!enabled) flag |= STATUS_SUPER_BERSERK; // Also clear super flag on removal
+			break;
+		case MAGICTYPE_SPEED:
+			flag = STATUS_SPEED;
 			break;
 		case MAGICTYPE_PROTECT:
 			switch(m_cMagicEffectStatus[magicType])

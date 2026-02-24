@@ -44,6 +44,8 @@ enum StatusFlags
 	STATUS_BERSERK =				1 << 5,	// 0x00000020
 	STATUS_FROZEN =				1 << 6,	// 0x00000040
 	STATUS_POISON =				1 << 7,	// 0x00000080
+	STATUS_SPEED =				1 << 19,	// 0x00080000 (was bit 8 - moved to avoid NPC ability field 0x0F00)
+	STATUS_SUPER_BERSERK =		1 << 11,	// 0x00000800
 
 	STATUS_ANGELSTR =				1 << 12,	// 0x00001000
 	STATUS_ANGELDEX =				1 << 13,	// 0x00002000

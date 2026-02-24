@@ -581,7 +581,7 @@ bool CGame::bInit()
 	m_iStrategicStatus = 0;
 
 	m_dwSpecialEventTime = m_dwWhetherTime = m_dwGameTime1 = 
-		m_dwGameTime2 = m_dwGameTime3 = m_dwGameTime4 = m_dwGameTime5 = m_dwGameTime6 = m_dwFishTime = dwTime;
+		m_dwGameTime2 = m_dwGameTime3 = m_dwGameTime4 = m_dwGameTime5 = m_dwGameTime6 = m_dwFishTime = m_dwConnectionAttemptTime = dwTime;
 
 	m_bIsSpecialEventTime = FALSE;
 
@@ -931,34 +931,45 @@ int CGame::iClientMotion_Move_Handler(int iClientH, short sX, short sY, char cDi
 	m_pClientList[iClientH]->m_dwLastActionTime = dwTime;
 
 #ifndef NO_MSGSPEEDCHECK
-	if (bIsRun == FALSE) {
-		m_pClientList[iClientH]->m_iMoveMsgRecvCount++;
-
-		if (m_pClientList[iClientH]->m_iMoveMsgRecvCount >= 7) {
-			if (m_pClientList[iClientH]->m_dwMoveLAT != 0) {
-
-				if ((dwTime - m_pClientList[iClientH]->m_dwMoveLAT) < (72*8*7 -3000)) {
-					DeleteClient(iClientH, TRUE, TRUE);
-					return 0;
-				}
-			}
-			m_pClientList[iClientH]->m_dwMoveLAT = dwTime;
-			m_pClientList[iClientH]->m_iMoveMsgRecvCount = 0;
+	{
+		// Speed buff relaxes LAT thresholds by 50% (allows faster movement)
+		bool bHasSpeedBuff = (m_pClientList[iClientH]->m_cMagicEffectStatus[MAGICTYPE_SPEED] != 0);
+		int iWalkThreshold = 72*8*7 - 3000;
+		int iRunThreshold  = 43*8*7 - 1500;
+		if (bHasSpeedBuff) {
+			iWalkThreshold = (iWalkThreshold * 2) / 3; // 66% of normal = 50% faster allowed
+			iRunThreshold  = (iRunThreshold  * 2) / 3;
 		}
-	}
-	else {
-		m_pClientList[iClientH]->m_iRunMsgRecvCount++;
 
-		if (m_pClientList[iClientH]->m_iRunMsgRecvCount >= 7) {
-			if (m_pClientList[iClientH]->m_dwRunLAT != 0) {
+		if (bIsRun == FALSE) {
+			m_pClientList[iClientH]->m_iMoveMsgRecvCount++;
 
-				if ((dwTime - m_pClientList[iClientH]->m_dwRunLAT) < (43*8*7 -1500)) {
-					DeleteClient(iClientH, TRUE, TRUE);
-					return 0;
+			if (m_pClientList[iClientH]->m_iMoveMsgRecvCount >= 7) {
+				if (m_pClientList[iClientH]->m_dwMoveLAT != 0) {
+
+					if ((dwTime - m_pClientList[iClientH]->m_dwMoveLAT) < (DWORD)iWalkThreshold) {
+						DeleteClient(iClientH, TRUE, TRUE);
+						return 0;
+					}
 				}
+				m_pClientList[iClientH]->m_dwMoveLAT = dwTime;
+				m_pClientList[iClientH]->m_iMoveMsgRecvCount = 0;
 			}
-			m_pClientList[iClientH]->m_dwRunLAT	= dwTime;
-			m_pClientList[iClientH]->m_iRunMsgRecvCount = 0;
+		}
+		else {
+			m_pClientList[iClientH]->m_iRunMsgRecvCount++;
+
+			if (m_pClientList[iClientH]->m_iRunMsgRecvCount >= 7) {
+				if (m_pClientList[iClientH]->m_dwRunLAT != 0) {
+
+					if ((dwTime - m_pClientList[iClientH]->m_dwRunLAT) < (DWORD)iRunThreshold) {
+						DeleteClient(iClientH, TRUE, TRUE);
+						return 0;
+					}
+				}
+				m_pClientList[iClientH]->m_dwRunLAT	= dwTime;
+				m_pClientList[iClientH]->m_iRunMsgRecvCount = 0;
+			}
 		}
 	}
 #endif
@@ -989,6 +1000,8 @@ int CGame::iClientMotion_Move_Handler(int iClientH, short sX, short sY, char cDi
 	bRet = m_pMapList[m_pClientList[iClientH]->m_cMapIndex]->bGetMoveable(dX, dY, &sDOtype, pTopItem); 
 
 	if (m_pClientList[iClientH]->m_cMagicEffectStatus[ MAGICTYPE_HOLDOBJECT ] != 0)
+		bRet = FALSE;
+	if (m_pClientList[iClientH]->m_cMagicEffectStatus[ MAGICTYPE_ICE ] != 0)
 		bRet = FALSE;
 
 	if (bRet == TRUE) {
@@ -2340,6 +2353,15 @@ void CGame::OnTimer(char cType)
 
 	MsgProcess();
 
+	// Glacial Strike expiry: deactivate after 7-second window (freeze applied on combat hit in combat.cpp)
+	for (int gs = 1; gs < MAXCLIENTS; gs++) {
+		if (m_pClientList[gs] == NULL) continue;
+		if (!m_pClientList[gs]->m_bGlacialStrikeActive) continue;
+		if ((dwTime - m_pClientList[gs]->m_dwGlacialStrikeStart) > 7000) {
+			m_pClientList[gs]->m_bGlacialStrikeActive = false;
+		}
+	}
+
 	if ((dwTime - m_dwGameTime2) > 3 _s) {
 		CheckClientResponseTime();
 		bSendMsgToLS(MSGID_GAMESERVERALIVE, NULL);
@@ -2348,18 +2370,28 @@ void CGame::OnTimer(char cType)
 		m_dwGameTime2 = dwTime;
 
 
-		if ((m_bIsGameStarted == FALSE)     && (m_bIsItemAvailable == TRUE)      && 
-			(m_bIsNpcAvailable == TRUE)     && (m_bIsMagicAvailable == TRUE)     &&
-			(m_bIsSkillAvailable == TRUE)   && (m_bIsPotionAvailable == TRUE)   &&
-			(m_bIsQuestAvailable == TRUE)   && (m_bIsBuildItemAvailable == TRUE) && 
-			(m_iSubLogSockActiveCount == MAXSUBLOGSOCK)
-			) 
-		{
-			//PutLogList("Initializing drops list...");
-			//m_drops.InitDrops();
-		//	PutLogList("Sending start message...");
-			SendMessage(m_hWnd, WM_USER_STARTGAMESIGNAL, NULL, NULL);
-			m_bIsGameStarted = TRUE;
+		if (m_bIsGameStarted == FALSE) {
+			if ((m_bIsItemAvailable == TRUE)      &&
+				(m_bIsNpcAvailable == TRUE)     && (m_bIsMagicAvailable == TRUE)     &&
+				(m_bIsSkillAvailable == TRUE)   && (m_bIsPotionAvailable == TRUE)   &&
+				(m_bIsQuestAvailable == TRUE)   && (m_bIsBuildItemAvailable == TRUE) &&
+				(m_iSubLogSockActiveCount == MAXSUBLOGSOCK)
+				)
+			{
+				SendMessage(m_hWnd, WM_USER_STARTGAMESIGNAL, NULL, NULL);
+				m_bIsGameStarted = TRUE;
+			}
+			else {
+				static DWORD dwLastStartupLog = 0;
+				if (dwTime - dwLastStartupLog > 5000) {
+					wsprintf(g_cTxt, "(STARTUP) Waiting: Item=%d Npc=%d Magic=%d Skill=%d Potion=%d Quest=%d Build=%d Socks=%d/%d Registered=%d",
+						m_bIsItemAvailable, m_bIsNpcAvailable, m_bIsMagicAvailable,
+						m_bIsSkillAvailable, m_bIsPotionAvailable, m_bIsQuestAvailable,
+						m_bIsBuildItemAvailable, m_iSubLogSockActiveCount, MAXSUBLOGSOCK, m_bIsGameServerRegistered);
+					PutLogList(g_cTxt);
+					dwLastStartupLog = dwTime;
+				}
+			}
 		}
 	}
 
@@ -2389,8 +2421,20 @@ void CGame::OnTimer(char cType)
 			m_pSubLogSock[0] = new XSocket(m_hWnd, SERVERSOCKETBLOCKLIMIT);
 			m_pSubLogSock[0]->bConnect(m_cLogServerAddr, m_iGateServerPort, (WM_ONLOGSOCKETEVENT + 1));
 			m_pSubLogSock[0]->bInitBufferSize(MSGBUFFERSIZE);
-			//wsprintf(g_cTxt, "(*) Try to connect sub-log-socket(0)... Addr:%s  Port:%d", m_cLogServerAddr, m_iGateServerPort);
-			//PutLogList(g_cTxt);
+			m_dwConnectionAttemptTime = dwTime;
+			wsprintf(g_cTxt, "(*) Try to connect sub-log-socket(0)... Addr:%s  Port:%d", m_cLogServerAddr, m_iGateServerPort);
+			PutLogList(g_cTxt);
+		}
+		else if (!m_bIsGameServerRegistered && m_pSubLogSock[0] != NULL) {
+			// Socket exists but not registered — if stale for 10 seconds, clean up and retry
+			if ((dwTime - m_dwConnectionAttemptTime) > 10 _s) {
+				wsprintf(g_cTxt, "(!) Registration timeout on sub-log-socket(0), retrying...");
+				PutLogList(g_cTxt);
+				delete m_pSubLogSock[0];
+				m_pSubLogSock[0] = NULL;
+				m_bIsSocketConnected[0] = FALSE;
+				m_bIsSubLogSockAvailable[0] = FALSE;
+			}
 		}
 		else if(m_bIsGameServerRegistered) for (b = 1; b < MAXSUBLOGSOCK; b++){
 			if(m_pSubLogSock[b] == NULL && !m_bIsSocketConnected[b] && m_bIsSocketConnected[b-1]){
@@ -7876,13 +7920,13 @@ OUTDATED_PROUVED:
 				break;
 
 			case MSGID_RESPONSE_REGISTERGAMESERVER:
-				switch (*wpMsgType) 
+				switch (*wpMsgType)
 				{
 				case MSGTYPE_CONFIRM:
 					GSID = bGetOffsetValue(pData, 6);
 					ZeroMemory(cGSReg, sizeof(cGSReg));
-					//wsprintf(cGSReg,"(*) Game Server registration to Log Server - Success! GSID[%u]",GSID);
-					//PutLogList(cGSReg);
+					wsprintf(cGSReg,"(*) Game Server registration to Log Server - Success! GSID[%u]",GSID);
+					PutLogList(cGSReg);
 					m_bIsGameServerRegistered = TRUE;
 					break;
 
@@ -7935,43 +7979,42 @@ OUTDATED_PROUVED:
 				break;
 
 			case MSGID_BUILDITEMCONFIGURATIONCONTENTS:
-				// Build Item contents
-				//PutLogList("(!) BUILD-ITEM configuration contents received. Now decoding...");
+				PutLogList("(!) BUILD-ITEM configuration contents received. Now decoding...");
 				m_bIsBuildItemAvailable = _bDecodeBuildItemConfigFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
 			case MSGID_ITEMCONFIGURATIONCONTENTS:
-				//PutLogList("(!) ITEM configuration contents received. Now decoding...");
+				PutLogList("(!) ITEM configuration contents received. Now decoding...");
 				m_bIsItemAvailable = _bDecodeItemConfigFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
 			case MSGID_NPCCONFIGURATIONCONTENTS:
-				//PutLogList("(!) NPC configuration contents received. Now decoding...");
+				PutLogList("(!) NPC configuration contents received. Now decoding...");
 				m_bIsNpcAvailable = _bDecodeNpcConfigFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
 			case MSGID_MAGICCONFIGURATIONCONTENTS:
-				//PutLogList("(!) MAGIC configuration contents received. Now decoding...");
+				PutLogList("(!) MAGIC configuration contents received. Now decoding...");
 				m_bIsMagicAvailable = _bDecodeMagicConfigFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
 			case MSGID_SKILLCONFIGURATIONCONTENTS:
-				//PutLogList("(!) SKILL configuration contents received. Now decoding...");
+				PutLogList("(!) SKILL configuration contents received. Now decoding...");
 				m_bIsSkillAvailable = _bDecodeSkillConfigFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
 			case MSGID_QUESTCONFIGURATIONCONTENTS:
-				//PutLogList("(!) QUEST configuration contents received. Now decoding...");
+				PutLogList("(!) QUEST configuration contents received. Now decoding...");
 				m_bIsQuestAvailable = _bDecodeQuestConfigFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
 			case MSGID_POTIONCONFIGURATIONCONTENTS:
-				//PutLogList("(!) POTION configuration contents received. Now decoding...");
+				PutLogList("(!) POTION configuration contents received. Now decoding...");
 				m_bIsPotionAvailable = _bDecodePotionConfigFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
 			case MSGID_DUPITEMIDFILECONTENTS:
-				//PutLogList("(!) DupItemID file contents received. Now decoding...");
+				PutLogList("(!) DupItemID file contents received. Now decoding...");
 				_bDecodeDupItemIDFileContents((char *)(pData + INDEX2_MSGTYPE + 2), dwMsgSize);
 				break;
 
@@ -8159,7 +8202,10 @@ void CGame::ClientCommonHandler(int iClientH, char * pData)
 		break;
 
 	case COMMONTYPE_REQUEST_ACTIVATESPECABLTY:
-		ActivateSpecialAbilityHandler(iClientH);
+		if (iV1 >= 100 && iV1 <= 103)
+			NewAbilityActivationHandler(iClientH, iV1 - 100);
+		else
+			ActivateSpecialAbilityHandler(iClientH);
 		break;
 
 	case COMMONTYPE_REQUEST_JOINPARTY:
@@ -10581,6 +10627,9 @@ void CGame::SendNotifyMsg(int iFromH, int iToH, WORD wMsgType, DWORD sV1, DWORD 
 	case NOTIFY_CONSTRUCTIONPOINT:
 	case NOTIFY_SPECIALABILITYSTATUS:
 	case NOTIFY_DAMAGEMOVE:
+	case NOTIFY_SPEED_BUFF:
+	case NOTIFY_FREEZE_STATE:
+	case NOTIFY_SUPER_BERSERK:
 		sp = (short *)cp;
 		*sp = (short)sV1;
 		cp += 2;
@@ -12221,8 +12270,14 @@ bool CGame::_bDecodeNpcConfigFileContents(char * pData, DWORD dwMsgSize)
 		return FALSE;
 	}
 
-	//wsprintf(cTxt, "(!) NPC(Total:%d) configuration - success!", iNpcConfigListIndex);
-	//PutLogList(cTxt);
+	wsprintf(cTxt, "(!) NPC(Total:%d) configuration - success!", iNpcConfigListIndex);
+	PutLogList(cTxt);
+
+	// Debug: print first NPC name to verify config loaded correctly
+	if (iNpcConfigListIndex > 0 && m_npcConfigList[0] != NULL) {
+		wsprintf(cTxt, "(DEBUG) First NPC in config: '%s'", m_npcConfigList[0]->m_cNpcName);
+		PutLogList(cTxt);
+	}
 
 	return TRUE;
 }
@@ -12231,26 +12286,32 @@ void CGame::OnStartGameSignal()
 {
 	int i;
 
+	PutLogList("(CHECKPOINT) OnStartGameSignal: loading map info files...");
 	for (i = 0; i < MAXMAPS; i++)
-		if (m_pMapList[i] != NULL) 
+		if (m_pMapList[i] != NULL)
 			_bReadMapInfoFiles(i);
 
-
+	PutLogList("(CHECKPOINT) Map info files loaded. Reading crusade config...");
 	bReadCrusadeStructureConfigFile("..\\configs\\Crusade.cfg");
 
+	PutLogList("(CHECKPOINT) Linking strike points...");
 	_LinkStrikePointMapIndex();
 
+	PutLogList("(CHECKPOINT) Reading GUID files...");
 	bReadCrusadeGUIDFile("GameData\\CrusadeGUID.txt");
-	bReadHeldenianGUIDFile("GameData\\HeldenianGUID.txt");	
-	
+	bReadHeldenianGUIDFile("GameData\\HeldenianGUID.txt");
+
+	PutLogList("(CHECKPOINT) Reading scheduler...");
 	bReadSchedulerConfigFile("..\\configs\\Schedule.cfg");
 
 	PutLogList("");
 	PutLogList("(!) Game Server Activated.");
 
+	PutLogList("(CHECKPOINT) Creating gold item...");
 	m_pGold = new class CItem;
 	_bInitItemAttr(m_pGold, "Gold");
 
+	PutLogList("(CHECKPOINT) OnStartGameSignal COMPLETE.");
 }
 
 void CGame::CalculateGuildEffect(int iVictimH, char cVictimType, short sAttackerH)
@@ -12334,7 +12395,7 @@ void CGame::TimeHitPointsUp(int iClientH)
 			iTotal += (int)dV1;
 		}
 
-		m_pClientList[iClientH]->AddHP(iTotal); 
+		m_pClientList[iClientH]->AddHP(iTotal);
 	}
 
 	m_pClientList[iClientH]->m_iHPstock = 0;
@@ -13243,35 +13304,56 @@ void CGame::PlayerMagicHandler(int iClientH, int dX, int dY, short sType, bool b
 				}
 				break;
 		case MAGICTYPE_DAMAGE_AREA_MOVE:
+			// Meteor Strike zone behavior: center = no knockback, edges = knockback away from impact
+			{	bool bMeteorZone = (sType == MAGIC_METEORSTRIKE);
+				short sKnockX = bMeteorZone ? dX : sX;  // Knockback origin: spell center or caster
+				short sKnockY = bMeteorZone ? dY : sY;
 			if ((dX >= sX) && (dY >= sY))
-				{	for (ix = dX - spell->m_hRange; ix <= dX + spell->m_hRange; ix++) 
+				{	for (ix = dX - spell->m_hRange; ix <= dX + spell->m_hRange; ix++)
 					for (iy = dY - spell->m_vRange; iy <= dY + spell->m_vRange; iy++)
 					{	m_pMapList[caster->m_cMapIndex]->GetOwner(&sOwnerH, &cOwnerType, ix, iy);
-						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE)
-							Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sX, sY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
-					}					
-				}else if ((dX >= sX) && (dY < sY)) 
-				{	for (ix = dX - spell->m_hRange; ix <= dX + spell->m_hRange; ix++) 
+						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE) {
+							if (bMeteorZone && ix == dX && iy == dY)
+								Effect_Damage_Spot(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+							else
+								Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sKnockX, sKnockY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+						}
+					}
+				}else if ((dX >= sX) && (dY < sY))
+				{	for (ix = dX - spell->m_hRange; ix <= dX + spell->m_hRange; ix++)
 					for (iy = dY + spell->m_vRange; iy >= dY - spell->m_vRange; iy--)
 					{	m_pMapList[caster->m_cMapIndex]->GetOwner(&sOwnerH, &cOwnerType, ix, iy);
-						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE)
-							Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sX, sY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
-					}	
-				}else if((dX < sX) && (dY >= sY))  
-				{	for (ix = dX + spell->m_hRange; ix >= dX - spell->m_hRange; ix--) 
+						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE) {
+							if (bMeteorZone && ix == dX && iy == dY)
+								Effect_Damage_Spot(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+							else
+								Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sKnockX, sKnockY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+						}
+					}
+				}else if((dX < sX) && (dY >= sY))
+				{	for (ix = dX + spell->m_hRange; ix >= dX - spell->m_hRange; ix--)
 					for (iy = dY - spell->m_vRange; iy <= dY + spell->m_vRange; iy++)
 					{	m_pMapList[caster->m_cMapIndex]->GetOwner(&sOwnerH, &cOwnerType, ix, iy);
-						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE)
-							Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sX, sY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
-					}	
-				}else //if((dX < sX) && (dY < sY)) 
-				{	for (ix = dX + spell->m_hRange; ix >= dX - spell->m_hRange; ix--) 
+						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE) {
+							if (bMeteorZone && ix == dX && iy == dY)
+								Effect_Damage_Spot(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+							else
+								Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sKnockX, sKnockY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+						}
+					}
+				}else //if((dX < sX) && (dY < sY))
+				{	for (ix = dX + spell->m_hRange; ix >= dX - spell->m_hRange; ix--)
 					for (iy = dY + spell->m_vRange; iy >= dY - spell->m_vRange; iy--)
 					{	m_pMapList[caster->m_cMapIndex]->GetOwner(&sOwnerH, &cOwnerType, ix, iy);
-						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE)
-							Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sX, sY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+						if (CheckResistingMagicSuccess(caster->m_cDir, sOwnerH, cOwnerType, iResult) == FALSE) {
+							if (bMeteorZone && ix == dX && iy == dY)
+								Effect_Damage_Spot(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+							else
+								Effect_Damage_Spot_DamageMove(iClientH, OWNERTYPE_PLAYER, sOwnerH, cOwnerType, sKnockX, sKnockY, spell->m_sValue[MAGICV_LINEARTHROW], spell->m_sValue[MAGICV_LINEARRANGE], spell->m_sValue[MAGICV_LINEARBONUS] + iWhetherBonus, TRUE, iMagicAttr);
+						}
 					}
 				}
+			}
 				for (iy = dY - spell->m_vRange; iy <= dY + spell->m_vRange; iy++)
 				for (ix = dX - spell->m_hRange; ix <= dX + spell->m_hRange; ix++) 
 				{	m_pMapList[caster->m_cMapIndex]->GetDeadOwner(&sOwnerH, &cOwnerType, ix, iy);
@@ -13891,6 +13973,7 @@ if ((m_bHeldenianMode) && (m_pMapList[caster->m_cMapIndex]->m_bIsHeldenianMap ==
 			PutLogList(g_cTxt);
 			switch (spell->m_sValue[MAGICV_TYPE]) {
 			case 1:
+			case 2:
 				m_pMapList[caster->m_cMapIndex]->GetOwner(&sOwnerH, &cOwnerType, dX, dY);
 				wsprintf(g_cTxt, "(DEBUG) BERSERK GetOwner: sOwnerH=%d cOwnerType=%d", sOwnerH, cOwnerType);
 				PutLogList(g_cTxt);
@@ -14001,6 +14084,18 @@ if ((m_bHeldenianMode) && (m_pMapList[caster->m_cMapIndex]->m_bIsHeldenianMap ==
 					}
 				}
 				break;
+
+		case MAGICTYPE_SPEED:
+			// Speed spell: cast on OTHER players only, not self, not NPCs
+			m_pMapList[caster->m_cMapIndex]->GetOwner(&sOwnerH, &cOwnerType, dX, dY);
+			if (cOwnerType != OWNERTYPE_PLAYER) goto MAGIC_NOEFFECT;
+			if (sOwnerH == iClientH) goto MAGIC_NOEFFECT;
+			if (m_pClientList[sOwnerH] == NULL) goto MAGIC_NOEFFECT;
+			if (m_pClientList[sOwnerH]->m_cMagicEffectStatus[MAGICTYPE_SPEED] != 0) goto MAGIC_NOEFFECT;
+
+			m_pClientList[sOwnerH]->AddMagicEffect(MAGICTYPE_SPEED, spell->m_dwLastTime);
+			SendNotifyMsg(NULL, sOwnerH, NOTIFY_SPEED_BUFF, 1, spell->m_dwLastTime, NULL, NULL);
+			break;
 
 		default:
 			break;
@@ -20451,17 +20546,21 @@ void CGame::Effect_Damage_Spot(short sAttackerH, char cAttackerType, short sTarg
 
 		iDamage += iDamage * m_pClientList[sAttackerH]->m_addMagicDmgPct/100;
 
+		// Super Berserk: +30% magic damage
+		if (m_pClientList[sAttackerH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK] == 3)
+			iDamage += iDamage * 3 / 10;
+
 		if (iDamage <= 0) iDamage = 0;
 
-		if (m_pMapList[m_pClientList[sAttackerH]->m_cMapIndex]->m_bIsFightZone == TRUE) 
+		if (m_pMapList[m_pClientList[sAttackerH]->m_cMapIndex]->m_bIsFightZone == TRUE)
 			iDamage += iDamage/3;
 
-		if ((cTargetType == OWNERTYPE_PLAYER) && (m_bIsCrusadeMode == TRUE) && (m_pClientList[sAttackerH]->m_iCrusadeDuty == 1)) 
+		if ((cTargetType == OWNERTYPE_PLAYER) && (m_bIsCrusadeMode == TRUE) && (m_pClientList[sAttackerH]->m_iCrusadeDuty == 1))
 		{
 			if (m_pClientList[sAttackerH]->m_iLevel <= 80)
 			{
 				iDamage += (iDamage* 7)/10 ;
-			} 
+			}
 			else if (m_pClientList[sAttackerH]->m_iLevel <= 100)
 			{
 				iDamage += iDamage/2;
@@ -20942,12 +21041,15 @@ void CGame::Effect_Damage_Spot_DamageMove(short sAttackerH, char cAttackerType, 
 
 		iDamage += iDamage * m_pClientList[sAttackerH]->m_addMagicDmgPct/100;
 
+		// Super Berserk: +30% magic damage
+		if (m_pClientList[sAttackerH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK] == 3)
+			iDamage += iDamage * 3 / 10;
 
-		if (m_pMapList[m_pClientList[sAttackerH]->m_cMapIndex]->m_bIsFightZone == TRUE) 
+		if (m_pMapList[m_pClientList[sAttackerH]->m_cMapIndex]->m_bIsFightZone == TRUE)
 			iDamage += iDamage/3;
 
 
-		if ((cTargetType == OWNERTYPE_PLAYER) && (m_bIsCrusadeMode == TRUE) && (m_pClientList[sAttackerH]->m_iCrusadeDuty == 1)) 
+		if ((cTargetType == OWNERTYPE_PLAYER) && (m_bIsCrusadeMode == TRUE) && (m_pClientList[sAttackerH]->m_iCrusadeDuty == 1))
 		{
 			if (m_pClientList[sAttackerH]->m_iLevel <= 80)
 			{
@@ -29329,8 +29431,8 @@ void CGame::OnSubLogSocketEvent(UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 
 	case XSOCKEVENT_CONNECTIONESTABLISH:
-		//wsprintf(g_cTxt, "(!!!) Sub-log-socket(%d) connected.", iLogSockH);
-		//PutLogList(g_cTxt);
+		wsprintf(g_cTxt, "(!!!) Sub-log-socket(%d) connected.", iLogSockH);
+		PutLogList(g_cTxt);
 		m_iCurSubLogSockIndex = iLogSockH;
 		if(!m_bIsGameServerRegistered) bSendMsgToLS(MSGID_REQUEST_REGISTERGAMESERVER, NULL);
 		else bSendMsgToLS(MSGID_REQUEST_REGISTERGAMESERVERSOCKET, NULL);
@@ -29357,10 +29459,11 @@ void CGame::OnSubLogSocketEvent(UINT message, WPARAM wParam, LPARAM lParam)
 		m_bIsSubLogSockAvailable[iLogSockH] = FALSE;
 
 		m_iSubLogSockFailCount++;
-		m_iSubLogSockActiveCount--;
+		if (m_iSubLogSockActiveCount > 0) m_iSubLogSockActiveCount--;
 
 		if(m_iSubLogSockActiveCount == 0) m_bIsGameServerRegistered = FALSE;
-		wsprintf(g_cTxt, "(ERROR) Sub-log-socket(%d) connection lost!", iLogSockH);
+		wsprintf(g_cTxt, "(ERROR) Sub-log-socket(%d) connection lost! (active:%d, registered:%d)",
+			iLogSockH, m_iSubLogSockActiveCount, m_bIsGameServerRegistered);
 		PutLogList(g_cTxt);
 		m_bIsSocketConnected[iLogSockH] = FALSE;
 		break;
@@ -33259,6 +33362,101 @@ void CGame::ActivateSpecialAbilityHandler(int iClientH)
 
 	SendNotifyMsg(NULL, iClientH, NOTIFY_SPECIALABILITYSTATUS, 1, m_pClientList[iClientH]->m_iSpecialAbilityType, m_pClientList[iClientH]->m_specialAbilityLastSec, NULL);
 	SendEventToNearClient_TypeA(iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
+}
+
+void CGame::NewAbilityActivationHandler(int iClientH, int iAbilityIndex)
+{
+	if (m_pClientList[iClientH] == NULL) return;
+	if (iAbilityIndex < 0 || iAbilityIndex > 3) return;
+
+	DWORD dwTime = timeGetTime();
+	// Per-ability cooldowns: Berserk=5min, Super Berserk=10min, Speed=10min, Glacial=15min
+	DWORD dwCooldowns[4] = { 5*60*1000, 10*60*1000, 10*60*1000, 15*60*1000 };
+	DWORD dwCooldown = dwCooldowns[iAbilityIndex];
+
+	// Check cooldown
+	if (m_pClientList[iClientH]->m_dwNewAbilityCooldown[iAbilityIndex] > dwTime) {
+		SendNotifyMsg(NULL, iClientH, NOTIFY_SPECIALABILITYSTATUS, 0, iAbilityIndex, 0, NULL);
+		return;
+	}
+
+	switch (iAbilityIndex) {
+	case 0: // Minor Berzerk → Regular Berserk (2x, 60s)
+	{
+		if (m_pClientList[iClientH]->m_cMagicMastery[MAGIC_MINORBERSERK] == 0) return;
+
+		// Remove any active berserk first
+		if (m_pClientList[iClientH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK] != 0)
+			m_pClientList[iClientH]->RemoveMagicEffect(MAGICTYPE_BERSERK);
+
+		// Manual setup — same pattern as cases 2/3, bypass AddMagicEffect
+		m_pClientList[iClientH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK] = 1;
+		RegisterDelayEvent(DELAYEVENTTYPE_MAGICRELEASE, MAGICTYPE_BERSERK, dwTime + 60 _s,
+			m_pClientList[iClientH], NULL, NULL, NULL, 1, NULL, NULL);
+		m_pClientList[iClientH]->SetMagicFlag(MAGICTYPE_BERSERK, TRUE);
+		SendNotifyMsg(NULL, iClientH, NOTIFY_MAGICEFFECTON, MAGICTYPE_BERSERK, 1, NULL, NULL);
+
+		m_pClientList[iClientH]->m_dwNewAbilityCooldown[0] = dwTime + dwCooldown;
+		SendEventToNearClient_TypeA(iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
+		break;
+	}
+
+	case 1: // Super Berzerk (2.5x, 15s) — requires both Minor Berserk + Berserk
+	{
+		if (m_pClientList[iClientH]->m_cMagicMastery[MAGIC_MINORBERSERK] == 0) return;
+		if (m_pClientList[iClientH]->m_cMagicMastery[MAGIC_BERSERK] == 0) return;
+
+		// Remove any active berserk first
+		if (m_pClientList[iClientH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK] != 0)
+			m_pClientList[iClientH]->RemoveMagicEffect(MAGICTYPE_BERSERK);
+
+		// Manual setup — bypass AddMagicEffect
+		m_pClientList[iClientH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK] = 3; // Super variant
+		RegisterDelayEvent(DELAYEVENTTYPE_MAGICRELEASE, MAGICTYPE_BERSERK, dwTime + 15 _s,
+			m_pClientList[iClientH], NULL, NULL, NULL, 3, NULL, NULL);
+		m_pClientList[iClientH]->SetMagicFlag(MAGICTYPE_BERSERK, TRUE);
+		m_pClientList[iClientH]->m_iStatus |= STATUS_SUPER_BERSERK; // Purple hue flag
+		SendNotifyMsg(NULL, iClientH, NOTIFY_SUPER_BERSERK, 1, 15, NULL, NULL);
+
+		m_pClientList[iClientH]->m_dwNewAbilityCooldown[1] = dwTime + dwCooldown;
+		SendEventToNearClient_TypeA(iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
+		break;
+	}
+
+	case 2: // Speed Burst (self only)
+	{
+		if (m_pClientList[iClientH]->m_cMagicMastery[MAGIC_SPEED] == 0) return;
+		if (m_pClientList[iClientH]->m_cMagicEffectStatus[MAGICTYPE_SPEED] != 0) return;
+
+		m_pClientList[iClientH]->m_cMagicEffectStatus[MAGICTYPE_SPEED] = 1;
+		RegisterDelayEvent(DELAYEVENTTYPE_MAGICRELEASE, MAGICTYPE_SPEED, dwTime + 10000,
+			m_pClientList[iClientH], NULL, NULL, NULL, 1, NULL, NULL);
+		m_pClientList[iClientH]->SetMagicFlag(MAGICTYPE_SPEED, TRUE);
+		SendNotifyMsg(NULL, iClientH, NOTIFY_SPEED_BUFF, 1, 10, NULL, NULL);
+
+		m_pClientList[iClientH]->m_dwNewAbilityCooldown[2] = dwTime + dwCooldown;
+		SendEventToNearClient_TypeA(iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
+		break;
+	}
+
+	case 3: // Glacial Strike — 3s speed burst + 7s window to hit a player to freeze them
+	{
+		if (m_pClientList[iClientH]->m_cMagicMastery[MAGIC_ICESTRIKE] == 0) return;
+		if (m_pClientList[iClientH]->m_bGlacialStrikeActive) return;
+
+		// 3-second speed burst to close the gap
+		SendNotifyMsg(NULL, iClientH, NOTIFY_SPEED_BUFF, 1, 3, NULL, NULL);
+
+		m_pClientList[iClientH]->m_bGlacialStrikeActive = true;
+		m_pClientList[iClientH]->m_dwGlacialStrikeStart = dwTime;
+
+		m_pClientList[iClientH]->m_dwNewAbilityCooldown[3] = dwTime + dwCooldown;
+		SendEventToNearClient_TypeA(iClientH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
+		break;
+	}
+	}
+
+	SendNotifyMsg(NULL, iClientH, NOTIFY_SPECIALABILITYSTATUS, 1, 100 + iAbilityIndex, (int)(dwCooldown / 1000), NULL);
 }
 
 void CGame::CancelQuestHandler(int iClientH)

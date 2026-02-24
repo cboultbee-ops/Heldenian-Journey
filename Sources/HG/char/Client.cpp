@@ -248,8 +248,14 @@ CClient::CClient(HWND hWnd, int clientH)
 	m_iAttackMsgRecvCount = 0;
 	m_iRunMsgRecvCount    = 0;
 	m_iSkillMsgRecvCount  = 0;
- 
+
 	m_iAlterItemDropIndex = -1;
+
+	// Equilibrium Combat: New ability system
+	for (int ab = 0; ab < 4; ab++) m_dwNewAbilityCooldown[ab] = 0;
+	m_bGlacialStrikeActive = false;
+	m_dwGlacialStrikeStart = 0;
+	m_dwLastFreezeEndTime = 0;
 
 	m_iAutoExpAmount = 0;
 	m_iWarContribution = 0;

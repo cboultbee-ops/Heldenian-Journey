@@ -169,6 +169,12 @@ All 13 fixes complete and verified:
 
 ## Asset Pipeline
 
+### Gigapixel Output & Backup
+- `gigapixel_output/` — working copy of 2x upscaled sprites (defringe runs here)
+- `gigapixel_output_backup/` — **PRISTINE Gigapixel output. NEVER modify this folder.** This is the clean 2x upscale before any defringe/post-processing. If defringe damages sprites, restore from this backup.
+- `gigapixel_input/` — original 1x sprites extracted from PAKs (also never modify)
+- Workflow: `gigapixel_input` → Topaz Gigapixel 2x → `gigapixel_output` → `defringe_v4.py` → repack PAKs
+
 ### Color-Key Alpha Extraction
 - `colorkey_alpha.py`: quantize RGB to RGB565, exact 16-bit match (not tolerance)
 - Edge-padding prevents bilinear fringe on transparent pixels

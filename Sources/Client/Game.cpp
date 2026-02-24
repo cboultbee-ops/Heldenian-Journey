@@ -496,7 +496,7 @@ CGame::CGame()
 	m_stDialogBoxInfo[30].sX = 0;
 	m_stDialogBoxInfo[30].sY = 427;
 	m_stDialogBoxInfo[30].sSizeX = 640;
-	m_stDialogBoxInfo[30].sSizeY = 53;//47;
+	m_stDialogBoxInfo[30].sSizeY = 53;
 
 	//Sell List Dialog
 	m_stDialogBoxInfo[31].sX = 170;
@@ -751,9 +751,10 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 		return FALSE;
 	}
 
-	m_hPakFile = CreateFile("sprites\\New-Dialog.pak", GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL);
-	m_pSprite[SPRID_INTERFACE_ND_LOADING] = new class CSprite(m_hPakFile, &m_DDraw, "New-Dialog", 0, FALSE);
-	CloseHandle(m_hPakFile);
+	// Loading splash sprite removed — loading screen uses simple text instead
+	// m_hPakFile = CreateFile("sprites\\New-Dialog.pak", GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL);
+	// m_pSprite[SPRID_INTERFACE_ND_LOADING] = new class CSprite(m_hPakFile, &m_DDraw, "New-Dialog", 0, FALSE);
+	// CloseHandle(m_hPakFile);
 
 	m_hPakFile = CreateFile("sprites\\interface2.pak", GENERIC_READ, NULL, NULL, OPEN_EXISTING, NULL, NULL);
 	m_pSprite[SPRID_INTERFACE_ADDINTERFACE] = new class CSprite(m_hPakFile, &m_DDraw, "interface2", 0, FALSE);
@@ -790,6 +791,18 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 			if (sAtkTime < 10) sAtkTime = 10;
 			m_pMapData->m_stFrame[iType][OBJECTATTACK].m_sFrameTime = sAtkTime;
 		}
+	}
+
+	// Diagnostic: show initial frame times after GM.cfg speed overrides
+	{
+		char cInitDbg[128];
+		wsprintf(cInitDbg, "[INIT] Walk=%d Run=%d Dash=%d AtkMul=%d (cfg walk=%d run=%d dash=%d)",
+			m_pMapData->m_stFrame[1][OBJECTMOVE].m_sFrameTime,
+			m_pMapData->m_stFrame[1][OBJECTRUN].m_sFrameTime,
+			m_pMapData->m_stFrame[1][OBJECTATTACKMOVE].m_sFrameTime,
+			m_iAttackSpeedMultiplier,
+			m_iWalkSpeed, m_iRunSpeed, m_iDashSpeed);
+		AddEventList(cInitDbg, 10);
 	}
 
 	ZeroMemory(m_cPlayerName, sizeof(m_cPlayerName));
@@ -2010,13 +2023,23 @@ void CGame::DrawObjects(short sPivotX, short sPivotY, short sDivX, short sDivY, 
 	DWORD dwTime = m_dwCurTime;
 	m_stMCursor.sCursorFrame = 0;
 
+	// Object visibility bounds (extended for GPU world zoom-out)
+	// GPU zoom visible range: -48..688 X, -36..516 Y
+	// Add 96px margin beyond that for large character/monster sprites entering from off-screen
+	int objVisMinX = -sModX, objVisMaxX = 640 + 16;
+	int objVisMinY = -sModY, objVisMaxY = 427 + 32 + 16;
+	if (m_DDraw.m_bUseGPU) {
+		objVisMinX -= 128;  objVisMaxX = 768;
+		objVisMinY -= 128;  objVisMaxY = 616;
+	}
+
 	indexY = sDivY + sPivotY - 7;
 	for (iy = -sModY-224; iy <= 427+352; iy += 32)
 	{	indexX = sDivX + sPivotX-4;
 		for (ix = -sModX-128 ; ix <= 640 + 128; ix += 32)
 		{	sDynamicObject = NULL;
 			bRet = FALSE;
-			if ((ix >= -sModX) && (ix <= 640+16) && (iy >= -sModY) && (iy <= 427+32+16))
+			if ((ix >= objVisMinX) && (ix <= objVisMaxX) && (iy >= objVisMinY) && (iy <= objVisMaxY))
 			{	_tmp_wObjectID = _tmp_sOwnerType = _tmp_sAppr1 = _tmp_sAppr2 = _tmp_sAppr3 = _tmp_sAppr4 = _tmp_iStatus = NULL;
 				_tmp_cDir = _tmp_cFrame = 0;
 				_tmp_iEffectType = _tmp_iEffectFrame = _tmp_iChatIndex = 0;
@@ -3615,11 +3638,11 @@ void CGame::UpdateScreen_OnLoading(bool bActive)
 void CGame::UpdateScreen_OnLoading_Progress()
 {
 	m_DDraw.ClearBackB4();
-	DrawNewDialogBox(SPRID_INTERFACE_ND_LOADING, 0,0,0, TRUE);
+	// Simple loading screen — no splash image (prevents stale surface in screenshots)
 	DrawVersion(TRUE);
-	int iBarWidth;
-	iBarWidth= (int)m_cLoading;
-	m_pSprite[SPRID_INTERFACE_ND_LOADING]->PutSpriteFastWidth(472,442, 1, iBarWidth, G_dwGlobalTime);
+	char cLoad[64];
+	wsprintf(cLoad, "Loading... %d%%", (int)m_cLoading);
+	PutString(280, 230, cLoad, RGB(200, 200, 200), FALSE, 1);
 	m_DDraw.iFlip();
 }
 
@@ -4403,6 +4426,21 @@ void CGame::InitGameSettings()
 	m_iSpecialAbilityType = 0;
 	m_dwSpecialAbilitySettingTime = NULL;
 	m_iSpecialAbilityTimeLeftSec = NULL;
+	// Equilibrium Combat Update init
+	for (int sa = 0; sa < 4; sa++) {
+		m_stAbility[sa].bUnlocked = false;
+		m_stAbility[sa].dwCooldownEnd = 0;
+		m_stAbility[sa].dwActiveEnd = 0;
+		m_stAbility[sa].bActive = false;
+	}
+	m_bSpeedBuffActive = false;
+	m_dwSpeedBuffEndTime = 0;
+	m_sPreBuffWalkTime = 0;
+	m_sPreBuffRunTime = 0;
+	m_iIceTrailHead = 0;
+	m_iIceTrailCount = 0;
+	m_dwLastIceTrailTime = 0;
+	ZeroMemory(m_iceTrail, sizeof(m_iceTrail));
 	m_stMCursor.cSelectedObjectType = NULL;
 	m_bIsF1HelpWindowEnabled = FALSE;
 	m_bIsTeleportRequested = FALSE;
@@ -8090,8 +8128,14 @@ BOOL   CGame::DrawObject_OnAttack(int indexX, int indexY, int sX, int sY, BOOL b
 				if (_tmp_cFrame == 3) m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX, sY, _tmp_cFrame -1, m_wR[10] -(m_wR[0]/3), m_wG[10] -(m_wG[0]/3), m_wB[10] -(m_wB[0]/3), dwTime);
 		}	}
 
-		if ((_tmp_iStatus & 0x20) != 0) // Berserk
+		if ((_tmp_iStatus & 0x800) != 0) // Super Berserk
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0) // Berserk
 			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, -5, 3, dwTime);
 		DrawAngel((_tmp_cDir - 1), sX+20, sY-20, _tmp_cFrame%8, dwTime);
 		CheckActiveAura2(sX, sY, dwTime,  _tmp_sOwnerType);
 
@@ -8648,9 +8692,15 @@ BOOL   CGame::DrawObject_OnAttackMove(int indexX, int indexY, int sX, int sY, BO
 				if (_tmp_cFrame == 3) m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame -1, m_wR[10] -(m_wR[0]/3), m_wG[10] -(m_wG[0]/3), m_wB[10] -(m_wB[0]/3), dwTime);
 		}	}
 
-		// Berserk
-		if ((_tmp_iStatus & 0x20) != 0)
+		// Super Berserk / Berserk
+		if ((_tmp_iStatus & 0x800) != 0)
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0)
 			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, -5, -5, 3, dwTime);
 		DrawAngel(8+(_tmp_cDir - 1), sX+dx+20, sY+dy-20, _tmp_cFrame%8, dwTime);
 		CheckActiveAura2(sX+dx, sY+dy, dwTime,  _tmp_sOwnerType);
 
@@ -8912,8 +8962,14 @@ BOOL   CGame::DrawObject_OnMagic(int indexX, int indexY, int sX, int sY, BOOL bT
 			else m_pSprite[iMantleIndex]->PutSpriteRGB(sX, sY, (_tmp_cDir-1) * 16 + _tmp_cFrame, m_wR[iMantleColor] -m_wR[0], m_wG[iMantleColor] -m_wG[0], m_wB[iMantleColor] -m_wB[0], dwTime);
 		}
 
-		if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
+		if ((_tmp_iStatus & 0x800) != 0) 	// Super Berserk
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
 			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, -5, 3, dwTime);
 		DrawAngel(32+(_tmp_cDir - 1), sX+20, sY-20, _tmp_cFrame%16, dwTime);
 		CheckActiveAura2(sX, sY, dwTime,  _tmp_sOwnerType);
 
@@ -9147,8 +9203,14 @@ BOOL   CGame::DrawObject_OnGetItem(int indexX, int indexY, int sX, int sY, BOOL 
 				else m_pSprite[iMantleIndex]->PutSpriteRGB(sX, sY, (_tmp_cDir-1) * 4 + _tmp_cFrame, m_wR[iMantleColor] -m_wR[0], m_wG[iMantleColor] -m_wG[0], m_wB[iMantleColor] -m_wB[0], dwTime);
 		}	}
 
-		if ((_tmp_iStatus & 0x20) != 0) // Berserk
+		if ((_tmp_iStatus & 0x800) != 0) // Super Berserk
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0) // Berserk
 			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, -5, 3, dwTime);
 		DrawAngel(40+(_tmp_cDir - 1), sX+20, sY-20, _tmp_cFrame%4, dwTime);
 		CheckActiveAura2(sX, sY, dwTime,  _tmp_sOwnerType);
 
@@ -9638,8 +9700,14 @@ BOOL CGame::DrawObject_OnDamage(int indexX, int indexY, int sX, int sY, BOOL bTr
 					case 3: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX, sY,  _tmp_cFrame, 0, 0, m_iDrawFlag, dwTime); break; // Blue Glare
 			}	}	}
 
-			if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
+			if ((_tmp_iStatus & 0x800) != 0) 	// Super Berserk
+				m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, cFrame, 5, -8, 5, dwTime);
+			else if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
 				m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, cFrame, 0, -5, -5, dwTime);
+			if ((_tmp_iStatus & 0x80000) != 0) // Speed
+				m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, cFrame, -5, 3, -5, dwTime);
+			if ((_tmp_iStatus & 0x40) != 0) // Frozen
+				m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, cFrame, -5, -5, 3, dwTime);
 			DrawAngel(16+(_tmp_cDir - 1), sX+20, sY-20, cFrame%4, dwTime);
 			CheckActiveAura2(sX, sY, dwTime,  _tmp_sOwnerType);
 
@@ -9847,8 +9915,14 @@ BOOL CGame::DrawObject_OnDamage(int indexX, int indexY, int sX, int sY, BOOL bTr
 					case 3: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX, sY,  cFrame, 0, 0, m_iDrawFlag, dwTime); break; // Blue Glare
 			}	}	}
 
-			if ((_tmp_iStatus & 0x20) != 0)	// Berserk
+			if ((_tmp_iStatus & 0x800) != 0)	// Super Berserk
+				m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, cFrame, 5, -8, 5, dwTime);
+			else if ((_tmp_iStatus & 0x20) != 0)	// Berserk
 				m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, cFrame, 0, -5, -5, dwTime);
+			if ((_tmp_iStatus & 0x80000) != 0) // Speed
+				m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, cFrame, -5, 3, -5, dwTime);
+			if ((_tmp_iStatus & 0x40) != 0) // Frozen
+				m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, cFrame, -5, -5, 3, dwTime);
 			DrawAngel(16+(_tmp_cDir - 1), sX+20, sY-20, cFrame%4, dwTime);
 			CheckActiveAura2(sX, sY, dwTime,  _tmp_sOwnerType);
 		}
@@ -10242,8 +10316,14 @@ BOOL CGame::DrawObject_OnDying(int indexX, int indexY, int sX, int sY, BOOL bTra
 			else m_pSprite[iMantleIndex]->PutSpriteRGB(sX, sY, (_tmp_cDir-1) * 8 + cFrame, m_wR[iMantleColor] -m_wR[0], m_wG[iMantleColor] -m_wG[0], m_wB[iMantleColor] -m_wB[0], dwTime);
 		}
 
-		if ((_tmp_iStatus & 0x20) != 0) // Berserk
+		if ((_tmp_iStatus & 0x800) != 0) // Super Berserk
+			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY,  cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0) // Berserk
 			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY,  cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY,  cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY,  cFrame, -5, -5, 3, dwTime);
 		DrawAngel(24+(_tmp_cDir - 1), sX+20, sY-20, _tmp_cFrame, dwTime);
 		CheckActiveAura2(sX, sY, dwTime,  _tmp_sOwnerType);
 
@@ -10518,9 +10598,15 @@ BOOL   CGame::DrawObject_OnDead(int indexX, int indexY, int sX, int sY, BOOL bTr
 					m_pSprite[iMantleIndex]->PutSpriteFast(sX, sY, (_tmp_cDir-1) * 8 + _tmp_cFrame, dwTime);
 				else m_pSprite[iMantleIndex]->PutSpriteRGB(sX, sY, (_tmp_cDir-1) * 8 + _tmp_cFrame, m_wR[iMantleColor] -m_wR[0], m_wG[iMantleColor] -m_wG[0], m_wB[iMantleColor] -m_wB[0], dwTime);
 			}
-		}else if ((_tmp_iStatus & 0x20) != 0)
+		}else if ((_tmp_iStatus & 0x800) != 0)
+				 m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, iFrame, -2*_tmp_cFrame +5, -2*_tmp_cFrame -8, -2*_tmp_cFrame +5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0)
 				 m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, iFrame, -2*_tmp_cFrame +5, -2*_tmp_cFrame -5, -2*_tmp_cFrame -5, dwTime);
 			else m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, iFrame, -2*_tmp_cFrame,-2*_tmp_cFrame,-2*_tmp_cFrame, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, iFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX, sY, iFrame, -5, -5, 3, dwTime);
 
 	}else if( strlen(_tmp_cName) > 0 )
 	{	if( (_tmp_sOwnerType>=1) && (_tmp_sOwnerType<=6) ) DrawObjectName(sX, sY, _tmp_cName, _tmp_iStatus);
@@ -11118,9 +11204,15 @@ BOOL   CGame::DrawObject_OnMove(int indexX, int indexY, int sX, int sY, BOOL bTr
 				case 3: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX+dx, sY+dy,  _tmp_cFrame, 0, 0, m_iDrawFlag, dwTime); break; // Blue Glare
 		}	}	}
 
-		// Berserk
-		if ((_tmp_iStatus & 0x20) != 0)
+		// Super Berserk / Berserk
+		if ((_tmp_iStatus & 0x800) != 0)
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0)
 			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, -5, -5, 3, dwTime);
 		DrawAngel(40+(_tmp_cDir - 1), sX+dx+20, sY+dy-20, _tmp_cFrame%4, dwTime);
 		CheckActiveAura2(sX+dx, sY+dy, dwTime,  _tmp_sOwnerType);
 
@@ -11579,8 +11671,14 @@ BOOL CGame::DrawObject_OnDamageMove(int indexX, int indexY, int sX, int sY, BOOL
 				case 3: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX+dx, sY+dy,  cFrame, 0, 0, m_iDrawFlag, dwTime); break; // Blue Glare
 		}	}	}
 
-		if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
+		if ((_tmp_iStatus & 0x800) != 0) 	// Super Berserk
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
 			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, cFrame, -5, -5, 3, dwTime);
 		DrawAngel(16+(_tmp_cDir - 1), sX+dx+20, sY+dy-20, cFrame%4, dwTime);
 		CheckActiveAura2(sX+dx, sY+dy, dwTime,  _tmp_sOwnerType);
 
@@ -12494,14 +12592,20 @@ BOOL   CGame::DrawObject_OnStop(int indexX, int indexY, int sX, int sY, BOOL bTr
 				m_pEffectSpr[82]->PutTransSprite(sX+53, sY+65, (dwTime%3000)/120, dwTime );
 				break;
 		}	}
-		// Berserk
-		if ((_tmp_iStatus & 0x20) != 0)
+		// Super Berserk / Berserk
+		if ((_tmp_iStatus & 0x800) != 0)
+			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0)
 			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->PutTransSpriteRGB(sX, sY, _tmp_cFrame, -5, -5, 3, dwTime);
 		DrawAngel(40+(_tmp_cDir - 1), sX+20, sY-20, _tmp_cFrame%4, dwTime);
 		CheckActiveAura2(sX, sY, dwTime,  _tmp_sOwnerType);
 
 	}else if( strlen(_tmp_cName) > 0 )
-	{	
+	{
 		if( (_tmp_sOwnerType>=1) && (_tmp_sOwnerType<=6) ) DrawObjectName(sX, sY, _tmp_cName, _tmp_iStatus);
 		else{
 			DrawNpcName(sX, sY, _tmp_sOwnerType, _tmp_iStatus);
@@ -13588,14 +13692,18 @@ void CGame::DrawBackground(short sDivX, short sModX, short sDivY, short sModY)
 
 	if (m_DDraw.m_bUseGPU) {
 		// GPU path: queue each tile directly as a sprite
-		SetRect(&m_DDraw.m_rcClipArea, 0, 0, 640, 480);
-		indexY = sDivY + m_pMapData->m_sPivotY;
-		for (iy = -sModY; iy < 427 + 48; iy += 32) {
-			indexX = sDivX + m_pMapData->m_sPivotX;
-			for (ix = -sModX; ix < 640 + 48; ix += 32) {
-				sSpr      = m_pMapData->m_tile[indexX][indexY].m_sTileSprite;
-				sSprFrame = m_pMapData->m_tile[indexX][indexY].m_sTileSpriteFrame;
-				m_pTileSpr[sSpr]->PutSpriteFastNoColorKey(ix - 16, iy - 16, sSprFrame, m_dwCurTime);
+		// Extended clip area for 15% world zoom-out
+		// Must cover zoomed visible range (-48..688 X, -36..516 Y) plus margin for large sprites
+		SetRect(&m_DDraw.m_rcClipArea, -160, -160, 800, 640);
+		indexY = sDivY + m_pMapData->m_sPivotY - 2;
+		for (iy = -sModY - 64; iy < 528 + 48; iy += 32) {
+			indexX = sDivX + m_pMapData->m_sPivotX - 2;
+			for (ix = -sModX - 64; ix < 704 + 48; ix += 32) {
+				if (indexX >= 0 && indexX < 550 && indexY >= 0 && indexY < 550) {
+					sSpr      = m_pMapData->m_tile[indexX][indexY].m_sTileSprite;
+					sSprFrame = m_pMapData->m_tile[indexX][indexY].m_sTileSpriteFrame;
+					m_pTileSpr[sSpr]->PutSpriteFastNoColorKey(ix - 16, iy - 16, sSprFrame, m_dwCurTime);
+				}
 				indexX++;
 			}
 			indexY++;
@@ -14948,8 +15056,14 @@ BOOL   CGame::DrawObject_OnRun(int indexX, int indexY, int sX, int sY, BOOL bTra
 				case 3: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX+dx, sY+dy,  _tmp_cFrame, 0, 0, m_iDrawFlag, dwTime); break; // Blue Glare
 		}	}	}
 
-		if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
+		if ((_tmp_iStatus & 0x800) != 0) 	// Super Berserk
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, 5, -8, 5, dwTime);
+		else if ((_tmp_iStatus & 0x20) != 0) 	// Berserk
 			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, 0, -5, -5, dwTime);
+		if ((_tmp_iStatus & 0x80000) != 0) // Speed
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, -5, 3, -5, dwTime);
+		if ((_tmp_iStatus & 0x40) != 0) // Frozen
+			m_pSprite[iBodyIndex + (_tmp_cDir -1)]->PutTransSpriteRGB(sX+dx, sY+dy, _tmp_cFrame, -5, -5, 3, dwTime);
 		DrawAngel(40+(_tmp_cDir - 1), sX+dx+20, sY+dy-20, _tmp_cFrame%4, dwTime);
 		CheckActiveAura2(sX+dx, sY+dy, dwTime,  _tmp_sOwnerType);
 
@@ -15432,6 +15546,8 @@ void CGame::DrawDialogBox_GuideMap(short msX, short msY, char cLB)
 			m_sMonsterID = 0;
 	}
 
+		// Spell targeting guides moved to UpdateScreen_OnGame (independent of minimap visibility)
+
 		// Recall point circles (unzoomed mode only, visible when Recall spell is being cast)
 		if (m_bIsGetPointingMode && m_iCastingMagicType == 12 &&
 			(m_cMapIndex == 11 || m_cMapIndex == 3 || m_cMapIndex == 4)) {
@@ -15733,8 +15849,37 @@ void CGame::DrawDialogBoxs(short msX, short msY, short msZ, char cLB)
 		if (m_iSuperAttackLeft > 0)
 		{	wsprintf(G_cTxt, "%d", m_iSuperAttackLeft);
 			PutString_SprFont2(380, 454, G_cTxt, 255, 255, 255);
-	}	
-	
+	}
+
+	// Draw special ability circles above the bottom bar
+	DrawSpecialAbilityCircles();
+	UpdateSpecialAbilityTimers();
+
+	// Glacial Strike ice trail: record position and draw
+	AddIceTrailPoint(m_sPlayerX, m_sPlayerY);
+	DrawIceTrail();
+
+	// Speed buff: pulsing glow under player
+	if (m_bSpeedBuffActive && m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		int px = m_sPlayerX * 32 - m_sViewPointX - 16;
+		int py = m_sPlayerY * 32 - m_sViewPointY - 16;
+		float fPulse = 0.225f + 0.075f * sinf((float)m_dwCurTime * 0.006f);
+		bool bGlacial = m_stAbility[3].bActive;
+		float gR = bGlacial ? 0.3f : 0.8f;
+		float gG = bGlacial ? 0.8f : 0.7f;
+		float gB = bGlacial ? 1.0f : 0.2f;
+		for (int dy = -1; dy <= 1; dy++) {
+			for (int dx = -1; dx <= 1; dx++) {
+				float fDist = (dx == 0 && dy == 0) ? 1.0f : 0.5f;
+				int sx = px + dx * 32;
+				int sy = py + dy * 32;
+				if (sx + 32 < 0 || sx >= 640 || sy + 32 < 0 || sy >= 480) continue;
+				m_DDraw.m_pGPURenderer->QueueFilledRect(sx, sy, 32, 32,
+					gR * fDist, gG * fDist, gB * fDist, fPulse * fDist);
+			}
+		}
+		m_DDraw.m_pGPURenderer->Flush();
+	}
 	//}
 }
 
@@ -16370,6 +16515,9 @@ int CGame::iGetTopDialogBoxIndex()
 
 void CGame::DlgBoxClick_IconPannel(short msX, short msY)
 { short sX, sY;
+	// Check special ability circle clicks first
+	if (HandleSpecialAbilityClick(msX, msY)) return;
+
 	sX = m_stDialogBoxInfo[30].sX;
 	sY = m_stDialogBoxInfo[30].sY;
 	// CLEROTH - LU
@@ -17442,10 +17590,23 @@ void CGame::DrawDialogBox_IconPannel(short msX, short msY)
 
 	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(sX, sY, 14, dwTime);
 
+	// Combat mode indicator — always draw so there's always a visible circle
 	if (m_bIsCombatMode) {
 		if (m_bIsSafeAttackMode)
 			 m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(368, 440, 4, dwTime);
 		else m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(368, 440, 5, dwTime);
+
+		if ((msX > 362) && (msX < 404) && (msY > 434) && (msY < 475)) {
+			if (m_bIsSafeAttackMode)
+				PutString(msX-20, msY-20, "Combat (Safe)", RGB(100,250,100));
+			else PutString(msX-20, msY-20, "Combat (Unsafe)", RGB(250,100,100));
+		}
+	}
+	else {
+		m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(368, 440, 3, dwTime);
+		if ((msX > 362) && (msX < 404) && (msY > 434) && (msY < 475)) {
+			PutString(msX-10, msY-20, "Peace Mode", RGB(250,250,220));
+		}
 	}
 
 	if ((m_bIsCrusadeMode) && (m_iCrusadeDuty != 0)) {
@@ -17468,73 +17629,149 @@ void CGame::DrawDialogBox_IconPannel(short msX, short msY)
 			else m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(322, 434, 18, dwTime);
 	}
 
-	if ((msY > 436) && (msY < 478)) // Menu Icons
-	{    
-		if ((msX > 410) && (msX < 447)) { // Character    
-			m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(412, 434, 6, dwTime);
+	// Always draw menu icon buttons (no longer embedded in background)
+	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(412, 434, 6, dwTime);  // Character
+	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(449, 434, 7, dwTime);  // Inventory
+	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(486, 434, 8, dwTime);  // Magic
+	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(523, 434, 9, dwTime);  // Skill
+	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(560, 434, 10, dwTime); // History
+	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(597, 434, 11, dwTime); // Options
+
+	if ((msY > 436) && (msY < 478)) // Menu Icon hover tooltips
+	{
+		if ((msX > 410) && (msX < 447)) {
 			wsprintf(G_cTxt, "Character Menu");
 			PutString(msX-10, msY-20, G_cTxt, RGB(250,250,220));
 		}
-		if ((msX > 447) && (msX < 484)) { // Inventory
-			m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(449, 434, 7, dwTime);
+		if ((msX > 447) && (msX < 484)) {
 			wsprintf(G_cTxt, "Inventory");
 			PutString(msX-10, msY-20, G_cTxt, RGB(250,250,220));
 		}
-		if ((msX > 484) && (msX < 521)) { // Magic
-			m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(486, 434, 8, dwTime);
+		if ((msX > 484) && (msX < 521)) {
 			wsprintf(G_cTxt, "Spell Book");
 			PutString(msX-10, msY-20, G_cTxt, RGB(250,250,220));
 		}
-		if ((msX > 521) && (msX < 558)) { // Skill
-			m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(523, 434, 9, dwTime);
+		if ((msX > 521) && (msX < 558)) {
 			wsprintf(G_cTxt, "Skill List");
 			PutString(msX-10, msY-20, G_cTxt, RGB(250,250,220));
 		}
-		if ((msX > 558) && (msX < 595)) { // History
-			m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(560, 434, 10, dwTime);
+		if ((msX > 558) && (msX < 595)) {
 			wsprintf(G_cTxt, "Chat History");
 			PutString(msX-10, msY-20, G_cTxt, RGB(250,250,220));
 		}
-		if ((msX > 595) && (msX < 631)) { // System Menu
-			m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFast(597, 434, 11, dwTime);
+		if ((msX > 595) && (msX < 631)) {
 			wsprintf(G_cTxt, "Options");
 			PutString(msX-20, msY-20, G_cTxt, RGB(250,250,220));
 		}
 	}
 
-	if ( ((msX > 144) && (msX < 317) && (msY > 434) && (msY < 477)) || (m_bCtrlPressed) )
-	{	int iLev = 0;
-		int iCurExp  = m_levelExpTable[m_iLevel];
-		int iNextExp = m_levelExpTable[m_iLevel+1];
-
-		if(m_iExp < iNextExp)
-		{	iNextExp = iNextExp - iCurExp;
-			if( m_iExp > iCurExp ) iCurExp = m_iExp - iCurExp; // curxp: partie faite
-			else iCurExp = 0; // below current lvl !
-			short sPerc = 0;
-			if( iCurExp > 200000 ) sPerc = short( ((iCurExp>>4)*10000)/(iNextExp>>4) );
-			else sPerc = (short)( (iCurExp*10000)/iNextExp );
-			wsprintf(G_cTxt, "Required Exp: %d", iNextExp-iCurExp, sPerc/100, sPerc%100);
-		}else
-		{	wsprintf(G_cTxt, "Exp: %d(100.00%)", m_iExp); // "Exp: 151000/150000"
+	// HP/MP hover detection — circular for GPU orbs, rectangular for DD bars
+	{	bool bBarHover = false;
+		if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+			int hpDx = msX - 44, hpDy = msY - 434;
+			int mpDx = msX - 122, mpDy = msY - 442;
+			if (hpDx*hpDx + hpDy*hpDy <= 38*38) {
+				uint32 iHPMax = m_stat[STAT_VIT]*3 + m_iLevel*2 + m_stat[STAT_STR]/2;
+				wsprintf(G_cTxt, "HP: %d / %d", m_iHP, iHPMax);
+				bBarHover = true;
+			} else if (mpDx*mpDx + mpDy*mpDy <= 38*38) {
+				uint32 iMPMax = m_stat[STAT_MAG]*2 + m_iLevel*2 + m_stat[STAT_INT]/2;
+				wsprintf(G_cTxt, "MP: %d / %d", m_iMP, iMPMax);
+				bBarHover = true;
+			}
+		} else {
+			if ((msX > 22) && (msX < 125) && (msY > 434) && (msY < 455)) {
+				uint32 iHPMax = m_stat[STAT_VIT]*3 + m_iLevel*2 + m_stat[STAT_STR]/2;
+				wsprintf(G_cTxt, "HP: %d / %d", m_iHP, iHPMax);
+				bBarHover = true;
+			} else if ((msX > 22) && (msX < 125) && (msY > 456) && (msY < 477)) {
+				uint32 iMPMax = m_stat[STAT_MAG]*2 + m_iLevel*2 + m_stat[STAT_INT]/2;
+				wsprintf(G_cTxt, "MP: %d / %d", m_iMP, iMPMax);
+				bBarHover = true;
+			}
 		}
-	}else wsprintf(G_cTxt, "%s(%d,%d)", m_cMapMessage, m_sPlayerX, m_sPlayerY);
-	PutAlignedString(140, 323, 456, G_cTxt, 250,250,220);
+		if (!bBarHover) {
+			bool bAbilityHover = false;
+			if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+				static const int gemCX[4] = { 250, 290, 330, 370 };
+				static const char* abilityNames[4] = { "Berserk", "Super Berserk", "Speed Burst", "Glacial Strike" };
+				for (int gi = 0; gi < 4; gi++) {
+					int gdx = msX - gemCX[gi], gdy = msY - 412;
+					if (gdx*gdx + gdy*gdy <= 16*16 && m_stAbility[gi].bUnlocked) {
+						if (m_stAbility[gi].bActive && m_stAbility[gi].dwActiveEnd > m_dwCurTime) {
+							int secs = (int)((m_stAbility[gi].dwActiveEnd - m_dwCurTime) / 1000);
+							wsprintf(G_cTxt, "%s: Active (%ds)", abilityNames[gi], secs);
+						} else if (m_stAbility[gi].dwCooldownEnd > m_dwCurTime) {
+							int secs = (int)((m_stAbility[gi].dwCooldownEnd - m_dwCurTime) / 1000);
+							wsprintf(G_cTxt, "%s: Cooldown (%ds)", abilityNames[gi], secs);
+						} else {
+							wsprintf(G_cTxt, "%s: Ready", abilityNames[gi]);
+						}
+						bAbilityHover = true;
+						break;
+					}
+				}
+			}
+			if (!bAbilityHover) {
+				if ((msX > 175) && (msX < 348) && (msY > 434) && (msY < 448)) {
+					uint32 iSPMax = m_iLevel*2 + m_stat[STAT_STR]*2;
+					wsprintf(G_cTxt, "SP: %d / %d", m_iSP, iSPMax);
+				}
+				else if ( ((msX > 175) && (msX < 348) && (msY > 447) && (msY < 477)) || (m_bCtrlPressed) ) {
+					int iCurExp  = m_levelExpTable[m_iLevel];
+					int iNextExp = m_levelExpTable[m_iLevel+1];
+					if(m_iExp < iNextExp) {
+						iNextExp = iNextExp - iCurExp;
+						if( m_iExp > iCurExp ) iCurExp = m_iExp - iCurExp;
+						else iCurExp = 0;
+						short sPerc = 0;
+						if( iCurExp > 200000 ) sPerc = short( ((iCurExp>>4)*10000)/(iNextExp>>4) );
+						else sPerc = (short)( (iCurExp*10000)/iNextExp );
+						wsprintf(G_cTxt, "Required Exp: %d (%d.%02d%%)", iNextExp-iCurExp, sPerc/100, sPerc%100);
+					} else {
+						wsprintf(G_cTxt, "Exp: %d (100.00%%)", m_iExp);
+					}
+				} else wsprintf(G_cTxt, "%s(%d,%d)", m_cMapMessage, m_sPlayerX, m_sPlayerY);
+			}
+		}
+	}
+	PutAlignedString(155, 335, 460, G_cTxt, 250,250,220);
 } 
 
 void CGame::DrawDialogBox_GaugePannel()
-{	
+{
 	uint32 iMaxPoint, iBarWidth, iTemp;
-	// HP bar   
-	iMaxPoint = m_stat[STAT_VIT]*3 + m_iLevel*2 + m_stat[STAT_STR]/2;
-	if (m_iHP > iMaxPoint) m_iHP = iMaxPoint;
-	iBarWidth = 101 - (m_iHP*101)/iMaxPoint;
-	if( iBarWidth < 0 ) iBarWidth = 0;
-	if( iBarWidth > 101 ) iBarWidth = 101;
-	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(23, 437,  12, iBarWidth, m_dwCurTime);
 
-	wsprintf(G_cTxt, "%d", m_iHP);
-	{	// Center HP number on bar (bar starts X=23, width=101)
+	// --- HP ORB (red liquid) — large, far left, pops above bar ---
+	iMaxPoint = m_stat[STAT_VIT]*3 + m_iLevel*2 + m_stat[STAT_STR]/2;
+	if (iMaxPoint == 0) iMaxPoint = 1;
+	if (m_iHP > iMaxPoint) m_iHP = iMaxPoint;
+
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		float fHPFill = (float)m_iHP / (float)iMaxPoint;
+		float hpLiqR = 0.82f, hpLiqG = 0.12f, hpLiqB = 0.08f;
+		if (m_bIsPoisoned) { hpLiqR = 0.2f; hpLiqG = 0.8f; hpLiqB = 0.1f; }
+		DrawOrb(44, 434, 38, fHPFill,
+			hpLiqR, hpLiqG, hpLiqB,
+			0.12f, 0.04f, 0.04f,
+			0.7f, 0.2f, 0.2f);
+
+		wsprintf(G_cTxt, "%d", m_iHP);
+		int iTextW = 0;
+		for (int i = 0; G_cTxt[i]; i++)
+			if (G_cTxt[i] >= '0' && G_cTxt[i] <= '9') iTextW += __cSpace2[G_cTxt[i] - '0'];
+		int iCenterX = 44 - iTextW / 2;
+		if (m_bIsPoisoned) {
+			PutString_SprNum(iCenterX, 431, G_cTxt, m_wR[5]*11, m_wG[5]*11, m_wB[5]*11);
+			PutString_SprFont3(26, 418, "Poisoned", m_wR[5]*8, m_wG[5]*8, m_wB[5]*8, TRUE, 2);
+		}
+		else PutString_SprNum(iCenterX, 431, G_cTxt, 255, 200, 200);
+	} else {
+		// DD fallback: original bar
+		iBarWidth = 101 - (m_iHP*101)/iMaxPoint;
+		if( iBarWidth > 101 ) iBarWidth = 101;
+		m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(23, 437, 12, iBarWidth, m_dwCurTime);
+		wsprintf(G_cTxt, "%d", m_iHP);
 		int iTextW = 0;
 		for (int i = 0; G_cTxt[i]; i++)
 			if (G_cTxt[i] >= '0' && G_cTxt[i] <= '9') iTextW += __cSpace2[G_cTxt[i] - '0'];
@@ -17546,15 +17783,30 @@ void CGame::DrawDialogBox_GaugePannel()
 		else PutString_SprNum(iCenterX, 441, G_cTxt, 200, 100, 100);
 	}
 
-	//MP bar
+	// --- MP ORB (blue liquid) ---
 	iMaxPoint = m_stat[STAT_MAG]*2 + m_iLevel*2 + m_stat[STAT_INT]/2;
+	if (iMaxPoint == 0) iMaxPoint = 1;
 	if (m_iMP > iMaxPoint) m_iMP = iMaxPoint;
-	iBarWidth = 101 - (m_iMP*101)/iMaxPoint;
-	if( iBarWidth < 0 ) iBarWidth = 0;
-	if( iBarWidth > 101 ) iBarWidth = 101;
-	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(23, 459,  12, iBarWidth, m_dwCurTime);
-	wsprintf(G_cTxt, "%d", m_iMP);
-	{	// Center MP number on bar (bar starts X=23, width=101)
+
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		float fMPFill = (float)m_iMP / (float)iMaxPoint;
+		DrawOrb(122, 442, 38, fMPFill,
+			0.08f, 0.18f, 0.85f,
+			0.04f, 0.04f, 0.12f,
+			0.2f, 0.2f, 0.7f);
+
+		wsprintf(G_cTxt, "%d", m_iMP);
+		int iTextW = 0;
+		for (int i = 0; G_cTxt[i]; i++)
+			if (G_cTxt[i] >= '0' && G_cTxt[i] <= '9') iTextW += __cSpace2[G_cTxt[i] - '0'];
+		int iCenterX = 122 - iTextW / 2;
+		PutString_SprNum(iCenterX, 439, G_cTxt, 150, 150, 255);
+	} else {
+		// DD fallback: original bar
+		iBarWidth = 101 - (m_iMP*101)/iMaxPoint;
+		if( iBarWidth > 101 ) iBarWidth = 101;
+		m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(23, 459, 12, iBarWidth, m_dwCurTime);
+		wsprintf(G_cTxt, "%d", m_iMP);
 		int iTextW = 0;
 		for (int i = 0; G_cTxt[i]; i++)
 			if (G_cTxt[i] >= '0' && G_cTxt[i] <= '9') iTextW += __cSpace2[G_cTxt[i] - '0'];
@@ -17562,27 +17814,97 @@ void CGame::DrawDialogBox_GaugePannel()
 		PutString_SprNum(iCenterX, 463, G_cTxt, 100, 100, 200);
 	}
 
-	// SP bar
+	// --- ORB MOUNTINGS (Layer 3 — reptilian/avian talon claws) ---
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		DrawOrbMounting(44, 434, 38, 0.3f, 0.0f, 0.0f, 0.0f);    // HP claws — warm red tint
+		DrawOrbMounting(122, 442, 38, 0.0f, 0.0f, 0.3f, 0.25f);  // MP claws — cool blue tint, rotated
+	}
+
+	// SP bar — green liquid tube
 	iMaxPoint = m_iLevel*2 + m_stat[STAT_STR]*2;
 	if (m_iSP > iMaxPoint) m_iSP = iMaxPoint;
-	iBarWidth = 167 - (m_iSP*167)/iMaxPoint;
-	if( iBarWidth < 0 ) iBarWidth = 0;
-	if( iBarWidth > 167 ) iBarWidth = 167;
-	m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(147, 434, 13, iBarWidth, m_dwCurTime);
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		m_DDraw.m_pGPURenderer->Flush();
+		int bX = 178, bY = 434, bW = 167, bH = 11;
+		float fillPct = (iMaxPoint > 0) ? (float)m_iSP / (float)iMaxPoint : 0.0f;
+		if (fillPct < 0) fillPct = 0; if (fillPct > 1.0f) fillPct = 1.0f;
+		float capR = (float)bH / 2.0f;
+		float fTime = (float)m_dwCurTime;
+		for (int row = 0; row < bH; row++) {
+			float dy = (float)row - capR;
+			float capOff = (capR * capR - dy * dy > 0) ? sqrtf(capR * capR - dy * dy) : 0;
+			int lPad = (int)(capR - capOff + 0.5f);
+			int rowL = bX + lPad;
+			int rowR = bX + bW - lPad;
+			int rowW = rowR - rowL;
+			if (rowW <= 0) continue;
+			int fillEdge = rowL + (int)(fillPct * (float)rowW);
+			// Cylindrical shading — light from above
+			float crossT = (float)row / (float)(bH - 1);
+			float cyl = 0.45f + 0.55f * cosf((crossT - 0.25f) * 3.14159f);
+			float glass = (row <= 2) ? 0.18f * (1.0f - (float)row / 3.0f) : 0.0f;
+			// Filled portion — split into zones for shimmer
+			int fillW = fillEdge - rowL;
+			if (fillW > 0) {
+				int zc = 4; int zw = fillW / zc;
+				if (zw < 1) { zw = fillW; zc = 1; }
+				for (int z = 0; z < zc; z++) {
+					int zs = rowL + z * zw;
+					int zW = (z == zc - 1) ? (fillEdge - zs) : zw;
+					if (zW <= 0) continue;
+					float nx = (float)(zs + zW / 2 - bX) / (float)bW;
+					float ny = crossT;
+					// Green liquid with swirl
+					float swirl = sinf(nx * 14.0f + fTime * 0.003f) * sinf(ny * 6.0f - fTime * 0.002f) * 0.08f;
+					float gx = 0.3f * sinf(fTime * 0.0012f);
+					float gDist = (nx - gx) * (nx - gx);
+					float glow = 0.12f / (1.0f + gDist * 10.0f);
+					float mod = swirl + glow;
+					float fr = (0.06f + mod * 0.3f) * cyl + glass;
+					float fg = (0.62f + mod * 1.1f) * cyl + glass;
+					float fb = (0.10f + mod * 0.4f) * cyl + glass;
+					if (fr > 1.0f) fr = 1.0f; if (fg > 1.0f) fg = 1.0f; if (fb > 1.0f) fb = 1.0f;
+					m_DDraw.m_pGPURenderer->QueueFilledRect(zs, bY + row, zW, 1, fr, fg, fb, 0.92f);
+				}
+				// Surface tension at fill edge — bright green meniscus
+				if (fillPct > 0.01f && fillPct < 0.99f) {
+					float sr = 0.15f * cyl, sg = 0.85f * cyl, sb = 0.25f * cyl;
+					m_DDraw.m_pGPURenderer->QueueFilledRect(fillEdge - 1, bY + row, 2, 1, sr, sg, sb, 0.80f);
+				}
+			}
+			// Empty portion — dark tube interior
+			int emptyW = rowR - fillEdge;
+			if (emptyW > 0) {
+				float er = 0.02f * cyl * 0.4f, eg = 0.04f * cyl * 0.4f, eb = 0.02f * cyl * 0.4f;
+				m_DDraw.m_pGPURenderer->QueueFilledRect(fillEdge, bY + row, emptyW, 1, er, eg, eb, 0.70f);
+			}
+		}
+		// Top/bottom tube borders
+		for (int x = bX + 2; x < bX + bW - 2; x++) {
+			m_DDraw.m_pGPURenderer->QueueFilledRect(x, bY, 1, 1, 0.10f, 0.14f, 0.10f, 0.85f);
+			m_DDraw.m_pGPURenderer->QueueFilledRect(x, bY + bH - 1, 1, 1, 0.06f, 0.08f, 0.06f, 0.85f);
+		}
+		m_DDraw.m_pGPURenderer->Flush();
+	} else {
+		iBarWidth = 167 - (m_iSP*167)/iMaxPoint;
+		if( iBarWidth < 0 ) iBarWidth = 0;
+		if( iBarWidth > 167 ) iBarWidth = 167;
+		m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(178, 434, 13, iBarWidth, m_dwCurTime);
+	}
 	iTemp = m_iSP;
-	wsprintf(G_cTxt, "%d", iTemp,iMaxPoint);
-	PutString_SprNum(228, 436, G_cTxt, 100, 100, 200);
+	wsprintf(G_cTxt, "%d", iTemp);
+	PutString_SprNum(258, 436, G_cTxt, 100, 100, 200);
 
 	// Experience Gauge
 	iMaxPoint = m_levelExpTable[m_iLevel+1] - m_levelExpTable[m_iLevel];
 	iTemp = m_iExp - m_levelExpTable[m_iLevel];
-	// iBarWidth = 167 - (iTemp*167)/iMaxPoint;
+	iBarWidth = 167 - (iTemp*167)/iMaxPoint;
 	 if( iBarWidth < 0 ) iBarWidth = 0;
 	 if( iBarWidth > 167 ) iBarWidth = 167;
-	 m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(147 + iBarWidth, 434+13, 13, (167-iBarWidth), m_dwCurTime);
+	 m_pSprite[SPRID_INTERFACE_ND_ICONPANNEL]->PutSpriteFastWidth(178 + iBarWidth, 434+13, 13, (167-iBarWidth), m_dwCurTime);
 	 iTemp = iTemp - iMaxPoint;
 	 wsprintf(G_cTxt, "%d", iTemp);
-	 PutString_SprNum(228, 435+13, G_cTxt, 100, 100, 200);
+	 PutString_SprNum(258, 435+13, G_cTxt, 100, 100, 200);
 }
 
 void CGame::DrawDialogBox_Text(short msX, short msY, short msZ, char cLB)
@@ -19597,7 +19919,7 @@ void CGame::DlgBoxClick_MagicShop(short msX, short msY)
 	iCPivot = m_stDialogBoxInfo[16].sView*10;
 
 	iYloc = 0;
-	for (i = 0; i < 9; i++) {
+	for (i = 0; i < 10; i++) {
 		if ((m_pMagicCfgList[iCPivot + i] != NULL) && (m_pMagicCfgList[iCPivot + i]->m_bIsVisible)) {
 			if ((msX >= sX + iAdjX + 44) && (msX <= sX + iAdjX + 135 + 44) && (msY >= sY + iAdjY + 70 + iYloc +35) && (msY <= sY + iAdjY + 70 + 14 + iYloc +35)) {
 				if (m_cMagicMastery[iCPivot + i] == 0)
@@ -20115,6 +20437,1012 @@ void CGame::DrawLine(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
 	}	}	}	}
 }
 
+void CGame::DrawTileOverlay(int tileX, int tileY, float r, float g, float b, float a)
+{
+	int screenX = tileX * 32 - m_sViewPointX - 16;
+	int screenY = tileY * 32 - m_sViewPointY - 16;
+
+	// Cull tiles fully off-screen (expanded for 1.15x zoom: visible area is -48..688 x -36..516)
+	if (screenX + 32 < -48 || screenX >= 688 || screenY + 32 < -36 || screenY >= 516) return;
+
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		m_DDraw.m_pGPURenderer->QueueFilledRect(screenX, screenY, 32, 32, r, g, b, a);
+	}
+}
+
+bool CGame::IsCorridorSpell(int iMagicNo)
+{
+	switch (iMagicNo) {
+	case MAGIC_FIRESTRIKE:
+	case MAGIC_LIGHTNINGBOLT:
+	case MAGIC_MASSLIGHTNINGARROW:
+	case MAGIC_ICESTRIKE:
+	case MAGIC_MASSFIRESTRIKE:
+	case MAGIC_BLIZZARD:         // MAGICTYPE_ICE_LINEAR
+	case MAGIC_EARTHSHOCKWAVE:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool CGame::IsAoESpell(int iMagicNo)
+{
+	switch (iMagicNo) {
+	case MAGIC_METEORSTRIKE:
+	case MAGIC_MASSMAGICMISSILE:
+	case MAGIC_MASSICESTRIKE:
+	case MAGIC_ENERGYSTRIKE:     // MAGICTYPE_DAMAGE_AREA_NOSPOT
+		return true;
+	default:
+		return false;
+	}
+}
+
+void CGame::DrawSpellTargetingCorridor(short msX, short msY)
+{
+	if (!m_DDraw.m_bUseGPU || m_DDraw.m_pGPURenderer == NULL) return;
+
+	// Convert mouse position to target tile (same as server receives dX, dY)
+	int targetTileX = (msX + m_sViewPointX + 16) / 32;
+	int targetTileY = (msY + m_sViewPointY + 16) / 32;
+
+	int x0 = m_sPlayerX, y0 = m_sPlayerY;
+	int x1 = targetTileX, y1 = targetTileY;
+	if (x0 == x1 && y0 == y1) return;
+
+	// Choose color based on spell type
+	float cR, cG, cB;
+	switch (m_iCastingMagicType) {
+	case MAGIC_EARTHSHOCKWAVE:
+		cR = 0.1f; cG = 0.9f; cB = 0.1f; break;
+	case MAGIC_FIRESTRIKE:
+	case MAGIC_MASSFIRESTRIKE:
+		cR = 1.0f; cG = 0.4f; cB = 0.1f; break;
+	case MAGIC_BLIZZARD:
+	case MAGIC_ICESTRIKE:
+		cR = 0.6f; cG = 0.9f; cB = 1.0f; break;
+	case MAGIC_LIGHTNINGBOLT:
+	case MAGIC_MASSLIGHTNINGARROW:
+		cR = 0.9f; cG = 0.9f; cB = 0.3f; break;
+	default:
+		cR = 0.3f; cG = 0.5f; cB = 1.0f; break;
+	}
+
+	// Bresenham line from caster to target — matches server GetPoint2()
+	int dx = x1 - x0;
+	int dy = y1 - y0;
+	int x_inc = (dx >= 0) ? 1 : -1;
+	int y_inc = (dy >= 0) ? 1 : -1;
+	if (dx < 0) dx = -dx;
+	if (dy < 0) dy = -dy;
+
+	int error = 0;
+	int cx = x0, cy = y0;
+	int step = 0;
+	int maxSteps = 10; // Server uses i=2..9 (8 corridor steps max)
+
+	if (dx > dy) {
+		for (int index = 0; index <= dx && step < maxSteps; index++) {
+			error += dy;
+			if (error > dx) { error -= dx; cy += y_inc; }
+			cx += x_inc;
+			step++;
+			if (step >= 2) { // Server starts corridor at step 2
+				// Cross pattern: center + 4 cardinal neighbors (matches server crossPnts)
+				DrawTileOverlay(cx, cy, cR, cG, cB, 0.25f);
+				DrawTileOverlay(cx - 1, cy, cR, cG, cB, 0.15f);
+				DrawTileOverlay(cx + 1, cy, cR, cG, cB, 0.15f);
+				DrawTileOverlay(cx, cy - 1, cR, cG, cB, 0.15f);
+				DrawTileOverlay(cx, cy + 1, cR, cG, cB, 0.15f);
+			}
+			if (abs(cx - x1) <= 1 && abs(cy - y1) <= 1) break;
+		}
+	} else {
+		for (int index = 0; index <= dy && step < maxSteps; index++) {
+			error += dx;
+			if (error > dy) { error -= dy; cx += x_inc; }
+			cy += y_inc;
+			step++;
+			if (step >= 2) {
+				DrawTileOverlay(cx, cy, cR, cG, cB, 0.25f);
+				DrawTileOverlay(cx - 1, cy, cR, cG, cB, 0.15f);
+				DrawTileOverlay(cx + 1, cy, cR, cG, cB, 0.15f);
+				DrawTileOverlay(cx, cy - 1, cR, cG, cB, 0.15f);
+				DrawTileOverlay(cx, cy + 1, cR, cG, cB, 0.15f);
+			}
+			if (abs(cx - x1) <= 1 && abs(cy - y1) <= 1) break;
+		}
+	}
+
+	// AoE impact zone at target (server also checks hRange×vRange around target)
+	int hRange = 1; // Most linear spells have H=3 → hRange=1
+	if (m_iCastingMagicType == MAGIC_BLIZZARD || m_iCastingMagicType == MAGIC_MASSFIRESTRIKE ||
+		m_iCastingMagicType == MAGIC_ICESTRIKE || m_iCastingMagicType == MAGIC_EARTHSHOCKWAVE)
+		hRange = 2; // H=5 → hRange=2
+
+	for (int iy = -hRange; iy <= hRange; iy++)
+		for (int ix = -hRange; ix <= hRange; ix++)
+			DrawTileOverlay(targetTileX + ix, targetTileY + iy, cR, cG, cB, 0.20f);
+}
+
+void CGame::DrawAoETargetingCircle(short msX, short msY)
+{
+	if (!m_DDraw.m_bUseGPU || m_DDraw.m_pGPURenderer == NULL) return;
+
+	DWORD dwTime = m_dwCurTime;
+
+	// Convert mouse screen position to tile coordinates
+	int targetTileX = (msX + m_sViewPointX + 16) / 32;
+	int targetTileY = (msY + m_sViewPointY + 16) / 32;
+
+	// Per-spell AoE radius — matches server Magic.cfg H/V values divided by 2
+	// Meteor Strike: H=3 → 1, Mass Magic Missile: H=3 → 1
+	// Mass Ice Strike: H=5 → 2, Energy Strike: H=5 → 2
+	int radius;
+	switch (m_iCastingMagicType) {
+	case MAGIC_METEORSTRIKE:     radius = 1; break;
+	case MAGIC_MASSMAGICMISSILE: radius = 1; break;
+	case MAGIC_MASSICESTRIKE:    radius = 2; break;
+	case MAGIC_ENERGYSTRIKE:     radius = 2; break;
+	default:                     radius = 1; break;
+	}
+
+	// Choose color based on spell
+	float cR, cG, cB;
+	switch (m_iCastingMagicType) {
+	case MAGIC_METEORSTRIKE:
+		cR = 1.0f; cG = 0.15f; cB = 0.1f; break;
+	case MAGIC_MASSICESTRIKE:
+		cR = 0.6f; cG = 0.9f; cB = 1.0f; break;
+	case MAGIC_ENERGYSTRIKE:
+		cR = 0.8f; cG = 0.3f; cB = 1.0f; break;
+	default:
+		cR = 0.3f; cG = 0.6f; cB = 1.0f; break;
+	}
+
+	// Draw tiles in a square (matching server-side rectangular area check)
+	// Meteor Strike: center tile = brighter (no knockback zone), edges = normal (knockback zone)
+	bool bMeteorZone = (m_iCastingMagicType == MAGIC_METEORSTRIKE);
+	for (int iy = -radius; iy <= radius; iy++) {
+		for (int ix = -radius; ix <= radius; ix++) {
+			if (bMeteorZone && ix == 0 && iy == 0) {
+				// Inner zone: brighter, higher alpha — no escape
+				DrawTileOverlay(targetTileX + ix, targetTileY + iy, 1.0f, 0.9f, 0.3f, 0.35f);
+			} else {
+				DrawTileOverlay(targetTileX + ix, targetTileY + iy, cR, cG, cB, 0.25f);
+			}
+		}
+	}
+}
+
+void CGame::InitSpecialAbilities()
+{
+	// Check which spells the player knows to unlock abilities
+	bool bWasUnlocked[4];
+	for (int i = 0; i < 4; i++) bWasUnlocked[i] = m_stAbility[i].bUnlocked;
+
+	m_stAbility[0].bUnlocked = (m_cMagicMastery[MAGIC_MINORBERSERK] != 0); // Minor Berserk → Regular Berserk
+	m_stAbility[1].bUnlocked = (m_cMagicMastery[MAGIC_MINORBERSERK] != 0 && m_cMagicMastery[MAGIC_BERSERK] != 0); // Both → Super Berserk
+	m_stAbility[2].bUnlocked = (m_cMagicMastery[MAGIC_SPEED] != 0);
+	m_stAbility[3].bUnlocked = (m_cMagicMastery[MAGIC_ICESTRIKE] != 0);
+
+	// Notify player when a new ability becomes unlocked
+	static const char* abilityNames[4] = { "Berzerk", "Super Berzerk", "Speed Burst", "Glacial Strike" };
+	for (int i = 0; i < 4; i++) {
+		if (m_stAbility[i].bUnlocked && !bWasUnlocked[i]) {
+			PlaySound('E', 30, 5);
+			AddEventList("You have gained a special ability!", 10);
+			wsprintf(G_cTxt, "Special ability unlocked: %s", abilityNames[i]);
+			AddEventList(G_cTxt, 10);
+		}
+	}
+}
+
+void CGame::DrawOrb(int cx, int cy, int radius, float fillPercent,
+	float liquidR, float liquidG, float liquidB,
+	float emptyR, float emptyG, float emptyB,
+	float borderR, float borderG, float borderB,
+	bool bPulse, bool bWaveEffect)
+{
+	if (!m_DDraw.m_bUseGPU || m_DDraw.m_pGPURenderer == NULL) return;
+	if (radius <= 0) return;
+
+	if (fillPercent < 0.0f) fillPercent = 0.0f;
+	if (fillPercent > 1.0f) fillPercent = 1.0f;
+
+	int liquidLineBase = radius - (int)(fillPercent * 2.0f * (float)radius);
+	DWORD dwTime = m_dwCurTime;
+	float fRadius = (float)radius;
+	float fRadiusSq = fRadius * fRadius;
+
+	float pulseAlpha = 1.0f;
+	if (bPulse) pulseAlpha = 0.7f + 0.3f * sinf((float)dwTime * 0.005f);
+
+	// Spotlight: behind player's view and to the left
+	float spotLx = -0.52f, spotLy = -0.22f, spotLz = 0.83f;
+	bool bSpotlight = (radius > 24); // Large orbs get directional light
+
+	m_DDraw.m_pGPURenderer->Flush();
+
+	for (int row = -radius; row <= radius; row++) {
+		float fHalf = sqrtf(fRadiusSq - (float)(row * row));
+		int halfWidth = (int)(fHalf + 0.5f);
+		if (halfWidth <= 0) continue;
+
+		float ny = (float)row / fRadius;
+
+		int liquidLine = liquidLineBase;
+		if (bWaveEffect && fillPercent > 0.01f && fillPercent < 0.99f) {
+			float waveAmp = (radius > 20) ? 3.0f : (radius > 14) ? 2.0f : 1.2f;
+			liquidLine += (int)(waveAmp * sinf((float)dwTime * 0.004f + (float)row * 0.3f));
+		}
+
+		float fr, fg, fb, alpha;
+		bool bIsLiquid = (row >= liquidLine);
+
+		if (bIsLiquid) {
+			float depth = (float)(row - liquidLine) / (float)(radius * 2);
+			float brighten = 0.82f + 0.18f * depth;
+			float shimmer = 0.08f * sinf((float)dwTime * 0.003f + (float)row * 0.6f);
+			shimmer += 0.05f * sinf((float)dwTime * 0.0015f + (float)row * 1.2f + 2.0f);
+			float caustic = 0.03f * sinf((float)dwTime * 0.002f + (float)row * 0.4f + fRadius * 0.1f);
+			fr = liquidR * brighten + shimmer + caustic;
+			fg = liquidG * brighten + shimmer * 0.4f + caustic * 0.6f;
+			fb = liquidB * brighten + shimmer * 0.3f + caustic * 0.4f;
+			int distFromSurface = row - liquidLine;
+			if (distFromSurface >= 0 && distFromSurface <= 3) {
+				float surfBright = 0.15f * (1.0f - (float)distFromSurface / 3.5f);
+				fr += surfBright; fg += surfBright; fb += surfBright;
+			}
+			alpha = 0.92f;
+		} else {
+			float height = (float)(liquidLine - row) / (float)(radius * 2);
+			float dim = 0.22f + 0.18f * height;
+			fr = emptyR * dim; fg = emptyG * dim; fb = emptyB * dim;
+			alpha = 0.58f;
+		}
+		if (fr < 0) fr = 0; if (fr > 1.0f) fr = 1.0f;
+		if (fg < 0) fg = 0; if (fg > 1.0f) fg = 1.0f;
+		if (fb < 0) fb = 0; if (fb > 1.0f) fb = 1.0f;
+
+		int interiorW = (halfWidth - 1) * 2;
+		if (interiorW <= 0) continue;
+		int interiorStart = cx - halfWidth + 1;
+
+		if (bSpotlight && halfWidth > 6) {
+			// 3D sphere lighting + swirling magical energy — more zones for smooth swirl
+			int zoneCount = 8;
+			int baseZW = interiorW / zoneCount;
+			if (baseZW < 1) { baseZW = 1; zoneCount = interiorW; }
+			if (zoneCount > 20) zoneCount = 20;
+			float fTime = (float)dwTime;
+			for (int z = 0; z < zoneCount; z++) {
+				int zStart = interiorStart + z * baseZW;
+				int zW = (z == zoneCount - 1) ? (interiorStart + interiorW - zStart) : baseZW;
+				if (zW <= 0) continue;
+				float nx = (float)(zStart + zW / 2 - cx) / fRadius;
+				if (nx < -1.0f) nx = -1.0f; if (nx > 1.0f) nx = 1.0f;
+
+				// Per-zone liquid modulation — swirling magical energy/plasma
+				float zfr = fr, zfg = fg, zfb = fb;
+				if (bIsLiquid) {
+					float sDist = sqrtf(nx * nx + ny * ny);
+					float sAngle = atan2f(ny, nx);
+					// Dual swirl spirals — clockwise + counter-clockwise
+					float swirl1 = sinf(sAngle * 3.0f + sDist * 5.0f - fTime * 0.0022f);
+					float swirl2 = sinf(sAngle * -2.5f + sDist * 7.0f + fTime * 0.0030f);
+					float swirlMix = swirl1 * 0.13f + swirl2 * 0.09f;
+					// 3 drifting internal glow spots orbiting inside the liquid
+					float gx1 = 0.28f * sinf(fTime * 0.0012f);
+					float gy1 = 0.22f * cosf(fTime * 0.0010f);
+					float gDist1 = (nx - gx1) * (nx - gx1) + (ny - gy1) * (ny - gy1);
+					float glow1 = 0.20f / (1.0f + gDist1 * 12.0f);
+					float gx2 = -0.22f * cosf(fTime * 0.0015f + 1.0f);
+					float gy2 = 0.30f * sinf(fTime * 0.0009f + 2.5f);
+					float gDist2 = (nx - gx2) * (nx - gx2) + (ny - gy2) * (ny - gy2);
+					float glow2 = 0.16f / (1.0f + gDist2 * 10.0f);
+					float gx3 = 0.15f * sinf(fTime * 0.0008f + 4.0f);
+					float gy3 = -0.18f * cosf(fTime * 0.0014f + 3.0f);
+					float gDist3 = (nx - gx3) * (nx - gx3) + (ny - gy3) * (ny - gy3);
+					float glow3 = 0.12f / (1.0f + gDist3 * 14.0f);
+					// Nebula wisps — flowing turbulence layers
+					float wisp1 = sinf(nx * 5.5f + fTime * 0.0016f) * sinf(ny * 4.5f - fTime * 0.0013f) * 0.10f;
+					float wisp2 = sinf(nx * 3.0f - ny * 4.0f + fTime * 0.0011f) * 0.06f;
+					// Combine: bright spots shift toward lighter tint
+					float brightMod = swirlMix + glow1 + glow2 + glow3 + wisp1 + wisp2;
+					zfr += brightMod * (0.6f + liquidR * 1.4f);
+					zfg += brightMod * (0.6f + liquidG * 1.4f);
+					zfb += brightMod * (0.6f + liquidB * 1.4f);
+				}
+
+				// 3D sphere normal + Blinn-Phong lighting
+				float nzSq = 1.0f - nx * nx - ny * ny;
+				float nz = (nzSq > 0.0f) ? sqrtf(nzSq) : 0.0f;
+				float diff = nx * spotLx + ny * spotLy + nz * spotLz;
+				if (diff < 0.0f) diff = 0.0f;
+				float hx = spotLx, hy = spotLy, hz = spotLz + 1.0f;
+				float hLen = sqrtf(hx * hx + hy * hy + hz * hz);
+				if (hLen > 0) { hx /= hLen; hy /= hLen; hz /= hLen; }
+				float spec = nx * hx + ny * hy + nz * hz;
+				if (spec < 0) spec = 0;
+				spec *= spec; spec *= spec; spec *= spec; // pow8
+				float bright = 0.28f + 0.65f * diff;
+				float specAdd = 0.22f * spec;
+				float zr = zfr * bright + specAdd;
+				float zg = zfg * bright + specAdd;
+				float zb = zfb * bright + specAdd;
+				if (zr > 1.0f) zr = 1.0f;
+				if (zg > 1.0f) zg = 1.0f;
+				if (zb > 1.0f) zb = 1.0f;
+				m_DDraw.m_pGPURenderer->QueueFilledRect(zStart, cy + row, zW, 1, zr, zg, zb, alpha);
+			}
+		} else {
+			// Small orbs: symmetric edge darkening + swirl effects for liquid
+			int edgeW = (radius > 14) ? 3 : 2;
+			if (bIsLiquid && halfWidth > edgeW + 4) {
+				float edgeDark = 0.55f;
+				// Dark edges
+				m_DDraw.m_pGPURenderer->QueueFilledRect(
+					interiorStart, cy + row, edgeW, 1,
+					fr * edgeDark, fg * edgeDark, fb * edgeDark, alpha);
+				m_DDraw.m_pGPURenderer->QueueFilledRect(
+					interiorStart + interiorW - edgeW, cy + row, edgeW, 1,
+					fr * edgeDark, fg * edgeDark, fb * edgeDark, alpha);
+				// Center with swirl zones
+				int centerStart = interiorStart + edgeW;
+				int centerW = interiorW - edgeW * 2;
+				int zoneCount = 4;
+				int baseZW = centerW / zoneCount;
+				if (baseZW < 1) { baseZW = centerW; zoneCount = 1; }
+				float fTime = (float)dwTime;
+				for (int z = 0; z < zoneCount; z++) {
+					int zStart = centerStart + z * baseZW;
+					int zW = (z == zoneCount - 1) ? (centerStart + centerW - zStart) : baseZW;
+					if (zW <= 0) continue;
+					float nx = (float)(zStart + zW / 2 - cx) / fRadius;
+					if (nx < -1.0f) nx = -1.0f; if (nx > 1.0f) nx = 1.0f;
+					// Swirl effects (scaled for small orbs)
+					float sDist = sqrtf(nx * nx + ny * ny);
+					float sAngle = atan2f(ny, nx);
+					float swirl1 = sinf(sAngle * 3.0f + sDist * 5.0f - fTime * 0.0022f);
+					float swirl2 = sinf(sAngle * -2.5f + sDist * 7.0f + fTime * 0.0030f);
+					float swirlMix = swirl1 * 0.10f + swirl2 * 0.07f;
+					// 2 drifting glow spots
+					float gx1 = 0.28f * sinf(fTime * 0.0012f);
+					float gy1 = 0.22f * cosf(fTime * 0.0010f);
+					float gDist1 = (nx - gx1) * (nx - gx1) + (ny - gy1) * (ny - gy1);
+					float glow1 = 0.15f / (1.0f + gDist1 * 12.0f);
+					float gx2 = -0.22f * cosf(fTime * 0.0015f + 1.0f);
+					float gy2 = 0.30f * sinf(fTime * 0.0009f + 2.5f);
+					float gDist2 = (nx - gx2) * (nx - gx2) + (ny - gy2) * (ny - gy2);
+					float glow2 = 0.12f / (1.0f + gDist2 * 10.0f);
+					float wisp = sinf(nx * 5.5f + fTime * 0.0016f) * sinf(ny * 4.5f - fTime * 0.0013f) * 0.08f;
+					float brightMod = swirlMix + glow1 + glow2 + wisp;
+					float zfr = fr + brightMod * (0.6f + liquidR * 1.4f);
+					float zfg = fg + brightMod * (0.6f + liquidG * 1.4f);
+					float zfb = fb + brightMod * (0.6f + liquidB * 1.4f);
+					if (zfr > 1.0f) zfr = 1.0f;
+					if (zfg > 1.0f) zfg = 1.0f;
+					if (zfb > 1.0f) zfb = 1.0f;
+					m_DDraw.m_pGPURenderer->QueueFilledRect(zStart, cy + row, zW, 1, zfr, zfg, zfb, alpha);
+				}
+			} else {
+				m_DDraw.m_pGPURenderer->QueueFilledRect(
+					interiorStart, cy + row, interiorW, 1, fr, fg, fb, alpha);
+			}
+		}
+
+		// Thin border
+		float bR = borderR * pulseAlpha * 0.35f;
+		float bG = borderG * pulseAlpha * 0.35f;
+		float bB = borderB * pulseAlpha * 0.35f;
+		m_DDraw.m_pGPURenderer->QueueFilledRect(cx - halfWidth, cy + row, 1, 1, bR, bG, bB, 0.50f);
+		m_DDraw.m_pGPURenderer->QueueFilledRect(cx + halfWidth, cy + row, 1, 1, bR, bG, bB, 0.50f);
+	}
+
+	// Glass specular — positioned by spotlight direction
+	if (bSpotlight) {
+		int specCX = cx - (int)(fRadius * 0.30f);
+		int specCY = cy - (int)(fRadius * 0.32f);
+		int specR = (int)(fRadius * 0.25f);
+		for (int sr = -specR; sr <= specR; sr++) {
+			float sHalf = sqrtf((float)(specR * specR - sr * sr));
+			int sW = (int)(sHalf + 0.5f);
+			if (sW <= 0) continue;
+			float distSq = (float)(sr * sr) / (float)(specR * specR);
+			float sa = 0.20f * (1.0f - distSq);
+			if (sa > 0.01f)
+				m_DDraw.m_pGPURenderer->QueueFilledRect(
+					specCX - sW, specCY + sr, sW * 2, 1, 1.0f, 1.0f, 0.95f, sa);
+		}
+	} else {
+		for (int row = -radius + 2; row <= -radius + radius / 3; row++) {
+			float fHalf = sqrtf(fRadiusSq - (float)(row * row));
+			int hw = (int)(fHalf + 0.5f);
+			if (hw <= 3) continue;
+			m_DDraw.m_pGPURenderer->QueueFilledRect(
+				cx - hw + 3, cy + row, (radius > 14) ? 4 : 3, 1, 1.0f, 1.0f, 0.95f, 0.16f);
+		}
+	}
+
+	m_DDraw.m_pGPURenderer->Flush();
+}
+
+void CGame::DrawOrbMounting(int cx, int cy, int radius, float tintR, float tintG, float tintB, float angleOffset)
+{
+	if (!m_DDraw.m_bUseGPU || m_DDraw.m_pGPURenderer == NULL) return;
+	if (radius <= 0) return;
+
+	m_DDraw.m_pGPURenderer->Flush();
+	float fR = (float)radius;
+
+	if (radius <= 24) {
+		// === Small orbs: talon claws wrapping around the sphere ===
+		// Polyline paths follow the sphere surface, tips reach near the top
+		// Back talon clips interior so it's not visible through the liquid
+
+		struct Vec2 { float x, y; };
+		struct TalonPath {
+			Vec2 pts[3];
+			float widths[3];
+			int nPts;
+			float bright;
+			bool clipInterior;
+		};
+
+		TalonPath talons[3];
+
+		// Left talon: bottom-left, around left side, tip at upper-left
+		talons[0].nPts = 3;
+		talons[0].pts[0] = { (float)cx - fR * 0.28f, (float)cy + fR * 1.10f };
+		talons[0].pts[1] = { (float)cx - fR * 1.12f, (float)cy };
+		talons[0].pts[2] = { (float)cx - fR * 0.45f, (float)cy - fR * 0.88f };
+		talons[0].widths[0] = fR * 0.32f;
+		talons[0].widths[1] = fR * 0.20f;
+		talons[0].widths[2] = fR * 0.04f;
+		talons[0].bright = 1.0f;
+		talons[0].clipInterior = false;
+
+		// Right talon: bottom-right, around right side, tip at upper-right
+		talons[1].nPts = 3;
+		talons[1].pts[0] = { (float)cx + fR * 0.28f, (float)cy + fR * 1.10f };
+		talons[1].pts[1] = { (float)cx + fR * 1.12f, (float)cy };
+		talons[1].pts[2] = { (float)cx + fR * 0.50f, (float)cy - fR * 0.85f };
+		talons[1].widths[0] = fR * 0.32f;
+		talons[1].widths[1] = fR * 0.20f;
+		talons[1].widths[2] = fR * 0.04f;
+		talons[1].bright = 1.0f;
+		talons[1].clipInterior = false;
+
+		// Back talon: only claw tip visible peeking over the top
+		talons[2].nPts = 2;
+		talons[2].pts[0] = { (float)cx + fR * 0.05f, (float)cy - fR * 0.88f };
+		talons[2].pts[1] = { (float)cx - fR * 0.03f, (float)cy - fR * 1.12f };
+		talons[2].widths[0] = fR * 0.12f;
+		talons[2].widths[1] = fR * 0.025f;
+		talons[2].bright = 0.70f;
+		talons[2].clipInterior = true;
+
+		// Apply angle offset for per-orb variation
+		if (fabsf(angleOffset) > 0.001f) {
+			float cs = cosf(angleOffset * 0.5f);
+			float sn = sinf(angleOffset * 0.5f);
+			for (int f = 0; f < 3; f++) {
+				for (int p = 0; p < talons[f].nPts; p++) {
+					float dx = talons[f].pts[p].x - (float)cx;
+					float dy = talons[f].pts[p].y - (float)cy;
+					talons[f].pts[p].x = (float)cx + dx * cs - dy * sn;
+					talons[f].pts[p].y = (float)cy + dx * sn + dy * cs;
+				}
+			}
+		}
+
+		int ext = (int)(fR * 1.20f) + 4;
+		for (int row = -ext; row <= ext; row++) {
+			for (int col = -ext; col <= ext; col++) {
+				float distSq = (float)(col * col + row * row);
+				if (distSq > (fR + 8.0f) * (fR + 8.0f)) continue;
+
+				float px = (float)(cx + col);
+				float py = (float)(cy + row);
+				float dist = sqrtf(distSq);
+
+				for (int c = 0; c < 3; c++) {
+					// Back talon: skip pixels inside the sphere
+					if (talons[c].clipInterior && dist < fR - 1.0f) continue;
+
+					// Find closest point on this talon's polyline
+					float bestDist = 999.0f;
+					float bestT = 0.0f;
+					int bestSeg = 0;
+					for (int s = 0; s < talons[c].nPts - 1; s++) {
+						float ax = talons[c].pts[s].x, ay = talons[c].pts[s].y;
+						float bx = talons[c].pts[s + 1].x, by = talons[c].pts[s + 1].y;
+						float abx = bx - ax, aby = by - ay;
+						float apx = px - ax, apy = py - ay;
+						float dotAP = apx * abx + apy * aby;
+						float dotAB = abx * abx + aby * aby;
+						float segT = (dotAB > 0.001f) ? dotAP / dotAB : 0.0f;
+						if (segT < 0.0f) segT = 0.0f;
+						if (segT > 1.0f) segT = 1.0f;
+						float cpx = ax + segT * abx, cpy = ay + segT * aby;
+						float ddx = px - cpx, ddy = py - cpy;
+						float d = sqrtf(ddx * ddx + ddy * ddy);
+						if (d < bestDist) { bestDist = d; bestT = segT; bestSeg = s; }
+					}
+
+					float globalT = ((float)bestSeg + bestT) / (float)(talons[c].nPts - 1);
+					float w0 = talons[c].widths[bestSeg];
+					float w1 = talons[c].widths[bestSeg + 1];
+					float fingerWidth = w0 * (1.0f - bestT) + w1 * bestT;
+
+					if (bestDist > fingerWidth) continue;
+					float edgeRatio = bestDist / fingerWidth;
+
+					float pixAngle = atan2f((float)row, (float)col);
+					if (pixAngle < 0) pixAngle += 6.2832f;
+
+					float metalR = 0.48f + tintR * 0.20f;
+					float metalG = 0.44f + tintG * 0.20f;
+					float metalB = 0.40f + tintB * 0.20f;
+					float crossShade = 0.45f + 0.55f * cosf(edgeRatio * 1.5708f);
+					float lightDir = 0.65f + 0.35f * cosf(pixAngle + 2.356f);
+					float scaleU = globalT * 25.0f;
+					float scaleV = edgeRatio * 4.0f;
+					if (((int)scaleU % 2) == 0) scaleV += 0.5f;
+					float scaleShade = 0.82f + 0.18f * cosf(scaleV * 3.14159f) * cosf(scaleU * 3.14159f);
+					float tipGleam = 1.0f + 0.60f * globalT * globalT;
+					float brightness = crossShade * lightDir * scaleShade * tipGleam * talons[c].bright;
+					if (edgeRatio < 0.20f && globalT > 0.45f)
+						brightness += 0.50f * (1.0f - edgeRatio / 0.20f) * (globalT - 0.45f) / 0.55f;
+					if (edgeRatio > 0.72f)
+						brightness += 0.12f * (edgeRatio - 0.72f) / 0.28f * lightDir;
+					if (brightness > 1.45f) brightness = 1.45f;
+					float cr = metalR * brightness;
+					float cg = metalG * brightness;
+					float cb = metalB * brightness;
+					if (cr > 1.0f) cr = 1.0f;
+					if (cg > 1.0f) cg = 1.0f;
+					if (cb > 1.0f) cb = 1.0f;
+					float alpha = 0.96f;
+					if (edgeRatio > 0.80f)
+						alpha = 0.96f - 0.50f * (edgeRatio - 0.80f) / 0.20f;
+					m_DDraw.m_pGPURenderer->QueueFilledRect(cx + col, cy + row, 1, 1, cr, cg, cb, alpha);
+					break;
+				}
+			}
+		}
+		m_DDraw.m_pGPURenderer->Flush();
+		return;
+	}
+
+	// === Large orbs: Anatomical reptilian fingers wrapping around the sphere ===
+	// 3 fingers with knuckle joints, muscle detail, sharp claw tips
+	// Left + Right fingers wrap from bottom up the sides to near the top
+	// Back finger: only claw tip visible peeking over the top of the sphere
+
+	struct Vec2 { float x, y; };
+	struct FingerPath {
+		Vec2 pts[5];
+		float widths[5];  // Half-width at each control point
+		int nPts;
+		float bright;
+	};
+
+	FingerPath fingers[3];
+
+	// Left finger: base at bottom-left, wraps up left side, tip curves over top-left
+	fingers[0].nPts = 4;
+	fingers[0].pts[0] = { (float)cx - fR * 0.30f, (float)cy + fR * 1.03f };
+	fingers[0].pts[1] = { (float)cx - fR * 1.06f, (float)cy + fR * 0.18f };
+	fingers[0].pts[2] = { (float)cx - fR * 1.02f, (float)cy - fR * 0.42f };
+	fingers[0].pts[3] = { (float)cx - fR * 0.42f, (float)cy - fR * 0.90f };
+	fingers[0].widths[0] = fR * 0.22f;
+	fingers[0].widths[1] = fR * 0.16f;
+	fingers[0].widths[2] = fR * 0.13f;
+	fingers[0].widths[3] = fR * 0.032f;
+	fingers[0].bright = 1.0f;
+
+	// Right finger: mirror of left, wraps up right side
+	fingers[1].nPts = 4;
+	fingers[1].pts[0] = { (float)cx + fR * 0.30f, (float)cy + fR * 1.03f };
+	fingers[1].pts[1] = { (float)cx + fR * 1.06f, (float)cy + fR * 0.18f };
+	fingers[1].pts[2] = { (float)cx + fR * 1.02f, (float)cy - fR * 0.42f };
+	fingers[1].pts[3] = { (float)cx + fR * 0.48f, (float)cy - fR * 0.88f };
+	fingers[1].widths[0] = fR * 0.22f;
+	fingers[1].widths[1] = fR * 0.16f;
+	fingers[1].widths[2] = fR * 0.13f;
+	fingers[1].widths[3] = fR * 0.032f;
+	fingers[1].bright = 1.0f;
+
+	// Back finger: only claw tip visible at top (rest is behind the sphere)
+	fingers[2].nPts = 2;
+	fingers[2].pts[0] = { (float)cx + fR * 0.06f, (float)cy - fR * 0.90f };
+	fingers[2].pts[1] = { (float)cx - fR * 0.04f, (float)cy - fR * 1.07f };
+	fingers[2].widths[0] = fR * 0.09f;
+	fingers[2].widths[1] = fR * 0.020f;
+	fingers[2].bright = 0.72f;
+
+	// Apply angle offset for per-orb variation (subtle rotation)
+	if (fabsf(angleOffset) > 0.001f) {
+		float cs = cosf(angleOffset * 0.5f);
+		float sn = sinf(angleOffset * 0.5f);
+		for (int f = 0; f < 3; f++) {
+			for (int p = 0; p < fingers[f].nPts; p++) {
+				float dx = fingers[f].pts[p].x - (float)cx;
+				float dy = fingers[f].pts[p].y - (float)cy;
+				fingers[f].pts[p].x = (float)cx + dx * cs - dy * sn;
+				fingers[f].pts[p].y = (float)cy + dx * sn + dy * cs;
+			}
+		}
+	}
+
+	int extent = (int)(fR * 1.15f) + 6;
+
+	for (int row = -extent; row <= extent; row++) {
+		for (int col = -extent; col <= extent; col++) {
+			float distSq = (float)(col * col + row * row);
+			if (distSq < (fR - 5.0f) * (fR - 5.0f)) continue;
+			if (distSq > (fR + 14.0f) * (fR + 14.0f)) continue;
+
+			float px = (float)(cx + col);
+			float py = (float)(cy + row);
+
+			for (int f = 0; f < 3; f++) {
+				// Find closest point on this finger's polyline path
+				float bestDist = 999.0f;
+				float bestT = 0.0f;
+				int bestSeg = 0;
+
+				for (int s = 0; s < fingers[f].nPts - 1; s++) {
+					float ax = fingers[f].pts[s].x, ay = fingers[f].pts[s].y;
+					float bx = fingers[f].pts[s + 1].x, by = fingers[f].pts[s + 1].y;
+					float abx = bx - ax, aby = by - ay;
+					float apx = px - ax, apy = py - ay;
+					float dotAP = apx * abx + apy * aby;
+					float dotAB = abx * abx + aby * aby;
+					float segT = (dotAB > 0.001f) ? dotAP / dotAB : 0.0f;
+					if (segT < 0.0f) segT = 0.0f;
+					if (segT > 1.0f) segT = 1.0f;
+					float cpx = ax + segT * abx;
+					float cpy = ay + segT * aby;
+					float ddx = px - cpx, ddy = py - cpy;
+					float d = sqrtf(ddx * ddx + ddy * ddy);
+					if (d < bestDist) {
+						bestDist = d;
+						bestT = segT;
+						bestSeg = s;
+					}
+				}
+
+				// Global t along the full finger (0 = base, 1 = claw tip)
+				float globalT = ((float)bestSeg + bestT) / (float)(fingers[f].nPts - 1);
+
+				// Interpolate width at closest point
+				float w0 = fingers[f].widths[bestSeg];
+				float w1 = fingers[f].widths[bestSeg + 1];
+				float fingerWidth = w0 * (1.0f - bestT) + w1 * bestT;
+
+				// Knuckle bumps — Lorentzian peaks at joint positions
+				float k1 = 0.016f * fR / (1.0f + (globalT - 0.28f) * (globalT - 0.28f) * 650.0f);
+				float k2 = 0.013f * fR / (1.0f + (globalT - 0.53f) * (globalT - 0.53f) * 650.0f);
+				float k3 = 0.010f * fR / (1.0f + (globalT - 0.76f) * (globalT - 0.76f) * 650.0f);
+				fingerWidth += k1 + k2 + k3;
+
+				if (bestDist > fingerWidth) continue;
+
+				// --- Render this finger pixel ---
+				float edgeRatio = bestDist / fingerWidth;
+
+				float pixAngle = atan2f(-(float)row, (float)col);
+				if (pixAngle < 0) pixAngle += 6.2832f;
+
+				// Dark reptilian skin base color
+				float metalR = 0.42f + tintR * 0.18f;
+				float metalG = 0.38f + tintG * 0.18f;
+				float metalB = 0.35f + tintB * 0.18f;
+
+				// Rounded cross-section (finger is tubular)
+				float crossShade = 0.42f + 0.58f * cosf(edgeRatio * 1.5708f);
+
+				// Knuckle joint brightness — raised bumps catch more light
+				float knuckleBright = 1.0f;
+				knuckleBright += 0.30f / (1.0f + (globalT - 0.28f) * (globalT - 0.28f) * 500.0f);
+				knuckleBright += 0.25f / (1.0f + (globalT - 0.53f) * (globalT - 0.53f) * 500.0f);
+				knuckleBright += 0.20f / (1.0f + (globalT - 0.76f) * (globalT - 0.76f) * 500.0f);
+
+				// Muscle/tendon texture between knuckles
+				float muscleDip = -0.06f * sinf(globalT * 14.0f);
+				knuckleBright += muscleDip;
+
+				// Directional light from upper-left
+				float lightDir = 0.62f + 0.38f * cosf(pixAngle + 2.356f);
+
+				// Reptilian scale texture — staggered rows
+				float scaleU = globalT * 22.0f;
+				float scaleV = edgeRatio * 4.0f;
+				if (((int)scaleU % 2) == 0) scaleV += 0.5f;
+				float scaleShade = 0.84f + 0.16f * cosf(scaleV * 3.14159f) * cosf(scaleU * 3.14159f);
+
+				// Claw tip (t > 0.85): darker keratin, shinier
+				float clawSheen = 1.0f;
+				if (globalT > 0.85f) {
+					float clawMix = (globalT - 0.85f) / 0.15f;
+					metalR *= (1.0f - clawMix * 0.4f);
+					metalG *= (1.0f - clawMix * 0.4f);
+					metalB *= (1.0f - clawMix * 0.35f);
+					clawSheen = 1.0f + clawMix * 0.7f;
+				}
+
+				float brightness = crossShade * lightDir * scaleShade * knuckleBright * clawSheen * fingers[f].bright;
+
+				// Spine specular highlight along finger ridge
+				if (edgeRatio < 0.18f && globalT > 0.2f) {
+					brightness += 0.35f * (1.0f - edgeRatio / 0.18f) * (globalT - 0.2f) / 0.8f;
+				}
+
+				// Rim light at edges
+				if (edgeRatio > 0.72f) {
+					brightness += 0.10f * (edgeRatio - 0.72f) / 0.28f * lightDir;
+				}
+
+				if (brightness > 1.5f) brightness = 1.5f;
+
+				float cr = metalR * brightness;
+				float cg = metalG * brightness;
+				float cb = metalB * brightness;
+				if (cr > 1.0f) cr = 1.0f;
+				if (cg > 1.0f) cg = 1.0f;
+				if (cb > 1.0f) cb = 1.0f;
+
+				float alpha = 0.96f;
+				if (edgeRatio > 0.80f)
+					alpha = 0.96f - 0.50f * (edgeRatio - 0.80f) / 0.20f;
+
+				m_DDraw.m_pGPURenderer->QueueFilledRect(
+					cx + col, cy + row, 1, 1, cr, cg, cb, alpha);
+				break;
+			}
+		}
+	}
+
+	m_DDraw.m_pGPURenderer->Flush();
+}
+
+void CGame::DrawSpecialAbilityCircles()
+{
+	if (!m_DDraw.m_bUseGPU || m_DDraw.m_pGPURenderer == NULL) return;
+
+	InitSpecialAbilities();
+
+	DWORD dwTime = m_dwCurTime;
+
+	// Per-ability cooldown durations (must match server: HG.cpp)
+	static const DWORD dwCooldownDurations[4] = {
+		5*60*1000,    // Berserk: 5 min
+		10*60*1000,   // Super Berserk: 10 min
+		10*60*1000,   // Speed Burst: 10 min
+		15*60*1000    // Glacial Strike: 15 min
+	};
+	// Per-ability active durations (must match MessageHandler.cpp)
+	static const DWORD dwActiveDurations[4] = {
+		60000,   // Berserk: 60s
+		15000,   // Super Berserk: 15s
+		10000,   // Speed Burst: 10s
+		7000     // Glacial Strike: 7s
+	};
+
+	struct AbilityOrbDef {
+		int x, y, radius;
+		float lr, lg, lb;   // liquid color
+		float er, eg, eb;   // empty color
+		float br, bg, bb;   // border color
+	};
+	AbilityOrbDef orbs[4] = {
+		{ 250, 412, 14, 1.0f,0.8f,0.0f,  0.15f,0.12f,0.0f,  0.8f,0.6f,0.0f  },   // Yellow - Berserk
+		{ 290, 412, 14, 0.7f,0.2f,1.0f,  0.1f,0.03f,0.15f,  0.5f,0.15f,0.8f },   // Purple - Super Berserk
+		{ 330, 412, 14, 0.0f,0.8f,0.2f,  0.0f,0.12f,0.03f,  0.0f,0.6f,0.15f },   // Green  - Speed Burst
+		{ 370, 412, 14, 0.2f,0.5f,1.0f,  0.03f,0.07f,0.15f, 0.15f,0.35f,0.8f },  // Blue   - Glacial Strike
+	};
+
+	for (int i = 0; i < 4; i++) {
+		if (!m_stAbility[i].bUnlocked) continue;
+
+		float fillPercent = 1.0f;
+		bool bPulseGlow = false;
+
+		if (m_stAbility[i].bActive && m_stAbility[i].dwActiveEnd > dwTime) {
+			// ACTIVE: orb depletes as effect wears off
+			float remaining = (float)(m_stAbility[i].dwActiveEnd - dwTime);
+			float total = (float)dwActiveDurations[i];
+			fillPercent = remaining / total;
+			if (fillPercent > 1.0f) fillPercent = 1.0f;
+			bPulseGlow = true;
+		}
+		else if (m_stAbility[i].dwCooldownEnd > dwTime) {
+			// ON COOLDOWN: orb fills up as cooldown expires
+			float remaining = (float)(m_stAbility[i].dwCooldownEnd - dwTime);
+			float total = (float)dwCooldownDurations[i];
+			fillPercent = 1.0f - (remaining / total);
+			if (fillPercent < 0.0f) fillPercent = 0.0f;
+			if (fillPercent > 1.0f) fillPercent = 1.0f;
+		}
+		// else: READY — fillPercent stays 1.0
+
+		DrawOrb(orbs[i].x, orbs[i].y, orbs[i].radius, fillPercent,
+			orbs[i].lr, orbs[i].lg, orbs[i].lb,
+			orbs[i].er, orbs[i].eg, orbs[i].eb,
+			orbs[i].br, orbs[i].bg, orbs[i].bb,
+			bPulseGlow, true);
+
+		// Dragon talon mountings — each orb gets slightly different claw orientation
+		static const float abilityClawOffsets[4] = { 0.0f, 0.22f, -0.18f, 0.35f };
+		DrawOrbMounting(orbs[i].x, orbs[i].y, orbs[i].radius,
+			orbs[i].lr * 0.3f, orbs[i].lg * 0.3f, orbs[i].lb * 0.3f,
+			abilityClawOffsets[i]);
+
+		// Timer text below orbs removed — overlaps with indicators and clutters HUD
+		// Hover tooltip still shows timer info when mouse is over the orb
+	}
+}
+
+void CGame::UpdateSpecialAbilityTimers()
+{
+	// Expire speed buff on client side
+	if (m_bSpeedBuffActive && m_dwCurTime >= m_dwSpeedBuffEndTime) {
+		m_bSpeedBuffActive = false;
+		ApplySpeedBuff(false);
+		AddEventList("Speed buff expired.", 10);
+	}
+
+	// Speed enforcer: when no buff is active, guarantee frame times match GM.cfg
+	if (!m_bSpeedBuffActive && m_pMapData != NULL) {
+		short sExpectWalk = (short)m_iWalkSpeed;
+		short sExpectRun  = (short)m_iRunSpeed;
+		short sLiveWalk = m_pMapData->m_stFrame[1][OBJECTMOVE].m_sFrameTime;
+		short sLiveRun  = m_pMapData->m_stFrame[1][OBJECTRUN].m_sFrameTime;
+		if (sLiveWalk != sExpectWalk || sLiveRun != sExpectRun) {
+			char cFix[200];
+			wsprintf(cFix, "[SPEED FIX] Correcting walk %d->%d run %d->%d",
+				sLiveWalk, sExpectWalk, sLiveRun, sExpectRun);
+			AddEventList(cFix, 10);
+			for (int iType = 1; iType <= 6; iType++) {
+				m_pMapData->m_stFrame[iType][OBJECTMOVE].m_sFrameTime = sExpectWalk;
+				m_pMapData->m_stFrame[iType][OBJECTRUN].m_sFrameTime = sExpectRun;
+			}
+		}
+	}
+}
+
+void CGame::ApplySpeedBuff(bool bActivate)
+{
+	if (bActivate) {
+		// Only capture pre-buff values if NOT already buffed (prevents double-capture of reduced values)
+		if (m_sPreBuffWalkTime == 0) {
+			m_sPreBuffWalkTime = m_pMapData->m_stFrame[1][OBJECTMOVE].m_sFrameTime;
+			m_sPreBuffRunTime  = m_pMapData->m_stFrame[1][OBJECTRUN].m_sFrameTime;
+		}
+		// Reduce frame times to 2/3 of PRE-BUFF baseline = 50% faster movement
+		short sSpeedWalk = (short)((m_sPreBuffWalkTime * 2) / 3);
+		short sSpeedRun  = (short)((m_sPreBuffRunTime  * 2) / 3);
+		if (sSpeedWalk < 10) sSpeedWalk = 10;
+		if (sSpeedRun  < 10) sSpeedRun  = 10;
+		for (int iType = 1; iType <= 6; iType++) {
+			m_pMapData->m_stFrame[iType][OBJECTMOVE].m_sFrameTime = sSpeedWalk;
+			m_pMapData->m_stFrame[iType][OBJECTRUN].m_sFrameTime = sSpeedRun;
+		}
+	} else {
+		// Restore pre-buff frame times (fall back to GM.cfg values if not captured)
+		short sWalk = (m_sPreBuffWalkTime > 0) ? m_sPreBuffWalkTime : (short)m_iWalkSpeed;
+		short sRun  = (m_sPreBuffRunTime  > 0) ? m_sPreBuffRunTime  : (short)m_iRunSpeed;
+		for (int iType = 1; iType <= 6; iType++) {
+			m_pMapData->m_stFrame[iType][OBJECTMOVE].m_sFrameTime = sWalk;
+			m_pMapData->m_stFrame[iType][OBJECTRUN].m_sFrameTime = sRun;
+		}
+		m_sPreBuffWalkTime = 0;
+		m_sPreBuffRunTime = 0;
+	}
+}
+
+void CGame::AddIceTrailPoint(int tileX, int tileY)
+{
+	// Only add if Glacial Strike is active and speed buff is active
+	if (!m_stAbility[3].bActive || !m_bSpeedBuffActive) return;
+
+	// Throttle: don't add faster than every 80ms
+	if (m_dwCurTime - m_dwLastIceTrailTime < 80) return;
+	m_dwLastIceTrailTime = m_dwCurTime;
+
+	// Don't add duplicate of last position
+	if (m_iIceTrailCount > 0) {
+		int iPrev = (m_iIceTrailHead - 1 + ICE_TRAIL_MAX) % ICE_TRAIL_MAX;
+		if (m_iceTrail[iPrev].tileX == tileX && m_iceTrail[iPrev].tileY == tileY) return;
+	}
+
+	m_iceTrail[m_iIceTrailHead].tileX = tileX;
+	m_iceTrail[m_iIceTrailHead].tileY = tileY;
+	m_iceTrail[m_iIceTrailHead].dwTime = m_dwCurTime;
+	m_iIceTrailHead = (m_iIceTrailHead + 1) % ICE_TRAIL_MAX;
+	if (m_iIceTrailCount < ICE_TRAIL_MAX) m_iIceTrailCount++;
+}
+
+void CGame::DrawIceTrail()
+{
+	if (m_iIceTrailCount == 0) return;
+	if (!m_DDraw.m_bUseGPU || m_DDraw.m_pGPURenderer == NULL) return;
+
+	DWORD dwNow = m_dwCurTime;
+	int iExpired = 0;
+
+	for (int n = 0; n < m_iIceTrailCount; n++) {
+		int idx = (m_iIceTrailHead - m_iIceTrailCount + n + ICE_TRAIL_MAX) % ICE_TRAIL_MAX;
+		DWORD dwAge = dwNow - m_iceTrail[idx].dwTime;
+
+		// Fade over 1500ms then expire
+		if (dwAge > 1500) { iExpired++; continue; }
+
+		float fFade = 1.0f - (float)dwAge / 1500.0f;
+		float fAlpha = fFade * 0.35f; // Max 35% opacity
+
+		int screenX = m_iceTrail[idx].tileX * 32 - m_sViewPointX - 16;
+		int screenY = m_iceTrail[idx].tileY * 32 - m_sViewPointY - 16;
+
+		// Cull off-screen
+		if (screenX + 32 < 0 || screenX >= 640 || screenY + 32 < 0 || screenY >= 480) continue;
+
+		// Ice-blue tile overlay: R=0.4, G=0.7, B=1.0
+		m_DDraw.m_pGPURenderer->QueueFilledRect(screenX, screenY, 32, 32,
+			0.4f * fFade, 0.7f * fFade, 1.0f * fFade, fAlpha);
+	}
+
+	if (m_iIceTrailCount > iExpired)
+		m_DDraw.m_pGPURenderer->Flush();
+
+	// Shrink count by expired points from the tail
+	m_iIceTrailCount -= iExpired;
+}
+
+bool CGame::ActivateSpecialAbility(int iAbilityIndex)
+{
+	if (iAbilityIndex < 0 || iAbilityIndex >= 4) return false;
+	if (!m_stAbility[iAbilityIndex].bUnlocked) {
+		AddEventList("You haven't learned the required spell.", 10);
+		return true;
+	}
+	if (m_stAbility[iAbilityIndex].dwCooldownEnd > m_dwCurTime) {
+		return true; // On cooldown — silently ignore
+	}
+	// Set temporary cooldown IMMEDIATELY to prevent packet spam.
+	// Server response will overwrite with the real cooldown.
+	m_stAbility[iAbilityIndex].dwCooldownEnd = m_dwCurTime + 5000;
+	SendSpecialAbilityActivation(iAbilityIndex);
+	PlaySound('E', 14, 5);
+	return true;
+}
+
+bool CGame::HandleSpecialAbilityClick(short msX, short msY)
+{
+	// Check if click is within any ability orb (circular hit test)
+	int circleX[4] = { 250, 290, 330, 370 };
+	int circleY = 412;
+	int radius = 14;
+
+	for (int i = 0; i < 4; i++) {
+		int dx = msX - circleX[i];
+		int dy = msY - circleY;
+		if (dx*dx + dy*dy <= radius*radius) {
+			return ActivateSpecialAbility(i);
+		}
+	}
+	return false;
+}
+
+void CGame::SendSpecialAbilityActivation(int iAbilityIndex)
+{
+	// Use 100+ offset to distinguish from original super attack activation (which sends 0)
+	bSendCommand(MSGID_COMMAND_COMMON, COMMONTYPE_REQUEST_ACTIVATESPECABLTY, NULL, 100 + iAbilityIndex, NULL, NULL, NULL);
+}
 
 void CGame::DrawLine2(int x0, int y0, int x1, int y1, int iR, int iG, int iB)
 {
@@ -21506,39 +22834,30 @@ void CGame::DlgBoxClick_Help(int msX, int msY)
  void CGame::CreateScreenShot()
     {
     int i;
-    FILE * pFile;
     char cFn[256];
-    char LongMapName[128];
-    char SStime[32];
-	SYSTEMTIME SysTime;
-	GetLocalTime(&SysTime);
-	ZeroMemory(LongMapName, sizeof(LongMapName));
-	GetOfficialMapName(m_cMapName, LongMapName);
-	ZeroMemory(SStime, sizeof(SStime));
-	wsprintf(SStime, "%02d:%02d - %02d:%02d:%02d"
-		, SysTime.wMonth, SysTime.wDay
-		, SysTime.wHour, SysTime.wMinute, SysTime.wSecond
-		, LongMapName);
-	PutAlignedString(500, 600, 30, SStime, 255, 255, 255); 
-	PutString_SprFont3(500, 390, "www.helbreathlegion.net", 20, 20, 0, TRUE, 2);
 
-		   _mkdir("SAVE");
-	   for (i = 0; i < 1000; i++)
-	   {  
-		   ZeroMemory(cFn, sizeof(cFn));
-		   wsprintf(cFn, "SAVE\\Helbreath Legion #%d.bmp", i);
-		 
-			if(_access(cFn, 0 ) == -1){
+	_mkdir("SAVE");
+	for (i = 0; i < 1000; i++)
+	{
+		ZeroMemory(cFn, sizeof(cFn));
+		wsprintf(cFn, "SAVE\\Helbreath #%d.bmp", i);
 
-				pFile = fopen(cFn, "rb");
-				m_DDraw.Screenshot(cFn, m_DDraw.m_lpBackB4);
+		if (_access(cFn, 0) == -1) {
+			bool bSaved = false;
+			// GPU path: capture OpenGL framebuffer directly
+			if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL)
+				bSaved = m_DDraw.m_pGPURenderer->SaveScreenshot(cFn);
+			else
+				bSaved = m_DDraw.Screenshot(cFn, m_DDraw.m_lpBackB4);
 
+			if (bSaved) {
 				wsprintf(G_cTxt, NOTIFYMSG_CREATE_SCREENSHOT1, cFn);
 				AddEventList(G_cTxt, 10);
-				return;
 			}
-	   }
-       AddEventList(NOTIFYMSG_CREATE_SCREENSHOT2, 10);
+			return;
+		}
+	}
+	AddEventList(NOTIFYMSG_CREATE_SCREENSHOT2, 10);
     }
 
 
@@ -23229,6 +24548,7 @@ void CGame::OnSysKeyUp(WPARAM wParam)
 		if( m_bToggleScreen == TRUE )
 		{	m_bIsRedrawPDBGS = TRUE;
 			m_DDraw.ChangeDisplayMode(G_hWnd);
+			m_DInput.SetAcquire(TRUE); // Re-clip cursor to new window bounds
 		}
 		break;
 	case VK_ESCAPE:
@@ -23532,47 +24852,69 @@ void CGame::OnKeyUp(WPARAM wParam)
 	case VK_UP:
 		m_cArrowPressed	= 1;
 		if( m_cGameMode == GAMEMODE_ONMAINGAME )
-		{	int iTotalMsg=0;
-			for( int i=MAXWHISPERMSG-1 ; i>=0 ; i-- )
-			{	if( m_pWhisperMsg[i] != NULL )
-				{	iTotalMsg = i;
-					break;
+		{	if( !m_bInputStatus )
+			{	// Speed Burst (ability 2) — arrow key shortcut
+				ActivateSpecialAbility(2);
+			}
+			else
+			{	// Whisper history scroll (only when typing in chat)
+				int iTotalMsg=0;
+				for( int i=MAXWHISPERMSG-1 ; i>=0 ; i-- )
+				{	if( m_pWhisperMsg[i] != NULL )
+					{	iTotalMsg = i;
+						break;
+				}	}
+				m_cWhisperIndex ++;
+				if( m_cWhisperIndex > iTotalMsg ) m_cWhisperIndex = 0;
+				if( m_cWhisperIndex < 0 ) m_cWhisperIndex = iTotalMsg;
+				if( m_pWhisperMsg[m_cWhisperIndex] != NULL ) {
+				EndInputString();
+				wsprintf( m_cChatMsg, "/to %s", m_pWhisperMsg[m_cWhisperIndex]->m_pMsg );
+				StartInputString(10, 414, sizeof(m_cChatMsg), m_cChatMsg);
 			}	}
-			m_cWhisperIndex ++;
-			if( m_cWhisperIndex > iTotalMsg ) m_cWhisperIndex = 0;
-			if( m_cWhisperIndex < 0 ) m_cWhisperIndex = iTotalMsg;
-			if( m_pWhisperMsg[m_cWhisperIndex] != NULL ) {
-			EndInputString();
-			wsprintf( m_cChatMsg, "/to %s", m_pWhisperMsg[m_cWhisperIndex]->m_pMsg );
-			StartInputString(10, 414, sizeof(m_cChatMsg), m_cChatMsg);
-		}	}
+		}
 		break;
 
 	case VK_RIGHT:
 		m_cArrowPressed	= 2;
+		if( m_cGameMode == GAMEMODE_ONMAINGAME && !m_bInputStatus )
+		{	// Berserk (ability 0) — arrow key shortcut
+			ActivateSpecialAbility(0);
+		}
 		break;
 
 	case VK_DOWN:
 		m_cArrowPressed	= 3;
 		if( m_cGameMode == GAMEMODE_ONMAINGAME )
-		{	int iTotalMsg=0;
-			for( int i=MAXWHISPERMSG-1 ; i>=0 ; i-- )
-			{	if( m_pWhisperMsg[i] != NULL )
-				{	iTotalMsg = i;
-					break;
+		{	if( !m_bInputStatus )
+			{	// Glacial Strike (ability 3) — arrow key shortcut
+				ActivateSpecialAbility(3);
+			}
+			else
+			{	// Whisper history scroll (only when typing in chat)
+				int iTotalMsg=0;
+				for( int i=MAXWHISPERMSG-1 ; i>=0 ; i-- )
+				{	if( m_pWhisperMsg[i] != NULL )
+					{	iTotalMsg = i;
+						break;
+				}	}
+				m_cWhisperIndex --;
+				if( m_cWhisperIndex < 0 ) m_cWhisperIndex = iTotalMsg;
+				if( m_cWhisperIndex > iTotalMsg ) m_cWhisperIndex = 0;
+				if( m_pWhisperMsg[m_cWhisperIndex] != NULL ) {
+				EndInputString();
+				wsprintf( m_cChatMsg, "/to %s", m_pWhisperMsg[m_cWhisperIndex]->m_pMsg );
+				StartInputString(10, 414, sizeof(m_cChatMsg), m_cChatMsg);
 			}	}
-			m_cWhisperIndex --;
-			if( m_cWhisperIndex < 0 ) m_cWhisperIndex = iTotalMsg;
-			if( m_cWhisperIndex > iTotalMsg ) m_cWhisperIndex = 0;
-			if( m_pWhisperMsg[m_cWhisperIndex] != NULL ) {
-			EndInputString();
-			wsprintf( m_cChatMsg, "/to %s", m_pWhisperMsg[m_cWhisperIndex]->m_pMsg );
-			StartInputString(10, 414, sizeof(m_cChatMsg), m_cChatMsg);
-		}	}
+		}
 		break;
 
 	case VK_LEFT:
 		m_cArrowPressed	= 4;
+		if( m_cGameMode == GAMEMODE_ONMAINGAME && !m_bInputStatus )
+		{	// Super Berserk (ability 1) — arrow key shortcut
+			ActivateSpecialAbility(1);
+		}
 		break;
 
 	case VK_SNAPSHOT:
@@ -25644,6 +26986,15 @@ void CGame::DrawObjectName(short sX, short sY, char * pName, int iStatus)
 		}
 	}
 
+	// Draw side + combatant/criminal subtitle
+	if (side != NEUTRAL && side > 0 && side < MAXSIDES) {
+		strcpy(cTxt, sideName[side]);
+		if (bPK)
+			strcat(cTxt, MSG_PK);
+		else
+			strcat(cTxt, MSG_COMBATANT);
+		PutString2(sX, sY + 14 + iAddY, cTxt, sR, sG, sB);
+	}
 }
 
 BOOL CGame::FindGuildName(char* pName, int* ipIndex)
@@ -27098,13 +28449,25 @@ void CGame::UpdateScreen_OnGame()
 	sVal = m_sViewPointY - (sPivotY*32);
 	sDivY = sVal / 32;
 	sModY = sVal % 32;
+	// === World zoom: apply zoomed projection for world rendering ===
+	static const float WORLD_ZOOM = 1.15f;
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL)
+		m_DDraw.m_pGPURenderer->SetProjectionZoom(WORLD_ZOOM);
+
+	// Transform mouse to world virtual coordinates for zoomed world-space interaction
+	short wmsX = msX, wmsY = msY;
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		wmsX = (short)(msX * WORLD_ZOOM + 320.0f * (1.0f - WORLD_ZOOM));
+		wmsY = (short)(msY * WORLD_ZOOM + 240.0f * (1.0f - WORLD_ZOOM));
+	}
+
 	if (iUpdateRet != 0)
 		DrawBackground(sDivX, sModX, sDivY, sModY);
 
 	if (iUpdateRet != 0)
 		DrawEffectLights();
 	if (iUpdateRet != 0)
-		DrawObjects(sPivotX, sPivotY, sDivX, sDivY, sModX, sModY, msX, msY);
+		DrawObjects(sPivotX, sPivotY, sDivX, sDivY, sModX, sModY, wmsX, wmsY);
 
 	if (iUpdateRet != 0)
 	{	DrawEffects();
@@ -27130,6 +28493,24 @@ void CGame::UpdateScreen_OnGame()
 		&& (m_iGatePositY >= m_sViewPointY/32) && (m_iGatePositY <= m_sViewPointY/32 + 15))
 	{	m_pEffectSpr[101]->PutTransSprite(m_iGatePositX*32 - m_sViewPointX - 96, m_iGatePositY*32 - m_sViewPointY - 69, _tmp_iEffectFrame%30, dwTime);
 	}
+
+	// Spell targeting corridor/circle guides (rendered over game world, independent of minimap)
+	if (m_bIsGetPointingMode) {
+		if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL)
+			m_DDraw.m_pGPURenderer->Flush(); // Flush sprites before overlay batch
+		if (IsCorridorSpell(m_iCastingMagicType))
+			DrawSpellTargetingCorridor(msX, msY);
+		else if (IsAoESpell(m_iCastingMagicType))
+			DrawAoETargetingCircle(msX, msY);
+		if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL)
+			m_DDraw.m_pGPURenderer->Flush(); // Flush overlay batch
+	}
+
+	// === Reset projection and clip area to 1:1 for UI rendering ===
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL)
+		m_DDraw.m_pGPURenderer->SetProjectionZoom(1.0f);
+	SetRect(&m_DDraw.m_rcClipArea, 0, 0, 640, 480);
+
 	if (iUpdateRet != 0)
 		DrawDialogBoxs(msX, msY, msZ, cLB);
 
@@ -27348,7 +28729,8 @@ void CGame::UpdateScreen_OnGame()
 	{	m_bCommandAvailable = TRUE;
 		m_dwCommandTime = 0;
 	}
-	CommandProcessor( msX, msY, ((sDivX + sPivotX)*32 + sModX + msX - 17)/32 + 1, ((sDivY + sPivotY)*32 + sModY + msY - 17)/32 + 1, cLB, cRB, cMB);
+	// Use zoomed mouse coords (wmsX/wmsY) for world tile index, raw msX/msY for UI
+	CommandProcessor( msX, msY, ((sDivX + sPivotX)*32 + sModX + wmsX - 17)/32 + 1, ((sDivY + sPivotY)*32 + sModY + wmsY - 17)/32 + 1, cLB, cRB, cMB);
 
 	m_sViewPointX = sVPXsave;
 	m_sViewPointY = sVPYsave;
@@ -27481,6 +28863,11 @@ void CGame::CommandProcessor(short msX, short msY, short indexX, short indexY, c
 				return;
 			}else if (iRet == 0)
 			{	m_stMCursor.cPrevStatus = CURSORSTATUS_PRESSED;
+				// Check special ability circle clicks (above dialog bounds)
+				if (HandleSpecialAbilityClick(msX, msY)) {
+					m_stMCursor.cPrevStatus = CURSORSTATUS_NULL;
+					return;
+				}
 				// Snoopy: Added Golden LevelUp
 				if (   (msX >560) && (msX <620) && (msY>390) && (msY<405)
 					&& (m_iLU_Point >0))
@@ -30754,7 +32141,7 @@ void CGame::DrawDialogBox_Magic(short msX, short msY, short msZ)
 	iCPivot = m_stDialogBoxInfo[3].sView*10;
 	iYloc = 0;
 
-	for (i = 0; i < 9; i++) {
+	for (i = 0; i < 10; i++) {
 		if ((m_cMagicMastery[iCPivot + i] != NULL) && (m_pMagicCfgList[iCPivot + i] != NULL)) {
 			wsprintf(cTxt, "%s", m_pMagicCfgList[iCPivot + i]->m_cName);
 
@@ -30954,13 +32341,13 @@ void CGame::DrawDialogBox_MagicShop(short msX, short msY, short msZ)
 	iCPivot = m_stDialogBoxInfo[16].sView*10;
 
 	iYloc = 0;
-	for (i = 0; i < 9; i++) 
+	for (i = 0; i < 10; i++)
 	{
-		if ((m_pMagicCfgList[iCPivot + i] != NULL) && (m_pMagicCfgList[iCPivot + i]->m_bIsVisible)) 
+		if ((m_pMagicCfgList[iCPivot + i] != NULL) && (m_pMagicCfgList[iCPivot + i]->m_bIsVisible))
 		{
 			wsprintf(cTxt, "%s", m_pMagicCfgList[iCPivot + i]->m_cName);
 			m_Misc.ReplaceString(cTxt, '-', ' ');
-			if (m_cMagicMastery[iCPivot + i] != 0) 
+			if (m_cMagicMastery[iCPivot + i] != 0)
 			{
 				if( m_Misc.bCheckIMEString( cTxt ) == FALSE )
 				{
@@ -33535,7 +34922,7 @@ void CGame::DlgBoxClick_Magic(short msX, short msY)
 	sY = m_stDialogBoxInfo[3].sY;
 	iCPivot = m_stDialogBoxInfo[3].sView*10;
 	iYloc = 0;
-	for (i = 0; i < 9; i++)
+	for (i = 0; i < 10; i++)
 	{	if ((m_cMagicMastery[iCPivot + i] != NULL) && (m_pMagicCfgList[iCPivot + i] != NULL))
 		{	if ((msX >= sX + 30) && (msX <= sX + 240) && (msY >= sY + 70 + iYloc) && (msY <= sY + 70 + 18 + iYloc))
 			{	UseMagic(iCPivot + i);
@@ -38961,6 +40348,7 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 		case 10: wsprintf(cLabel, "Shutup (name mins): %s_", m_cGMPanelInput); break;
 		case 11: wsprintf(cLabel, "Check IP: %s_", m_cGMPanelInput); break;
 		case 12: wsprintf(cLabel, "Summon Player: %s_", m_cGMPanelInput); break;
+		case 13: wsprintf(cLabel, "Amount: %s_", m_cGMPanelInput); break;
 		default: wsprintf(cLabel, "> %s_", m_cGMPanelInput); break;
 		}
 		PutAlignedString(btnLeft + 4, btnRight, iy + 2, cLabel, 255, 255, 200);
@@ -39355,14 +40743,18 @@ void CGame::DrawDialogBox_GMPanel(short msX, short msY, short msZ)
 				y += 16;
 			}
 
-			// Amount: [-] amount [+]
+			// Amount: [-] amount(clickable) [+]
 			PutString(btnLeft, y, "Amount:", RGB(140, 140, 180));
 			{
 				int vx = btnLeft + 70;
 				GM_LBTN("[-]", vx, vx + 24, y);
-				char cVal[8]; wsprintf(cVal, "%d", m_iGMPanelItemAmount);
-				PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
-				GM_LBTN("[+]", vx + 48, vx + 72, y);
+				char cVal[16]; wsprintf(cVal, "%d", m_iGMPanelItemAmount);
+				// Highlight amount on hover to show it's clickable
+				if (msX >= vx + 28 && msX <= vx + 100 && msY >= y && msY <= y + 14)
+					PutString(vx + 28, y + 1, cVal, RGB(255, 255, 100));
+				else
+					PutString(vx + 28, y + 1, cVal, RGB(255, 255, 200));
+				GM_LBTN("[+]", vx + 104, vx + 128, y);
 			}
 			y += 18;
 
@@ -39519,6 +40911,16 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 			case 10: wsprintf(cCmd, "/shutup %s", m_cGMPanelInput); break;
 			case 11: wsprintf(cCmd, "/checkip %s", m_cGMPanelInput); break;
 			case 12: wsprintf(cCmd, "/summonplayer %s", m_cGMPanelInput); break;
+			case 13: {
+				// Amount input — set value, don't send a command
+				int val = atoi(m_cGMPanelInput);
+				if (val < 1) val = 1;
+				if (val > 10000000) val = 10000000;
+				m_iGMPanelItemAmount = val;
+				m_iGMPanelInputMode = 0;
+				ZeroMemory(m_cGMPanelInput, sizeof(m_cGMPanelInput));
+				return;
+			}
 			default: return;
 			}
 			GM_SEND_CMD(cCmd);
@@ -39888,15 +41290,19 @@ void CGame::DlgBoxClick_GMPanel(int msX, int msY)
 				y += 16;
 			}
 
-			// Amount [-] [+]
+			// Amount [-] amount(click to type) [+]
 			{
 				int vx = btnLeft + 70;
 				if (msX >= vx && msX <= vx + 24 && msY >= y && msY <= y + 14) {
 					if (m_iGMPanelItemAmount > 1) m_iGMPanelItemAmount--;
 					return;
 				}
-				if (msX >= vx + 48 && msX <= vx + 72 && msY >= y && msY <= y + 14) {
-					if (m_iGMPanelItemAmount < 100) m_iGMPanelItemAmount++;
+				// Click the amount number to type a value
+				if (msX >= vx + 28 && msX <= vx + 100 && msY >= y && msY <= y + 14) {
+					GM_START_INPUT(13);
+				}
+				if (msX >= vx + 104 && msX <= vx + 128 && msY >= y && msY <= y + 14) {
+					if (m_iGMPanelItemAmount < 10000000) m_iGMPanelItemAmount++;
 					return;
 				}
 			}

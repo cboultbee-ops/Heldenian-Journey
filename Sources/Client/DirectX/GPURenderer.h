@@ -113,6 +113,8 @@ public:
 
     // Filled rectangle (uses white texture + shadow blend for dark panels)
     void DrawFilledRect(int x, int y, int w, int h, float r, float g, float b, float a);
+    // Batched version — no Flush() per call, caller must Flush() after all rects are queued
+    void QueueFilledRect(int x, int y, int w, int h, float r, float g, float b, float a);
 
     // Line drawing (additive blend, used for lightning/thunder effects)
     void QueueLine(int x0, int y0, int x1, int y1, float r, float g, float b);
@@ -131,8 +133,14 @@ public:
     void VirtualToNative(int vx, int vy, int& nx, int& ny);
     void NativeToVirtual(int nx, int ny, int& vx, int& vy);
 
+    // Projection zoom (for world zoom-out effect)
+    void SetProjectionZoom(float zoom);
+
     // Clear the render target
     void Clear(float r = 0.0f, float g = 0.0f, float b = 0.0f, float a = 1.0f);
+
+    // Screenshot: capture OpenGL framebuffer to BMP file
+    bool SaveScreenshot(const char* filename);
 
     // Font atlas and text rendering
     bool InitFontAtlas(HFONT hFont);

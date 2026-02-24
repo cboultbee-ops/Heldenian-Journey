@@ -716,6 +716,147 @@ void CSprite::PutSpriteFastWidth(int sX, int sY, int sFrame, int sWidth, DWORD d
 }
 
 
+void CSprite::PutSpriteFastHeight(int sX, int sY, int sFrame, int sHeight, DWORD dwTime)
+{
+	short dX,dY,sx,sy,szx,szy,pvx,pvy;
+	RECT rcRect;
+	if( this == NULL ) return;
+	if( m_stBrush == NULL ) return;
+	m_rcBound.top = -1;
+	if ((m_iTotalFrame-1 < sFrame) || (sFrame < 0)) return;
+	m_bOnCriticalSection = TRUE;
+
+	// GPU rendering path
+	if (m_pDDraw->m_bUseGPU && m_pDDraw->m_pGPURenderer != NULL) {
+		if (!m_bIsGPUTexture) LoadToGPU();
+		if (m_bIsGPUTexture) {
+			m_dwRefTime = dwTime;
+			short srcX = m_stBrush[sFrame].sx;
+			short srcY = m_stBrush[sFrame].sy;
+			short srcW = m_stBrush[sFrame].szx;
+			short srcH = m_stBrush[sFrame].szy;
+			short pivotX = m_stBrush[sFrame].pvx;
+			short pivotY = m_stBrush[sFrame].pvy;
+			// Clip from top: show only bottom sHeight pixels
+			if (sHeight < srcH) {
+				short clipAmount = srcH - (short)sHeight;
+				srcY += clipAmount;
+				srcH = (short)sHeight;
+				// Offset destination Y down by the clipped amount
+				int destX = sX + pivotX;
+				int destY = sY + pivotY + clipAmount;
+				m_rcBound.left = destX;
+				m_rcBound.top = destY;
+				m_rcBound.right = destX + srcW;
+				m_rcBound.bottom = destY + srcH;
+				m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+					srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
+					BLEND_COLORKEY, 1.0f, 0, 0, 0);
+			} else {
+				int destX = sX + pivotX;
+				int destY = sY + pivotY;
+				m_rcBound.left = destX;
+				m_rcBound.top = destY;
+				m_rcBound.right = destX + srcW;
+				m_rcBound.bottom = destY + srcH;
+				m_pDDraw->m_pGPURenderer->QueueSprite(m_glTextureID, destX, destY,
+					srcX, srcY, srcW, srcH, m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,
+					BLEND_COLORKEY, 1.0f, 0, 0, 0);
+			}
+		}
+		m_bOnCriticalSection = FALSE;
+		return;
+	}
+
+	sx  = m_stBrush[sFrame].sx;
+	sy  = m_stBrush[sFrame].sy;
+	szx = m_stBrush[sFrame].szx;
+	szy = m_stBrush[sFrame].szy;
+	pvx = m_stBrush[sFrame].pvx;
+	pvy = m_stBrush[sFrame].pvy;
+
+	// Clip from top: show only bottom sHeight pixels
+	if (sHeight < szy) {
+		short clipAmount = szy - (short)sHeight;
+		sy += clipAmount;
+		szy = (short)sHeight;
+		pvy += clipAmount;
+	}
+
+	dX = sX + pvx;
+	dY = sY + pvy;
+
+	if (dX < m_pDDraw->m_rcClipArea.left)
+	{
+		sx = sx	+ (m_pDDraw->m_rcClipArea.left - dX);
+		szx = szx - (m_pDDraw->m_rcClipArea.left - dX);
+		if (szx <= 0) {
+			m_rcBound.top = -1;
+			return;
+		}
+		dX = (short)m_pDDraw->m_rcClipArea.left;
+	}
+	else if (dX+szx > m_pDDraw->m_rcClipArea.right)
+	{
+		szx = szx - ((dX+szx) - (short)m_pDDraw->m_rcClipArea.right);
+		if (szx <= 0) {
+			m_rcBound.top = -1;
+			return;
+		}
+	}
+
+	if (dY < m_pDDraw->m_rcClipArea.top)
+	{
+		sy = sy	+ (m_pDDraw->m_rcClipArea.top - dY);
+		szy = szy - (m_pDDraw->m_rcClipArea.top - dY);
+		if (szy <= 0) {
+			m_rcBound.top = -1;
+			return;
+		}
+		dY = (short)m_pDDraw->m_rcClipArea.top;
+	}
+	else if (dY+szy > m_pDDraw->m_rcClipArea.bottom)
+	{
+		szy = szy - ((dY+szy) - (short)m_pDDraw->m_rcClipArea.bottom);
+		if (szy <= 0) {
+			m_rcBound.top = -1;
+			return;
+		}
+	}
+
+	m_dwRefTime = dwTime;
+
+	if (m_bIsSurfaceEmpty == TRUE) {
+		if( _iOpenSprite() == FALSE ) return;
+	}
+	else {
+		if (m_bAlphaEffect && (m_cAlphaDegree != G_cSpriteAlphaDegree)) {
+			if (G_cSpriteAlphaDegree == 2) {
+				_SetAlphaDegree();
+			}
+			else {
+				_iCloseSprite();
+				if( _iOpenSprite() == FALSE ) return;
+			}
+		}
+	}
+
+	rcRect.left = sx;
+	rcRect.top  = sy;
+	rcRect.right  = sx + szx;
+	rcRect.bottom = sy + szy;
+
+	m_rcBound.left = dX;
+	m_rcBound.top  = dY;
+	m_rcBound.right  = dX + szx;
+	m_rcBound.bottom = dY + szy;
+
+	m_pDDraw->m_lpBackB4->BltFast( dX, dY, m_lpSurface, &rcRect, DDBLTFAST_SRCCOLORKEY | DDBLTFAST_WAIT );
+
+	m_bOnCriticalSection = FALSE;
+}
+
+
 void CSprite::iRestore()
 {
  HDC     hDC;

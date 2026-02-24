@@ -139,9 +139,47 @@ void CMessageHandler::NotifyMsgHandler(char * Data)
 		m_pGame->AddEventList(NOTIFYMSG_TELEPORT_REJECTED, 10);
 		break;
 
+	case NOTIFY_SPEED_BUFF:
+		sp = (short *)(Data + INDEX2_MSGTYPE + 2);
+		sV1 = *sp; sp++; // 1=on, 0=off
+		sV2 = *sp; sp++; // duration in seconds
+		if (sV1 == 1) {
+			m_pGame->m_bSpeedBuffActive = true;
+			m_pGame->m_dwSpeedBuffEndTime = dwTime + (DWORD)(sV2 * 1000);
+			m_pGame->ApplySpeedBuff(true);
+			m_pGame->AddEventList("Speed buff activated!", 10);
+		} else {
+			m_pGame->m_bSpeedBuffActive = false;
+			m_pGame->m_dwSpeedBuffEndTime = 0;
+			m_pGame->ApplySpeedBuff(false);
+			m_pGame->AddEventList("Speed buff expired.", 10);
+		}
+		break;
+
+	case NOTIFY_FREEZE_STATE:
+		sp = (short *)(Data + INDEX2_MSGTYPE + 2);
+		sV1 = *sp; sp++; // 1=frozen, 0=unfrozen
+		sV2 = *sp; sp++; // duration
+		if (sV1 == 1) {
+			m_pGame->m_iPlayerStatus |= STATUS_FROZEN;
+			m_pGame->AddEventList("You have been frozen!", 10);
+		} else {
+			m_pGame->m_iPlayerStatus &= ~STATUS_FROZEN;
+			m_pGame->AddEventList("The freeze has worn off.", 10);
+		}
+		break;
+
+	case NOTIFY_SUPER_BERSERK:
+		sp = (short *)(Data + INDEX2_MSGTYPE + 2);
+		sV1 = *sp; sp++; // 1=activated
+		sV2 = *sp; sp++; // duration
+		if (sV1 == 1)
+			m_pGame->AddEventList("Super Berserk activated! +20% magic damage.", 10);
+		break;
+
 	case NOTIFY_0BEF:				// 0x0BEF: // Snoopy: Crash or closes the client? (Calls SE entry !)
 		// I'm noot sure at all of this function's result, so let's quit game...
-		
+
 		break;
 	case NOTIFY_EVENTILLUSION:
 		cp = (char *)(Data	+ INDEX2_MSGTYPE + 2);
@@ -329,6 +367,7 @@ void CMessageHandler::NotifyMsgHandler(char * Data)
 				m_pGame->m_pSkillCfgList[i]->m_iLevel = (int)*cp;
 			cp++;
 		}
+		m_pGame->InitSpecialAbilities();
 		break;	
 
 	case NOTIFY_NORECALL: // Snoopy 0x0BD1
@@ -482,6 +521,7 @@ void CMessageHandler::NotifyMsgHandler(char * Data)
 			- 3 + m_pGame->m_angelStat[STAT_STR] + m_pGame->m_angelStat[STAT_DEX] + m_pGame->m_angelStat[STAT_INT] + m_pGame->m_angelStat[STAT_MAG];
 		m_pGame->m_luStat[STAT_STR] = m_pGame->m_luStat[STAT_VIT] = m_pGame->m_luStat[STAT_DEX] = m_pGame->m_luStat[STAT_INT] = m_pGame->m_luStat[STAT_MAG] = m_pGame->m_luStat[STAT_CHR] = 0;
 		m_pGame->AddEventList( "Your stat has been changed.", 10 ); // "Your stat has been changed."
+		m_pGame->InitSpecialAbilities();
 		break;
 
 	case NOTIFY_LEVELUP: // 0x0B16
@@ -1116,6 +1156,31 @@ void CMessageHandler::NotifyMsgHandler(char * Data)
 					wsprintf(m_pGame->G_cTxt, "You cast a powerfull incantation, you can't use it again before %d minutes.", sV3/60);
 				else
 					wsprintf(m_pGame->G_cTxt, "You cast a powerfull incantation, you can't use it again before %d seconds.", sV3);
+				break;
+			case 100: // New Ability: Minor Berzerk → Regular Berserk
+				m_pGame->m_stAbility[0].dwCooldownEnd = dwTime + (DWORD)sV3 * 1000;
+				m_pGame->m_stAbility[0].bActive = true;
+				m_pGame->m_stAbility[0].dwActiveEnd = dwTime + 60000;
+				wsprintf(m_pGame->G_cTxt, "Berzerk ability activated! Cooldown: %d seconds.", sV3);
+				break;
+			case 101: // New Ability: Super Berzerk
+				m_pGame->m_stAbility[1].dwCooldownEnd = dwTime + (DWORD)sV3 * 1000;
+				m_pGame->m_stAbility[1].bActive = true;
+				m_pGame->m_stAbility[1].dwActiveEnd = dwTime + 15000;
+				wsprintf(m_pGame->G_cTxt, "Super Berzerk activated! Cooldown: %d seconds.", sV3);
+				break;
+			case 102: // New Ability: Speed Burst
+				m_pGame->m_stAbility[2].dwCooldownEnd = dwTime + (DWORD)sV3 * 1000;
+				m_pGame->m_stAbility[2].bActive = true;
+				m_pGame->m_stAbility[2].dwActiveEnd = dwTime + 10000;
+				wsprintf(m_pGame->G_cTxt, "Speed Burst activated! Cooldown: %d seconds.", sV3);
+				break;
+			case 103: // New Ability: Glacial Strike — 3s speed burst, 7s hit window
+				m_pGame->m_stAbility[3].dwCooldownEnd = dwTime + (DWORD)sV3 * 1000;
+				m_pGame->m_stAbility[3].bActive = true;
+				m_pGame->m_stAbility[3].dwActiveEnd = dwTime + 7000;
+				// Speed buff (3s) is applied via separate NOTIFY_SPEED_BUFF from server
+				wsprintf(m_pGame->G_cTxt, "Glacial Strike! Hit a player within 7s to freeze them.");
 				break;
 			}
 			m_pGame->AddEventList(m_pGame->G_cTxt, 10);
@@ -2266,10 +2331,8 @@ void CMessageHandler::MotionResponseHandler(char * Data)
 				{	m_pGame->m_cLogOutCount = -1;
 					m_pGame->AddEventList(MOTION_RESPONSE_HANDLER2, 10);
 				}
-			}else
-			{	wsprintf(m_pGame->G_cTxt, NOTIFYMSG_HP_UP, m_pGame->m_iHP - iPreHP);
-				m_pGame->AddEventList(m_pGame->G_cTxt, 10);
-		}	}
+			}
+		}
 		m_pGame->m_pMapData->ShiftMapData(cDir);
 		m_pGame->_ReadMapData(sX, sY, cp);
 		m_pGame->m_bIsRedrawPDBGS = TRUE;
@@ -3057,36 +3120,13 @@ void CMessageHandler::InitSkillList(char * Data)
 
 	cp = (char *)(Data + 6);
 
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[0] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[1] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[2] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[3] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[4] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[5] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[6] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[7] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[8] = *ip;
-	cp += 2;
-	ip   = (int *)cp;
-	m_pGame->m_cSkillMastery[9] = *ip;
-	cp += 2;
+	for (i = 0; i < 10; i++) {
+		ip = (int *)cp;
+		m_pGame->m_cSkillMastery[i] = *ip;
+		if (m_pGame->m_pSkillCfgList[i] != NULL)
+			m_pGame->m_pSkillCfgList[i]->m_iLevel = (int)m_pGame->m_cSkillMastery[i];
+		cp += 2;
+	}
 	// Magic, Skill Mastery
 	for (i = 0; i < MAXMAGICTYPE; i++)
 	{	
@@ -4852,7 +4892,15 @@ void CMessageHandler::NotifyMsg_MagicEffectOff(char * Data)
 		break;
 
 	case MAGICTYPE_ICE:
+		m_pGame->m_iPlayerStatus &= ~STATUS_FROZEN;
 		m_pGame->AddEventList(NOTIFYMSG_MAGICEFFECT_OFF13, 10);
+		break;
+
+	case MAGICTYPE_SPEED:
+		m_pGame->m_bSpeedBuffActive = false;
+		m_pGame->m_dwSpeedBuffEndTime = 0;
+		m_pGame->ApplySpeedBuff(false);
+		m_pGame->AddEventList("Speed buff has worn off.", 10);
 		break;
 	}
 }
@@ -4945,6 +4993,9 @@ void CMessageHandler::NotifyMsg_MagicEffectOn(char * Data)
 		case 1:
 			m_pGame->AddEventList(NOTIFYMSG_MAGICEFFECT_ON11, 10);
 			break;
+		case 2:
+			m_pGame->AddEventList("Minor Berserk Magic Casted!", 10);
+			break;
 		}
 		break;
 
@@ -4957,6 +5008,7 @@ void CMessageHandler::NotifyMsg_MagicEffectOn(char * Data)
 		break;
 
 	case MAGICTYPE_ICE:
+		m_pGame->m_iPlayerStatus |= STATUS_FROZEN;
 		m_pGame->AddEventList(NOTIFYMSG_MAGICEFFECT_ON13, 10);
 		break;
 	}
@@ -5762,6 +5814,7 @@ void CMessageHandler::NotifyMsg_MagicStudySuccess(char * Data)
 	wsprintf(cTxt, NOTIFYMSG_MAGICSTUDY_SUCCESS1, cName);
 	m_pGame->AddEventList(cTxt, 10);
 	m_pGame->PlaySound('E', 23, 0);
+	m_pGame->InitSpecialAbilities();
 }
 
 void CMessageHandler::NotifyMsg_DismissGuildsMan(char * Data)
@@ -5895,8 +5948,6 @@ void CMessageHandler::NotifyMsg_HP(char * Data)
 
 	if (m_pGame->m_iHP > iPrevHP)
 	{	if ((m_pGame->m_iHP - iPrevHP) < 10) return;
-		wsprintf(cTxt, NOTIFYMSG_HP_UP, m_pGame->m_iHP - iPrevHP);
-		m_pGame->AddEventList(cTxt, 10);
 		m_pGame->PlaySound('E', 21, 0);
 	}else
 	{	if ( (m_pGame->m_cLogOutCount > 0) && (m_pGame->m_bForceDisconn==FALSE) )

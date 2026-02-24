@@ -852,9 +852,31 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 
 	if (iDestHitRatio > MAXIMUMHITRATIO) iDestHitRatio = MAXIMUMHITRATIO;
 
-	if ((bIsAttackerBerserk == TRUE) && (iAttackMode < 20)) {
-		iAP_SM = iAP_SM * 2;
-		iAP_L  = iAP_L  * 2;
+	if (bIsAttackerBerserk == TRUE) {
+		char berzerkKind = 1;
+		if (cAttackerType == OWNERTYPE_PLAYER && g_clientList[sAttackerH] != NULL)
+			berzerkKind = g_clientList[sAttackerH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK];
+		else if (cAttackerType == OWNERTYPE_NPC && g_npcList[sAttackerH] != NULL)
+			berzerkKind = g_npcList[sAttackerH]->m_cMagicEffectStatus[MAGICTYPE_BERSERK];
+
+		if (berzerkKind == 3) {
+			// Super Berzerk: 2.5x, applies to ALL attack modes including specials
+			iAP_SM = (iAP_SM * 5) / 2;
+			iAP_L  = (iAP_L  * 5) / 2;
+		} else if (iAttackMode < 20) {
+			if (berzerkKind == 2) {
+				// Minor Berzerk: 1.5x
+				iAP_SM = (iAP_SM * 3) / 2;
+				iAP_L  = (iAP_L  * 3) / 2;
+			} else {
+				// Regular Berzerk: 2x
+				iAP_SM = iAP_SM * 2;
+				iAP_L  = iAP_L  * 2;
+			}
+		}
+		// Clamp to short range — NpcKilledHandler/KilledHandler take short sDamage
+		if (iAP_SM > 32000) iAP_SM = 32000;
+		if (iAP_L  > 32000) iAP_L  = 32000;
 	}
 
 	if (cAttackerType == OWNERTYPE_PLAYER) {
@@ -1237,6 +1259,24 @@ int calculateAttackEffect(short sTargetH, char cTargetType, short sAttackerH, ch
 
 				g_clientList[sTargetH]->m_iHP -= iAP_SM;
 				g_clientList[sTargetH]->m_lastDamageTime = dwTime;
+
+				// Glacial Strike: freeze on hit (single use, 7s freeze, 10s immunity)
+				if (iAP_SM > 0 && cAttackerType == OWNERTYPE_PLAYER &&
+					g_clientList[sAttackerH] != NULL &&
+					g_clientList[sAttackerH]->m_bGlacialStrikeActive) {
+					// Check 10-second freeze immunity on target
+					bool bImmune = (g_clientList[sTargetH]->m_dwLastFreezeEndTime > 0 &&
+						(dwTime - g_clientList[sTargetH]->m_dwLastFreezeEndTime) < 10000);
+					if (!bImmune) {
+						g_clientList[sTargetH]->AddMagicEffect(MAGICTYPE_ICE, 7);
+						g_clientList[sTargetH]->m_dwLastFreezeEndTime = dwTime + 7000;
+						g_game->SendNotifyMsg(NULL, sTargetH, NOTIFY_FREEZE_STATE, 1, 7, NULL, NULL);
+						g_game->SendEventToNearClient_TypeA(sTargetH, OWNERTYPE_PLAYER, MSGID_EVENT_MOTION, OBJECTNULLACTION, NULL, NULL, NULL);
+					}
+					// Deactivate regardless (single use per activation)
+					g_clientList[sAttackerH]->m_bGlacialStrikeActive = false;
+				}
+
 				if (g_clientList[sTargetH]->m_iHP <= 0) {
 
 					if (cAttackerType == OWNERTYPE_PLAYER)
