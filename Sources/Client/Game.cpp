@@ -25302,6 +25302,10 @@ void CGame::OnKeyDown(WPARAM wParam)
 	case VK_F10:
 	case VK_F11:
 	case VK_F12:
+	case VK_UP:
+	case VK_DOWN:
+	case VK_LEFT:
+	case VK_RIGHT:
 	case VK_PRIOR: // Page-Up
 	case VK_NEXT: // Page-Down
 	case VK_LWIN:
