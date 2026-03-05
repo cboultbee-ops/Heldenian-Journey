@@ -25116,8 +25116,8 @@ void CGame::OnKeyUp(WPARAM wParam)
 	case VK_RIGHT:
 		m_cArrowPressed	= 2;
 		if( m_cGameMode == GAMEMODE_ONMAINGAME && !m_bInputStatus )
-		{	// Berserk (ability 0) — arrow key shortcut
-			ActivateSpecialAbility(0);
+		{	// Super Berserk (ability 1) — arrow key shortcut
+			ActivateSpecialAbility(1);
 		}
 		break;
 
@@ -25150,8 +25150,8 @@ void CGame::OnKeyUp(WPARAM wParam)
 	case VK_LEFT:
 		m_cArrowPressed	= 4;
 		if( m_cGameMode == GAMEMODE_ONMAINGAME && !m_bInputStatus )
-		{	// Super Berserk (ability 1) — arrow key shortcut
-			ActivateSpecialAbility(1);
+		{	// Berserk (ability 0) — arrow key shortcut
+			ActivateSpecialAbility(0);
 		}
 		break;
 
