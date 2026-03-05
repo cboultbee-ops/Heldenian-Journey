@@ -99,7 +99,7 @@ BOOL DXC_ddraw::bInit(HWND hWnd)
 			// Borderless fullscreen: cover entire screen including taskbar area
 			SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
 			SetWindowLong(hWnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
-			SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, screenW, screenH,
+			SetWindowPos(hWnd, HWND_TOP, 0, 0, screenW, screenH,
 				SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 			SetForegroundWindow(hWnd);
 			if (m_pGPURenderer) {
@@ -300,7 +300,7 @@ void DXC_ddraw::ChangeDisplayMode(HWND hWnd)
 			int screenH = GetSystemMetrics(SM_CYSCREEN);
 			SetWindowLong(hWnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
 			SetWindowLong(hWnd, GWL_EXSTYLE, WS_EX_APPWINDOW);
-			SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, screenW, screenH,
+			SetWindowPos(hWnd, HWND_TOP, 0, 0, screenW, screenH,
 				SWP_FRAMECHANGED | SWP_SHOWWINDOW);
 			SetForegroundWindow(hWnd);
 			m_bFullMode = TRUE;

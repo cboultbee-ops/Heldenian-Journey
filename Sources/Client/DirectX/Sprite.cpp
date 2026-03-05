@@ -7,6 +7,7 @@
 #include "../stb_image.h"
 
 extern char G_cSpriteAlphaDegree;
+extern BOOL g_bDisableShadows; // Debug toggle (Ctrl+F10)
 
 extern int G_iAddTable31[64][510], G_iAddTable63[64][510];
 extern int G_iAddTransTable31[510][64], G_iAddTransTable63[510][64]; 
@@ -879,6 +880,7 @@ void CSprite::iRestore()
 
 void CSprite::PutShadowSprite(int sX, int sY, int sFrame, DWORD dwTime)
 {
+	if (g_bDisableShadows) return; // Debug: Ctrl+F10 toggle
 	short sx,sy,szx,szy,pvx,pvy;
 	int  ix, iy;
 	WORD * pSrc, * pDst;
@@ -971,6 +973,7 @@ void CSprite::PutShadowSprite(int sX, int sY, int sFrame, DWORD dwTime)
 
 void CSprite::PutShadowSpriteClip(int sX, int sY, int sFrame, DWORD dwTime)
 {
+	if (g_bDisableShadows) return; // Debug: Ctrl+F10 toggle
 	short dX,dY,sx,sy,szx,szy,pvx,pvy;
 	int  ix, iy;
 	WORD * pSrc, * pDst;
@@ -2876,10 +2879,17 @@ bool CSprite::LoadToGPU()
 
 			// If source had no alpha channel, apply color key transparency
 			// Read top-left pixel as color key, set matching pixels to alpha=0
+			// Use RGB565 quantization to match DirectDraw's 16-bit color key behavior:
+			// In DD, near-black pixels like RGB(2,0,0) quantize to 0x0000 = transparent.
+			// Exact 8-bit matching would leave them opaque, causing black silhouettes.
 			if (ch < 4) {
 				uint8_t ckR = rgba[0], ckG = rgba[1], ckB = rgba[2];
+				uint8_t ckR5 = ckR >> 3, ckG6 = ckG >> 2, ckB5 = ckB >> 3;
 				for (int i = 0; i < w * h; i++) {
-					if (rgba[i*4+0] == ckR && rgba[i*4+1] == ckG && rgba[i*4+2] == ckB) {
+					uint8_t r5 = rgba[i*4+0] >> 3;
+					uint8_t g6 = rgba[i*4+1] >> 2;
+					uint8_t b5 = rgba[i*4+2] >> 3;
+					if (r5 == ckR5 && g6 == ckG6 && b5 == ckB5) {
 						rgba[i*4+3] = 0;
 					}
 				}
@@ -2963,6 +2973,10 @@ bool CSprite::LoadToGPU()
 
 	// Get pointer to pixel data (after header and palette)
 	LPSTR pPixelData = mydib.m_lpDib + bmpHeader->biSize + mydib.m_wColorNums * sizeof(RGBQUAD);
+	// BI_BITFIELDS stores 3 DWORD color masks after header but m_wColorNums is 0 for 16-bit BMPs
+	if (bmpHeader->biCompression == BI_BITFIELDS && mydib.m_wColorNums == 0) {
+		pPixelData += 12; // Skip 3 DWORD color masks (R, G, B)
+	}
 
 	// Allocate RGBA buffer
 	int totalPixels = m_wBitmapSizeX * m_wBitmapSizeY;
@@ -3266,19 +3280,6 @@ void CSprite::PutSpriteRGB(int sX, int sY, int sFrame, int sRed, int sGreen, int
 			float colorR = sRed / rMax;
 			float colorG = sGreen / gMax;
 			float colorB = sBlue / bMax;
-			// DEBUG: Log PutSpriteRGB values (once)
-			{
-				static int dbgCount = 0;
-				if (dbgCount < 20) {
-					FILE *fDbg = fopen("color_debug.txt", "a");
-					if (fDbg) {
-						fprintf(fDbg, "PutSpriteRGB GPU: sRGB=(%d,%d,%d) pixFmt=%d colorRGB=(%.3f,%.3f,%.3f)\n",
-							sRed, sGreen, sBlue, m_pDDraw->m_cPixelFormat, colorR, colorG, colorB);
-						fclose(fDbg);
-					}
-					dbgCount++;
-				}
-			}
 			m_pDDraw->m_pGPURenderer->QueueSprite(
 				m_glTextureID, dX, dY, sx, sy, szx, szy,
 				m_wBitmapSizeX, m_wBitmapSizeY, m_iSpriteScale,

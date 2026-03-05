@@ -436,6 +436,10 @@ public:
 	void UseShortCut( int num );
 	void UpdateScreen();
 	void UpdateScreen_OnMainMenu();
+	void DrawMenuBackground();
+	void DrawFormPanel(int x, int y, int w, int h);
+	void DrawStyledButton(int x, int y, int w, int h, const char* label, bool bFocused);
+	void DrawInputField(int x, int y, int w, int h, bool bFocused);
 	void UpdateScreen_OnGame();
 	void UpdateScreen_OnConnecting();
 	void UpdateScreen_OnWaitInitData();
@@ -944,6 +948,10 @@ public:
 	void LoadEquipSetsFromFile();
 	void DrawDialogBox_EquipSet(int msX, int msY);
 	void DlgBoxClick_EquipSet(short msX, short msY);
+	BOOL bDlgBoxPress_EquipSet(short msX, short msY);
+	void RemoveItemFromEquipSet(int setIndex, int slot);
+	int m_iSetDragSourceSet;    // Set index item was dragged from (-1 = none)
+	int m_iSetDragSourceSlot;   // Slot index item was dragged from (-1 = none)
 	bool m_bItemHiddenBySet[MAXITEMS];
 	bool m_bHeldBySetSwap[MAXITEMS];
 	void UpdateItemSetVisibility();
@@ -983,6 +991,7 @@ public:
 	int  m_iDashSpeed;
 	int  m_iAttackSpeedMultiplier;
 	BOOL m_bFullscreenMode;
+	BOOL m_bSkipServerSelect;
 	int  m_iWindowWidth;
 	int  m_iWindowHeight;
 	char m_cRestartCount;

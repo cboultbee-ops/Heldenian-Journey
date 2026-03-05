@@ -105,6 +105,13 @@ public:
                      float alpha = 1.0f,
                      float colorR = 0.0f, float colorG = 0.0f, float colorB = 0.0f);
 
+    // Stretched sprite: maps source rect to independent destination rect (for background images)
+    void QueueSpriteStretched(GLuint textureID,
+                              int dstX, int dstY, int dstW, int dstH,
+                              int srcX, int srcY, int srcW, int srcH,
+                              int texWidth, int texHeight,
+                              GPUBlendMode blendMode = BLEND_OPAQUE, float alpha = 1.0f);
+
     // Flush batched sprites to GPU
     void Flush();
 
@@ -122,7 +129,19 @@ public:
 
     // Texture creation from RGBA data
     GLuint CreateTexture(const uint8_t* rgbaData, int width, int height);
+    GLuint CreateTextureLinear(const uint8_t* rgbaData, int width, int height);
     void DeleteTexture(GLuint textureID);
+
+    // Diagnostic: read back GPU texture and count pixel types
+    struct TextureDiagnostic {
+        int totalPixels;
+        int transparentPixels;   // alpha < 13
+        int blackOpaquePixels;   // RGB=0,0,0 with alpha >= 13
+        int coloredOpaquePixels; // non-black with alpha >= 13
+        uint8_t firstColorR, firstColorG, firstColorB, firstColorA;
+        bool readbackOK;
+    };
+    bool DiagnoseTexture(GLuint textureID, int width, int height, TextureDiagnostic& diag);
 
     // Resolution management
     void SetNativeResolution(int width, int height);

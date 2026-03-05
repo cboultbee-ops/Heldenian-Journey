@@ -1,5 +1,25 @@
 #include "LoginServer.h"
+#include <cstdarg>
 char* findinstr(char* haystack, char* needle, bool addx);
+
+// --- File-based debug logging for connection diagnostics ---
+static void DebugLog(const char* fmt, ...) {
+	static FILE* f = NULL;
+	if (!f) {
+		CreateDirectoryA("Logs", NULL);
+		f = fopen("Logs/debug_connect.log", "a");
+		if (!f) return;
+	}
+	SYSTEMTIME st;
+	GetLocalTime(&st);
+	fprintf(f, "[%02d:%02d:%02d.%03d] ", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(f, fmt, args);
+	va_end(args);
+	fprintf(f, "\n");
+	fflush(f);
+}
 
 //=============================================================================
 CLoginServer::CLoginServer()
@@ -700,6 +720,7 @@ void CLoginServer::OnGameServerRead(WORD GSID)
 	SafeCopy(dataBuff, Data, dwMsgSize);
 
 	dwpMsgID = (DWORD *)(dataBuff);
+	DebugLog("OnGameServerRead: GSID=%d msgID=0x%08X size=%d", (int)GSID, *dwpMsgID, (int)dwMsgSize);
 	switch (*dwpMsgID) {
 
 	case MSGID_REQUEST_REGISTERGAMESERVER:
@@ -1471,7 +1492,7 @@ void CLoginServer::CreateNewCharacter(char *Data, WORD ClientID, MYSQL myConn)
 						ZeroMemory(QueryConsult, sizeof(QueryConsult));
 						sprintf(QueryConsult, "INSERT INTO `skill` ( `CharID` , `SkillID`, `SkillMastery` , `SkillSSN`)\
 											  VALUES (	'%lu' ,		'%u' ,		'%u'	 ,   '%lu'  );",
-											  CharID  ,  s	,  1  ,  0 );
+											  CharID  ,  s	,  20  ,  0 );
 						if(ProcessQuery(&myConn, QueryConsult) == -1) return;
 						QueryResult = mysql_store_result(&myConn);
 						SAFEFREERESULT(QueryResult);
@@ -1480,7 +1501,7 @@ void CLoginServer::CreateNewCharacter(char *Data, WORD ClientID, MYSQL myConn)
 						ZeroMemory(QueryConsult, sizeof(QueryConsult));
 						sprintf(QueryConsult, "INSERT INTO `skill` ( `CharID` , `SkillID`, `SkillMastery` , `SkillSSN`)\
 											  VALUES (   '%lu'   ,   '%u'   ,      '%u'      ,   '%lu'  );",
-											  CharID  ,  s	,  1  ,  0 );
+											  CharID  ,  s	,  20  ,  0 );
 						if(ProcessQuery(&myConn, QueryConsult) == -1) return;
 						QueryResult = mysql_store_result(&myConn);
 						SAFEFREERESULT(QueryResult);
@@ -1489,7 +1510,7 @@ void CLoginServer::CreateNewCharacter(char *Data, WORD ClientID, MYSQL myConn)
 						ZeroMemory(QueryConsult, sizeof(QueryConsult));
 						sprintf(QueryConsult, "INSERT INTO `skill` ( `CharID` , `SkillID`, `SkillMastery` , `SkillSSN`)\
 											  VALUES (   '%lu'   ,   '%u'   ,      '%u'      ,   '%lu'  );",
-											  CharID  ,  s	,  1  ,  0 );
+											  CharID  ,  s	,  20  ,  0 );
 						if(ProcessQuery(&myConn, QueryConsult) == -1) return;
 						QueryResult = mysql_store_result(&myConn);
 						SAFEFREERESULT(QueryResult);
@@ -2117,9 +2138,17 @@ void CLoginServer::ProcessClientRequestEnterGame(char *Data, DWORD ClientID, MYS
 		break;
 
 	case ENTERGAMEMSGTYPE_CHANGINGSERVER:
+		DebugLog("CHANGINGSERVER: acc(%s) char(%s) map(%s) world(%s) IP(%s)",
+			AccName, CharName, MapName, WorldName, ClientIP);
 		if(IsMapAvailable(MapName, WorldName, GameServerIP, &GameServerPort, &GameServerID)){
+			DebugLog("CHANGINGSERVER: map available -> GSID=%d IP=%s port=%d", (int)GameServerID, GameServerIP, (int)GameServerPort);
 
 			if(IsAccountInUse(AccName, &AccountID)){
+				DebugLog("CHANGINGSERVER: account in use, AccountID=%d IsOnServerChange=%d ConnectedServerID=%d pwd_match=%d char_match=%d",
+					(int)AccountID, (int)Client[AccountID]->IsOnServerChange,
+					(int)Client[AccountID]->ConnectedServerID,
+					(int)IsSame(AccPwd, Client[AccountID]->AccountPassword),
+					(int)IsSame(CharName, Client[AccountID]->CharName));
 				if(Client[AccountID]->IsOnServerChange == TRUE &&
 				   IsSame(AccPwd, Client[AccountID]->AccountPassword) &&
 				   IsSame(CharName, Client[AccountID]->CharName)){
@@ -2131,20 +2160,25 @@ void CLoginServer::ProcessClientRequestEnterGame(char *Data, DWORD ClientID, MYS
 					SafeCopy(SendBuff+6, GameServerIP);
 					wp2 = (WORD*)(SendBuff+22);
 					*wp2 = GameServerPort;
+					DebugLog("CHANGINGSERVER: CONFIRM sent, ConnectedServerID set to %d", (int)GameServerID);
 				} else {
+					DebugLog("CHANGINGSERVER: FAILED validation -> ENTERGAMERESTYPE_PLAYING");
 					*wp2 = ENTERGAMERESTYPE_PLAYING;
 				}
 			}
 			else{
+				DebugLog("CHANGINGSERVER: account NOT in use, creating new client entry for GSID=%d", (int)GameServerID);
 				for(WORD w = 0; w < MAXCLIENTS; w++) if(Client[w] == NULL) {Client[w] = new CClient(AccName, AccPwd, CharName, CharLevel, ClientIP, GameServerID);break;}
 				SendGameServerIP(ClientIP, GameServerID);
 				*wp2 = ENTERGAMERESTYPE_CONFIRM;
 				SafeCopy(SendBuff+6, GameServerIP);
 				wp2 = (WORD*)(SendBuff+22);
 				*wp2 = GameServerPort;
+				DebugLog("CHANGINGSERVER: CONFIRM sent (new account entry)");
 			}
 		}
 		else{
+			DebugLog("CHANGINGSERVER: map NOT available -> REJECT (server offline)");
 			*wp2 = ENTERGAMERESTYPE_REJECT;
 			bp = (BYTE*)(SendBuff+6);
 			*bp = REJECTTYPE_GAMESERVEROFFLINE;
@@ -2198,14 +2232,27 @@ void CLoginServer::ProcessRequestPlayerData(char *Data, BYTE GSID, MYSQL myConn)
 	SafeCopy(ClientIP, Data+30, 15);
 	SafeCopy(SendBuff+6, CharName, strlen(CharName));
 	//SendBuff+16 = m_cAccountStatus, not used on hgserver
+	DebugLog("ProcessRequestPlayerData: char(%s) acc(%s) IP(%s) from GSID=%d (socketGSID=%d)",
+		CharName, AccName, ClientIP, (int)GSID,
+		GameServerSocket[GSID] ? (int)GameServerSocket[GSID]->GSID : -1);
 	if(IsAccountInUse(AccName, &AccountID))
 	{
+		DebugLog("ProcessRequestPlayerData: account found, AccountID=%d ConnectedServerID=%d IsOnServerChange=%d pwd_match=%d char_match=%d GSID_match=%d",
+			(int)AccountID, (int)Client[AccountID]->ConnectedServerID,
+			(int)Client[AccountID]->IsOnServerChange,
+			(int)IsSame(AccPwd, Client[AccountID]->AccountPassword),
+			(int)IsSame(CharName, Client[AccountID]->CharName),
+			(int)(Client[AccountID]->ConnectedServerID == GameServerSocket[GSID]->GSID));
 		BOOL bAllowRequest = (IsSame(AccPwd, Client[AccountID]->AccountPassword) &&
 			IsSame(CharName, Client[AccountID]->CharName) &&
 			(Client[AccountID]->ConnectedServerID == GameServerSocket[GSID]->GSID ||
 			 Client[AccountID]->IsOnServerChange == TRUE));
 		if(!bAllowRequest)
 		{
+			DebugLog("ProcessRequestPlayerData: REJECT (wrong data) acc(%s) ConnectedServerID=%d vs socketGSID=%d IsOnServerChange=%d",
+				AccName, (int)Client[AccountID]->ConnectedServerID,
+				(int)GameServerSocket[GSID]->GSID,
+				(int)Client[AccountID]->IsOnServerChange);
 			*wp = LOGRESMSGTYPE_REJECT;
 			ZeroMemory(log, sizeof(log));
 			sprintf(log, "(ERROR) Wrong data: Account(%s) pwd[%s/%s] charname[%s/%s] IP[%s/%s] GSID[%d/%d]", AccName, AccPwd, Client[AccountID]->AccountPassword, CharName, Client[AccountID]->CharName, ClientIP, Client[AccountID]->ClientIP, Client[AccountID]->ConnectedServerID, GameServerSocket[GSID]->GSID);
@@ -2225,10 +2272,12 @@ void CLoginServer::ProcessRequestPlayerData(char *Data, BYTE GSID, MYSQL myConn)
 			CharInfoSize = GetCharacterInfo(CharName, (SendBuff+16), myConn);
 			if(CharInfoSize == 0)
 			{
+				DebugLog("ProcessRequestPlayerData: REJECT (CharInfoSize=0) for char(%s)", CharName);
 				*wp = LOGRESMSGTYPE_REJECT;
 				SAFEDELETE(Client[AccountID]);
 			}
 			else{
+				DebugLog("ProcessRequestPlayerData: CONFIRM for char(%s) CharInfoSize=%d", CharName, (int)CharInfoSize);
 				*wp = LOGRESMSGTYPE_CONFIRM;
 				Client[AccountID]->IsOnServerChange = FALSE;
 				Client[AccountID]->ConnectedServerID = GameServerSocket[GSID]->GSID;
@@ -2236,6 +2285,7 @@ void CLoginServer::ProcessRequestPlayerData(char *Data, BYTE GSID, MYSQL myConn)
 		}
 	}
 	else{
+		DebugLog("ProcessRequestPlayerData: REJECT (account not initialized!) char(%s) acc(%s)", CharName, AccName);
 		*wp = LOGRESMSGTYPE_REJECT;
 		ZeroMemory(log, sizeof(log));
 		sprintf(log, "(ERROR) Character(%s) data error: account not initialized!", CharName);
@@ -2253,7 +2303,14 @@ BOOL CLoginServer::IsAccountInUse(char *AccountName, WORD *AccountID)
 			if(AccountID) *AccountID = w;
 			return TRUE;
 		}
-		return FALSE;
+	// Debug: dump first few client slots when NOT found
+	DebugLog("IsAccountInUse: '%s' NOT FOUND. Client slots: [0]=%s [1]=%s [2]=%s [3]=%s",
+		AccountName ? AccountName : "(null)",
+		Client[0] ? Client[0]->AccountName : "NULL",
+		Client[1] ? Client[1]->AccountName : "NULL",
+		Client[2] ? Client[2]->AccountName : "NULL",
+		Client[3] ? Client[3]->AccountName : "NULL");
+	return FALSE;
 }
 //=============================================================================
 WORD CLoginServer::GetCharacterInfo(char *CharName, char *Data, MYSQL myConn)
@@ -2656,6 +2713,8 @@ void CLoginServer::ProcessClientLogout(char *Data, BOOL save, int type, BYTE GSI
 	if(!strlen(CharName) || !strlen(AccName) || !strlen(AccPwd)) return;
 
 	CountLogout = (BOOL)Data[30];//tell us if the player has logged out(true) or is changing servers(false)?
+	DebugLog("ProcessClientLogout: char(%s) acc(%s) save=%d CountLogout=%d GSID=%d",
+		CharName, AccName, (int)save, (int)CountLogout, (int)GSID);
 	if(IsAccountInUse(AccName, &AccountID) && IsSame(AccName, Client[AccountID]->AccountName)
 		&& IsSame(AccPwd, Client[AccountID]->AccountPassword) && IsSame(CharName, Client[AccountID]->CharName) )
 	{
@@ -2671,9 +2730,11 @@ void CLoginServer::ProcessClientLogout(char *Data, BOOL save, int type, BYTE GSI
 		}
 		if(CountLogout) {
 			// Full logout: remove client from login server
+			DebugLog("ProcessClientLogout: full logout, deleting Client[%d]", (int)AccountID);
 			SAFEDELETE(Client[AccountID]);
 		} else {
 			// Server change: keep client so new server can request player data
+			DebugLog("ProcessClientLogout: server change, setting IsOnServerChange=TRUE for Client[%d]", (int)AccountID);
 			Client[AccountID]->IsOnServerChange = TRUE;
 			Client[AccountID]->Time = timeGetTime();
 			ZeroMemory(SendBuff, sizeof(SendBuff));
@@ -2681,7 +2742,12 @@ void CLoginServer::ProcessClientLogout(char *Data, BOOL save, int type, BYTE GSI
 			SafeCopy(SendBuff+6, CharName);
 			SendMsgToGS(GSID, SendBuff, strlen(CharName)+6);
 			// Do NOT delete Client[AccountID] - Towns (or other) server will request player data next
+			DebugLog("ProcessClientLogout: DONE (server change path) Client[%d] still exists=%d",
+				(int)AccountID, (int)(Client[AccountID] != NULL));
 		}
+	}
+	else {
+		DebugLog("ProcessClientLogout: account NOT in use or credentials mismatch for char(%s) acc(%s)", CharName, AccName);
 	}
 }
 //=============================================================================
@@ -3146,7 +3212,13 @@ void CLoginServer::SetAccountServerChangeStatus(char *Data, BOOL IsOnServerChang
 
 	ZeroMemory(AccName, sizeof(AccName));
 	SafeCopy(AccName, Data, 10);
-	if(IsAccountInUse(AccName, &AccountID)) Client[AccountID]->IsOnServerChange = IsOnServerChange;
+	if(IsAccountInUse(AccName, &AccountID)) {
+		DebugLog("SetAccountServerChangeStatus: acc(%s) AccountID=%d IsOnServerChange=%d->%d ConnectedServerID=%d",
+			AccName, (int)AccountID, (int)Client[AccountID]->IsOnServerChange, (int)IsOnServerChange, (int)Client[AccountID]->ConnectedServerID);
+		Client[AccountID]->IsOnServerChange = IsOnServerChange;
+	} else {
+		DebugLog("SetAccountServerChangeStatus: acc(%s) NOT FOUND (account not in use)", AccName);
+	}
 }
 //=============================================================================
 BOOL CLoginServer::PutMsgQuene(char * Data, DWORD dwMsgSize, int iIndex, char cKey)
@@ -4242,13 +4314,14 @@ void CLoginServer::SendGameServerIP(char *IP, BYTE GSID)
 {
 	if(IP == NULL) return;
 
-	char sendData[20];
+	char sendData[30];
 
 	ZeroMemory(sendData, sizeof(sendData));
 	DWORD * dwp  = (DWORD*)sendData;
 	*dwp = MSGID_CONFIRMEDIP;
-	strcpy(sendData+4, IP);
+	strncpy(sendData+4, IP, 15);
 
+	DebugLog("SendGameServerIP: IP=%s GSID=%d", IP, (int)GSID);
 	SendMsgToGS(GSID,sendData,30);
 }
 

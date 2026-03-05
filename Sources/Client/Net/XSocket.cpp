@@ -517,10 +517,16 @@ BOOL XSocket::bAccept(class XSocket * pXSock, unsigned int uiMsg)
 void XSocket::_CloseConn()
 {
  char cTmp[100];
- BOOL bFlag = TRUE;	
+ BOOL bFlag = TRUE;
  int  iRet;
 
 	if (m_Sock == INVALID_SOCKET) return;
+
+	// Cancel WSAAsyncSelect notifications BEFORE closing the socket.
+	// This prevents stale FD_CLOSE events from being posted to the message queue
+	// after closesocket(). Without this, socket handle reuse can cause a new socket
+	// to receive stale events from the old socket (same handle number).
+	WSAAsyncSelect(m_Sock, m_hWnd, 0, 0);
 
 	shutdown(m_Sock, 0x01);
 	while (bFlag == TRUE) {
@@ -530,6 +536,7 @@ void XSocket::_CloseConn()
 	}
 
 	closesocket(m_Sock);
+	m_Sock = INVALID_SOCKET;
 
 	m_cType = XSOCK_SHUTDOWNEDSOCK;
 }

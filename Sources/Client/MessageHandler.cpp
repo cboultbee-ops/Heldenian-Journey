@@ -9,6 +9,7 @@
 
 // Global variables defined in Wmain.cpp
 extern char G_cSpriteAlphaDegree;
+extern void MapChangeLog(const char* fmt, ...);
 extern char G_cCmdLine[256], G_cCmdLineTokenA[120], G_cCmdLineTokenA_Lowercase[120], G_cCmdLineTokenB[120], G_cCmdLineTokenC[120], G_cCmdLineTokenD[120], G_cCmdLineTokenE[120];
 
 void CMessageHandler::GameRecvMsgHandler(DWORD dwMsgSize, char * Data)
@@ -5113,11 +5114,13 @@ void CMessageHandler::NotifyMsg_ServerChange(char * Data)
  char * cp, cWorldServerAddr[16];	//Snoopy: change names for better readability
  int * ip, iWorldServerPort;		//Snoopy: change names for better readability
 
+	MapChangeLog("SERVERCHANGE_START");
+
 	ZeroMemory(m_pGame->m_cMapName, sizeof(m_pGame->m_cMapName));
 	ZeroMemory(m_pGame->m_cMapMessage, sizeof(m_pGame->m_cMapMessage));
 	ZeroMemory(cWorldServerAddr, sizeof(cWorldServerAddr));
 
-	
+
 	cp = (char *)(Data + INDEX2_MSGTYPE + 2);
     memcpy(m_pGame->m_cMapName, cp, 10);
 
@@ -5129,19 +5132,40 @@ void CMessageHandler::NotifyMsg_ServerChange(char * Data)
 	ip = (int *)cp;
 	iWorldServerPort = *ip;
 	cp += 4;
+
+	MapChangeLog("SERVERCHANGE_PARSED map=%s addr=%s port=%d LAN=%d",
+		m_pGame->m_cMapName, cWorldServerAddr, iWorldServerPort, m_pGame->m_iGameServerMode);
+
 	if (m_pGame->m_pGSock != NULL)
 	{	delete m_pGame->m_pGSock;
 		m_pGame->m_pGSock = NULL;
 	}
+	MapChangeLog("SERVERCHANGE_GSOCK_DELETED");
+
 	if (m_pGame->m_pLSock != NULL)
 	{	delete m_pGame->m_pLSock;
 		m_pGame->m_pLSock = NULL;
 	}
+	MapChangeLog("SERVERCHANGE_LSOCK_DELETED");
+
+	// Drain stale socket events from both GSOCK and LSOCK after deleting old sockets.
+	// WSAAsyncSelect events already queued before closesocket() can persist in the
+	// Windows message queue. If the OS reuses the old socket handle for a new socket,
+	// the stale events (especially FD_CLOSE) would be mistakenly delivered to the new
+	// socket, killing the connection during cross-server teleport.
+	{	MSG msg;
+		while (PeekMessage(&msg, m_pGame->m_hWnd, WM_USER_GAMESOCKETEVENT, WM_USER_GAMESOCKETEVENT, PM_REMOVE));
+		while (PeekMessage(&msg, m_pGame->m_hWnd, WM_USER_LOGSOCKETEVENT, WM_USER_LOGSOCKETEVENT, PM_REMOVE));
+	}
+	MapChangeLog("SERVERCHANGE_EVENTS_DRAINED");
+
 	m_pGame->m_pLSock = new class XSocket(m_pGame->m_hWnd, SOCKETBLOCKLIMIT);
 	if (m_pGame->m_iGameServerMode == 1) // LAN
-	{	m_pGame->m_pLSock->bConnect(m_pGame->m_cLogServerAddr, iWorldServerPort, WM_USER_LOGSOCKETEVENT);
+	{	MapChangeLog("SERVERCHANGE_CONNECTING LAN addr=%s port=%d", m_pGame->m_cLogServerAddr, iWorldServerPort);
+		m_pGame->m_pLSock->bConnect(m_pGame->m_cLogServerAddr, iWorldServerPort, WM_USER_LOGSOCKETEVENT);
 	}else
-	{	m_pGame->m_pLSock->bConnect(cWorldServerAddr, iWorldServerPort, WM_USER_LOGSOCKETEVENT);
+	{	MapChangeLog("SERVERCHANGE_CONNECTING WAN addr=%s port=%d", cWorldServerAddr, iWorldServerPort);
+		m_pGame->m_pLSock->bConnect(cWorldServerAddr, iWorldServerPort, WM_USER_LOGSOCKETEVENT);
 	}
 	m_pGame->m_pLSock->bInitBufferSize(30000);
 
@@ -5153,6 +5177,7 @@ void CMessageHandler::NotifyMsg_ServerChange(char * Data)
 	m_pGame->m_wEnterGameType = ENTERGAMEMSGTYPE_CHANGINGSERVER;
 		ZeroMemory(m_pGame->m_cMsg, sizeof(m_pGame->m_cMsg));
 	strcpy(m_pGame->m_cMsg,"55");
+	MapChangeLog("SERVERCHANGE_COMPLETE mode=%d enterType=%d", (int)m_pGame->m_dwConnectMode, (int)m_pGame->m_wEnterGameType);
 }
 
 void CMessageHandler::NotifyMsg_Skill(char *Data)

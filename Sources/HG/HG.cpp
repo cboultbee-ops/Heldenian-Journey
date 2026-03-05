@@ -6,6 +6,41 @@
 #include "ui\Winmain.h"
 #include "char\movement.h"
 #include "char\combat.h"
+#include <cstdarg>
+
+// --- File-based debug logging for connection diagnostics ---
+static void DebugLog(const char* fmt, ...) {
+	static FILE* f = NULL;
+	static bool bTriedOpen = false;
+	if (!f && !bTriedOpen) {
+		bTriedOpen = true;
+		CreateDirectoryA("Logs", NULL);
+		f = fopen("Logs/debug_connect.log", "a");
+		if (!f) {
+			// Fallback: try current directory
+			f = fopen("debug_connect.log", "a");
+		}
+		if (f) {
+			SYSTEMTIME st;
+			GetLocalTime(&st);
+			char cwd[260];
+			GetCurrentDirectoryA(sizeof(cwd), cwd);
+			fprintf(f, "[%02d:%02d:%02d.%03d] === HG SERVER DEBUG LOG STARTED (cwd=%s, build=" __DATE__ " " __TIME__ ") ===\n",
+				st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, cwd);
+			fflush(f);
+		}
+	}
+	if (!f) return;
+	SYSTEMTIME st;
+	GetLocalTime(&st);
+	fprintf(f, "[%02d:%02d:%02d.%03d] ", st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
+	va_list args;
+	va_start(args, fmt);
+	vfprintf(f, fmt, args);
+	va_end(args);
+	fprintf(f, "\n");
+	fflush(f);
+}
 
 extern char g_cTxt[512];
 extern char g_msg[50];
@@ -202,13 +237,18 @@ bool CGame::bAccept(class XSocket * pXSock)
 
 	pTmpSock = new class XSocket(m_hWnd, CLIENTSOCKETBLOCKLIMIT);
 
-	if ((m_bIsItemAvailable == FALSE)     || (m_bIsNpcAvailable == FALSE)       || 
-		(m_bIsMagicAvailable == FALSE)    || (m_bIsSkillAvailable == FALSE)     || 
-		(m_bIsPotionAvailable == FALSE)  || (m_bOnExitProcess == TRUE)         || 
+	if ((m_bIsItemAvailable == FALSE)     || (m_bIsNpcAvailable == FALSE)       ||
+		(m_bIsMagicAvailable == FALSE)    || (m_bIsSkillAvailable == FALSE)     ||
+		(m_bIsPotionAvailable == FALSE)  || (m_bOnExitProcess == TRUE)         ||
 		(m_bIsQuestAvailable == FALSE)    || (m_bIsBuildItemAvailable == FALSE) ||
 		(m_bIsGameStarted == FALSE)
-		) 
+		) {
+		DebugLog("bAccept REJECTED: server not ready (Item=%d Npc=%d Magic=%d Skill=%d Potion=%d Exit=%d Quest=%d Build=%d Started=%d)",
+			(int)m_bIsItemAvailable, (int)m_bIsNpcAvailable, (int)m_bIsMagicAvailable,
+			(int)m_bIsSkillAvailable, (int)m_bIsPotionAvailable, (int)m_bOnExitProcess,
+			(int)m_bIsQuestAvailable, (int)m_bIsBuildItemAvailable, (int)m_bIsGameStarted);
 		goto CLOSE_ANYWAY;
+	}
 
 	for (i = 1; i < MAXCLIENTS; i++)
 		if (m_pClientList[i] == NULL) {
@@ -227,8 +267,11 @@ bool CGame::bAccept(class XSocket * pXSock)
 					confirmedIPs.erase(it);
 					break;
 				}
-		
-			/*if(!valid) 
+
+			DebugLog("bAccept: slot=%d IP=%s confirmedIP=%s confirmedIPs_count=%d",
+				i, cTxt, valid ? "YES" : "NO", (int)confirmedIPs.size());
+
+			/*if(!valid)
 			{
 				wsprintf(g_cTxt,"(!!) Non-permitted client: %s", cTxt);
 				PutLogList(g_cTxt);
@@ -247,6 +290,7 @@ bool CGame::bAccept(class XSocket * pXSock)
 					if(strcmp(m_pClientList[x]->m_cIPaddress, m_pClientList[i]->m_cIPaddress) == 0) iTotalip++;
 				}
 				if(iTotalip > 2) {
+					DebugLog("bAccept REJECTED: IP limit exceeded (%d connections from %s)", iTotalip, m_pClientList[i]->m_cIPaddress);
 					delete m_pClientList[i];
 					m_pClientList[i] = NULL;
 					return FALSE;
@@ -1253,8 +1297,8 @@ void CGame::RequestInitPlayerHandler(int iClientH, char * pData, char cKey)
 	char * cp, cCharName[11], cAccountName[11], cAccountPassword[11], cTxt[120];
 	bool bIsObserverMode;
 
-	if (m_pClientList[iClientH] == NULL) return;
-	if (m_pClientList[iClientH]->m_bIsInitComplete == TRUE) return;
+	if (m_pClientList[iClientH] == NULL) { DebugLog("RequestInitPlayerHandler: slot=%d client is NULL!", iClientH); return; }
+	if (m_pClientList[iClientH]->m_bIsInitComplete == TRUE) { DebugLog("RequestInitPlayerHandler: slot=%d already init complete!", iClientH); return; }
 
 
 	ZeroMemory(cCharName, sizeof(cCharName));
@@ -1351,6 +1395,9 @@ void CGame::RequestInitPlayerHandler(int iClientH, char * pData, char cKey)
 	memcpy(m_pClientList[iClientH]->m_cAccountPassword, cAccountPassword, 10);
 
 	m_pClientList[iClientH]->m_bIsObserverMode = bIsObserverMode;
+
+	DebugLog("RequestInitPlayerHandler: slot=%d char(%s) acc(%s) observer=%d -> requesting player data from LS",
+		iClientH, cCharName, cAccountName, (int)bIsObserverMode);
 
 	wsprintf(g_cTxt, "RequestInitPlayer: client=%d char(%s) acc(%s) observer=%d -> requesting player data from LS",
 		iClientH, cCharName, cAccountName, (int)bIsObserverMode);
@@ -1734,13 +1781,18 @@ void CGame::DeleteClient(int iClientH, bool bSave, bool bNotify, bool bCountLogo
 	int i, iExH;
 	char * cp, cData[120], cTmpMap[30];
 	DWORD * dwp;
-	WORD * wp;		 
+	WORD * wp;
 	DWORD dwTime = timeGetTime();
 	bool previouslyDCd = FALSE;
 
 	CClient * player = m_pClientList[iClientH];
 
 	if (!player) return;
+
+	DebugLog("DeleteClient: slot=%d char(%s) acc(%s) save=%d notify=%d countLogout=%d force=%d initComplete=%d isServerChange=%d waitProcess=%d",
+		iClientH, player->m_cCharName, player->m_cAccountName,
+		(int)bSave, (int)bNotify, (int)bCountLogout, (int)bForceCloseConn,
+		(int)player->m_bIsInitComplete, (int)player->m_bIsOnServerChange, (int)player->m_bIsOnWaitingProcess);
 
 	if (player->m_bIsInitComplete == TRUE) {
 		if (memcmp(player->m_cMapName, "fight", 5) == 0) {
@@ -1770,14 +1822,20 @@ void CGame::DeleteClient(int iClientH, bool bSave, bool bNotify, bool bCountLogo
 				SendNotifyMsg(NULL, i, NOTIFY_WHISPERMODEOFF, NULL, NULL, NULL, player->m_cCharName);
 			}
 
-			ZeroMemory(cData, sizeof(cData));
-			cp = (char *)cData;
-			*cp = GSM_DISCONNECT;
-			cp++;
-			memcpy(cp, player->m_cCharName, 10);
-			cp += 10;
-			bStockMsgToGateServer(cData, 11);
-			SendStockMsgToGateServer();
+			// Only send GSM_DISCONNECT for real logouts, NOT server changes.
+			// Gate Server forwards this to Login which deletes the Client entry.
+			// During server changes, the Client entry must persist for the new
+			// game server to request player data from Login.
+			if (!player->m_bIsOnServerChange) {
+				ZeroMemory(cData, sizeof(cData));
+				cp = (char *)cData;
+				*cp = GSM_DISCONNECT;
+				cp++;
+				memcpy(cp, player->m_cCharName, 10);
+				cp += 10;
+				bStockMsgToGateServer(cData, 11);
+				SendStockMsgToGateServer();
+			}
 
 			m_pMapList[player->m_cMapIndex]->ClearOwner(/*2,*/ iClientH, OWNERTYPE_PLAYER,
 				player->m_sX, 
@@ -1944,15 +2002,19 @@ void CGame::DeleteClient(int iClientH, bool bSave, bool bNotify, bool bCountLogo
 			// Gate server is suposed to ask gservers to removed this client from party, in all party members
 			// Ask to save player data and local tempory save if error
 			//if (
+				DebugLog("DeleteClient: BRANCH=save+logout (initComplete, !isServerChange), sending SAVEPLAYERDATALOGOUT countLogout=%d", (int)bCountLogout);
 				bSendMsgToLS(MSGID_REQUEST_SAVEPLAYERDATALOGOUT, iClientH, bCountLogout);
 				//LocalSavePlayerData(iClientH);
-		}else bSendMsgToLS(MSGID_REQUEST_NOSAVELOGOUT, iClientH, bCountLogout); //Don't save if not InitComplete
+		}else {
+			DebugLog("DeleteClient: BRANCH=nosave+logout (!initComplete, !isServerChange), sending NOSAVELOGOUT countLogout=%d", (int)bCountLogout);
+			bSendMsgToLS(MSGID_REQUEST_NOSAVELOGOUT, iClientH, bCountLogout); //Don't save if not InitComplete
+		}
 	}else // No SAVE or not onServerChange
 	{	if (m_pClientList[iClientH]->m_bIsOnWaitingProcess == FALSE) // => bSave == FALSE ....
 		{	// Real LogOUT:
 			// Strange case! Real logout and don't save players character !?!?!
-	    	if (m_pClientList[iClientH]->m_bIsKilled == TRUE) 
-			
+	    	if (m_pClientList[iClientH]->m_bIsKilled == TRUE)
+
 			if (player->m_iPartyID != NULL) {
 				ZeroMemory(cData, sizeof(cData));
 				cp = (char *)cData;
@@ -1972,7 +2034,8 @@ void CGame::DeleteClient(int iClientH, bool bSave, bool bNotify, bool bCountLogo
 				cp += 2;
 				bSendMsgToLS(MSGID_PARTYOPERATION, iClientH, FALSE, cData);
 			}
-			//m_pClientList[iClientH]->m_cdwDecoTime = dwTime; 
+			//m_pClientList[iClientH]->m_cdwDecoTime = dwTime;
+			DebugLog("DeleteClient: BRANCH=nosave+real-logout (waitProcess=FALSE), sending NOSAVELOGOUT countLogout=%d", (int)bCountLogout);
 			bSendMsgToLS(MSGID_REQUEST_NOSAVELOGOUT, iClientH, bCountLogout);
 		}else //bSave == TRUE, IsOnServerChange == TRUE
 		// Not a real Logout, only changes SERVER
@@ -1998,7 +2061,8 @@ void CGame::DeleteClient(int iClientH, bool bSave, bool bNotify, bool bCountLogo
 				bSendMsgToLS(MSGID_PARTYOPERATION, iClientH, FALSE, cData);
 			}
 
-			bSendMsgToLS(MSGID_REQUEST_SETACCOUNTWAITSTATUS, iClientH, FALSE); 
+			DebugLog("DeleteClient: BRANCH=server-change (waitProcess=TRUE), sending SETACCOUNTWAITSTATUS");
+			bSendMsgToLS(MSGID_REQUEST_SETACCOUNTWAITSTATUS, iClientH, FALSE);
 		}
 	}
 
@@ -3486,16 +3550,19 @@ void CGame::ResponsePlayerDataHandler(char * pData, DWORD dwSize)
 		if (m_pClientList[i] != NULL) {
 			if (memcmp(m_pClientList[i]->m_cCharName, cCharName, 10) == 0) {
 				wp = (WORD *)(pData + INDEX2_MSGTYPE);
+				DebugLog("ResponsePlayerData: char(%s) type=%d (CONFIRM=%d REJECT=%d)", cCharName, (int)*wp, (int)LOGRESMSGTYPE_CONFIRM, (int)LOGRESMSGTYPE_REJECT);
 				wsprintf(g_cTxt, "ResponsePlayerData: char(%s) type=%d", cCharName, (int)*wp);
 				PutLogList(g_cTxt);
 				switch (*wp) {
 				case LOGRESMSGTYPE_CONFIRM:
+					DebugLog("ResponsePlayerData: CONFIRM for char(%s) -> InitPlayerData", cCharName);
 					InitPlayerData(i, pData, dwSize);
 					break;
 
 				case LOGRESMSGTYPE_REJECT:
 
 					if( *cp == 1) {
+						DebugLog("ResponsePlayerData: REJECT reason=1 for char(%s) -> send MSGTYPE_REJECT to client", cCharName);
 						wsprintf(g_cTxt, "PlayerData REJECT reason=1 (send reject to client)");
 						PutLogList(g_cTxt);
 						ZeroMemory(cTxt, sizeof(cTxt));
@@ -3507,6 +3574,7 @@ void CGame::ResponsePlayerDataHandler(char * pData, DWORD dwSize)
 						m_pClientList[i]->m_pXSock->iSendMsg(cTxt, 6);
 					}
 					else {
+						DebugLog("ResponsePlayerData: REJECT reason=%d for char(%s) -> DeleteClient (HACK?)", (int)*cp, m_pClientList[i]->m_cCharName);
 						wsprintf(g_cTxt, "(HACK?) Not existing character(%s) data request! Rejected! reason=%d", m_pClientList[i]->m_cCharName, (int)*cp);
 						PutLogList(g_cTxt);
 						//PutLogFileList(g_cTxt);
@@ -14314,7 +14382,8 @@ void CGame::RequestTeleportHandler(int iClientH, char teleportType, char * cMapN
 		SendNotifyMsg(NULL, iClientH, NOTIFY_MAGICEFFECTOFF, MAGICTYPE_CONFUSE,
 			m_pClientList[iClientH]->m_cMagicEffectStatus[ MAGICTYPE_CONFUSE ], NULL, NULL);
 		SetSlateFlag(iClientH, NOTIFY_SLATECLEAR, FALSE);
-		bSendMsgToLS(MSGID_REQUEST_SAVEPLAYERDATA_REPLY, iClientH, FALSE); 
+		bSendMsgToLS(MSGID_REQUEST_SAVEPLAYERDATA_REPLY, iClientH, FALSE);
+		m_pClientList[iClientH]->m_bIsOnServerChange   = TRUE;
 		m_pClientList[iClientH]->m_bIsOnWaitingProcess = TRUE;
 		return;
 	}
@@ -24453,9 +24522,12 @@ void CGame::ResponseSavePlayerDataReplyHandler(char * pData, DWORD dwMsgSize)
 	cp = (char *)(pData + INDEX2_MSGTYPE + 2);
 	memcpy(cCharName, cp, 10);
 
-	for (i = 0; i < MAXCLIENTS; i++) 
+	DebugLog("ResponseSavePlayerDataReply: looking for char(%s) to send NOTIFY_SERVERCHANGE", cCharName);
+	for (i = 0; i < MAXCLIENTS; i++)
 		if (m_pClientList[i] != NULL) {
 			if (memcmp(m_pClientList[i]->m_cCharName, cCharName, 10) == 0) {
+				DebugLog("ResponseSavePlayerDataReply: found char(%s) at slot=%d, sending NOTIFY_SERVERCHANGE (map=%s)",
+					cCharName, i, m_pClientList[i]->m_cMapName);
 				SendNotifyMsg(NULL, i, NOTIFY_SERVERCHANGE, NULL, NULL, NULL, NULL);
 			}
 		}

@@ -4,6 +4,7 @@
 
 
 #include "Game.h"
+#include "stb_image.h"
 
 #if LANGUAGE == ENGLISH
 #include "lan_eng.h"
@@ -35,6 +36,11 @@ extern BOOL G_bIsCalcSocketConnected;
 extern DWORD G_dwCalcSocketTime, G_dwCalcSocketSendTime;
 extern HWND	G_hWnd, G_hEditWnd;
 extern HINSTANCE G_hInstance;
+
+// Debug: shadow disable toggle (Ctrl+F10) and sprite diagnostic dump (F10)
+BOOL g_bDisableShadows = FALSE;
+static BOOL g_bSpriteDiagDump = FALSE; // Set TRUE by F10, consumed by DrawObject
+BOOL g_bDisableEquipment = FALSE; // Debug: Alt+Pause toggle - render body only
 
 char _cDrawingOrder[]            = {0, 1, 0, 0, 0, 0, 0, 1, 1};
 char _cMantleDrawingOrder[]      = {0, 1, 1, 1, 0, 0, 0, 2, 2};
@@ -723,7 +729,7 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 		// Borderless fullscreen: cover entire monitor
 		int screenW = GetSystemMetrics(SM_CXSCREEN);
 		int screenH = GetSystemMetrics(SM_CYSCREEN);
-		SetWindowPos(m_hWnd, HWND_TOPMOST, 0, 0, screenW, screenH, SWP_SHOWWINDOW);
+		SetWindowPos(m_hWnd, HWND_TOP, 0, 0, screenW, screenH, SWP_SHOWWINDOW);
 	} else if (m_iWindowWidth != 1280 || m_iWindowHeight != 960) {
 		// Windowed: resize to configured resolution, centered
 		int cx = GetSystemMetrics(SM_CXSCREEN) / 2;
@@ -2690,8 +2696,144 @@ void CGame::ConnectionEstablishHandler(char cWhere)
 	}
 }
 
+// Custom menu background: loads menu_bg.png once and caches the GL texture
+struct MenuBgInfo {
+	GLuint textureID;
+	int width;
+	int height;
+	bool attempted;
+};
 
-void CGame::UpdateScreen_OnMainMenu() 
+static MenuBgInfo s_menuBg = { 0, 0, 0, false };
+
+static void LoadMenuBackground(CGPURenderer* pGPU)
+{
+	if (s_menuBg.attempted) return;
+	s_menuBg.attempted = true;
+
+	stbi_set_flip_vertically_on_load(0);
+	int w, h, channels;
+	unsigned char* data = stbi_load("menu_bg.png", &w, &h, &channels, 4);
+	if (!data) {
+		OutputDebugStringA("[MainMenu] Failed to load menu_bg.png, using fallback sprite\n");
+		return;
+	}
+
+	s_menuBg.textureID = pGPU->CreateTextureLinear(data, w, h);
+	s_menuBg.width = w;
+	s_menuBg.height = h;
+	stbi_image_free(data);
+
+	char buf[128];
+	sprintf(buf, "[MainMenu] Loaded menu_bg.png: %dx%d texID=%u\n", w, h, s_menuBg.textureID);
+	OutputDebugStringA(buf);
+}
+
+void CGame::DrawMenuBackground()
+{
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		LoadMenuBackground(m_DDraw.m_pGPURenderer);
+		if (s_menuBg.textureID != 0) {
+			// Fill-crop: center 4:3 portion of the image to fill 640x480
+			float imgAspect = (float)s_menuBg.width / (float)s_menuBg.height;
+			float targetAspect = 640.0f / 480.0f;
+
+			int srcX, srcY, srcW, srcH;
+			if (imgAspect > targetAspect) {
+				srcH = s_menuBg.height;
+				srcW = (int)(s_menuBg.height * targetAspect);
+				srcX = (s_menuBg.width - srcW) / 2;
+				srcY = 0;
+			} else {
+				srcW = s_menuBg.width;
+				srcH = (int)(s_menuBg.width / targetAspect);
+				srcX = 0;
+				srcY = (s_menuBg.height - srcH) / 2;
+			}
+
+			m_DDraw.m_pGPURenderer->QueueSpriteStretched(
+				s_menuBg.textureID,
+				0, 0, 640, 480,
+				srcX, srcY, srcW, srcH,
+				s_menuBg.width, s_menuBg.height,
+				BLEND_OPAQUE, 1.0f);
+			return;
+		}
+	}
+	// Fallback: original sprite (DD mode or PNG not found)
+	DrawNewDialogBox(SPRID_INTERFACE_ND_MAINMENU, -1, -1, 0, TRUE);
+}
+
+void CGame::DrawFormPanel(int x, int y, int w, int h)
+{
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
+		// Dark semi-transparent background
+		gpu->DrawFilledRect(x, y, w, h, 0.05f, 0.04f, 0.03f, 0.75f);
+		// Gold border (1px)
+		gpu->DrawFilledRect(x, y, w, 1, 0.71f, 0.55f, 0.24f, 0.80f);           // top
+		gpu->DrawFilledRect(x, y + h - 1, w, 1, 0.71f, 0.55f, 0.24f, 0.80f);   // bottom
+		gpu->DrawFilledRect(x, y, 1, h, 0.71f, 0.55f, 0.24f, 0.80f);           // left
+		gpu->DrawFilledRect(x + w - 1, y, 1, h, 0.71f, 0.55f, 0.24f, 0.80f);   // right
+	} else {
+		m_DDraw.DrawShadowBox(x, y, x + w, y + h);
+	}
+}
+
+void CGame::DrawStyledButton(int x, int y, int w, int h, const char* label, bool bFocused)
+{
+	bool bGPU = m_DDraw.m_bUseGPU && (m_DDraw.m_pGPURenderer != NULL);
+
+	if (bGPU) {
+		CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
+		if (bFocused) {
+			gpu->DrawFilledRect(x, y, w, h, 0.20f, 0.14f, 0.06f, 0.85f);
+			gpu->DrawFilledRect(x, y, w, 1, 0.86f, 0.71f, 0.31f, 1.0f);
+			gpu->DrawFilledRect(x, y + h - 1, w, 1, 0.86f, 0.71f, 0.31f, 1.0f);
+			gpu->DrawFilledRect(x, y, 1, h, 0.86f, 0.71f, 0.31f, 1.0f);
+			gpu->DrawFilledRect(x + w - 1, y, 1, h, 0.86f, 0.71f, 0.31f, 1.0f);
+		} else {
+			gpu->DrawFilledRect(x, y, w, h, 0.08f, 0.06f, 0.04f, 0.70f);
+			gpu->DrawFilledRect(x, y, w, 1, 0.71f, 0.55f, 0.24f, 0.60f);
+			gpu->DrawFilledRect(x, y + h - 1, w, 1, 0.71f, 0.55f, 0.24f, 0.60f);
+			gpu->DrawFilledRect(x, y, 1, h, 0.71f, 0.55f, 0.24f, 0.60f);
+			gpu->DrawFilledRect(x + w - 1, y, 1, h, 0.71f, 0.55f, 0.24f, 0.60f);
+		}
+	}
+
+	int textW = (int)strlen(label) * 7;
+	if (bGPU) textW = m_DDraw.m_pGPURenderer->GetTextWidth(label);
+	int textX = x + (w - textW) / 2;
+	int textY = y + (h - 12) / 2;
+
+	if (bFocused)
+		PutString2(textX, textY, (char*)label, 255, 230, 150);
+	else
+		PutString2(textX, textY, (char*)label, 210, 180, 100);
+}
+
+void CGame::DrawInputField(int x, int y, int w, int h, bool bFocused)
+{
+	if (m_DDraw.m_bUseGPU && m_DDraw.m_pGPURenderer != NULL) {
+		CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
+		// Darker inner background
+		gpu->DrawFilledRect(x, y, w, h, 0.02f, 0.02f, 0.02f, 0.80f);
+		// Border
+		if (bFocused) {
+			gpu->DrawFilledRect(x, y, w, 1, 0.86f, 0.71f, 0.31f, 1.0f);
+			gpu->DrawFilledRect(x, y + h - 1, w, 1, 0.86f, 0.71f, 0.31f, 1.0f);
+			gpu->DrawFilledRect(x, y, 1, h, 0.86f, 0.71f, 0.31f, 1.0f);
+			gpu->DrawFilledRect(x + w - 1, y, 1, h, 0.86f, 0.71f, 0.31f, 1.0f);
+		} else {
+			gpu->DrawFilledRect(x, y, w, 1, 0.45f, 0.35f, 0.15f, 0.60f);
+			gpu->DrawFilledRect(x, y + h - 1, w, 1, 0.45f, 0.35f, 0.15f, 0.60f);
+			gpu->DrawFilledRect(x, y, 1, h, 0.45f, 0.35f, 0.15f, 0.60f);
+			gpu->DrawFilledRect(x + w - 1, y, 1, h, 0.45f, 0.35f, 0.15f, 0.60f);
+		}
+	}
+}
+
+void CGame::UpdateScreen_OnMainMenu()
 {
  short msX, msY, msZ;
  char cLB, cRB, cMB, cMIresult;
@@ -2700,60 +2842,108 @@ void CGame::UpdateScreen_OnMainMenu()
  DWORD dwTime = G_dwGlobalTime;
  m_iItemDropCnt = 0;
  m_bItemDrop = FALSE;
-	
+
+	// Button layout constants
+	const int BTN_X = 40;
+	const int BTN_W = 170;
+	const int BTN_H = 28;
+	const int BTN_GAP = 10;
+	const int BTN_Y1 = 360;
+	const int BTN_Y2 = BTN_Y1 + BTN_H + BTN_GAP;
+	const int BTN_Y3 = BTN_Y2 + BTN_H + BTN_GAP;
+
 	if (m_cGameModeCount == 0) {
 
 		if (G_pCalcSocket != NULL) {
-			delete G_pCalcSocket; 
+			delete G_pCalcSocket;
 			G_pCalcSocket = NULL;
 		}
-		
-		if ( m_pSprite[SPRID_INTERFACE_ND_LOADING] != NULL ) {
+
+		if (m_pSprite[SPRID_INTERFACE_ND_LOADING] != NULL) {
 			delete m_pSprite[SPRID_INTERFACE_ND_LOADING];
 			m_pSprite[SPRID_INTERFACE_ND_LOADING] = NULL;
 		}
 		EndInputString();
-		
-		pMI = new class CMouseInterface; 
 
-		pMI->AddRect(385, 178, 546, 195);
-		pMI->AddRect(384, 214, 543, 233);
-		pMI->AddRect(386, 253, 546, 275);
-		m_DInput.m_sX = 400;
-		m_DInput.m_sY = 240;
+		pMI = new class CMouseInterface;
+		pMI->AddRect(BTN_X, BTN_Y1, BTN_X + BTN_W, BTN_Y1 + BTN_H);
+		pMI->AddRect(BTN_X, BTN_Y2, BTN_X + BTN_W, BTN_Y2 + BTN_H);
+		pMI->AddRect(BTN_X, BTN_Y3, BTN_X + BTN_W, BTN_Y3 + BTN_H);
+		m_DInput.m_sX = BTN_X + BTN_W / 2;
+		m_DInput.m_sY = BTN_Y1 + BTN_H / 2;
 
 		m_cCurFocus = 1;
 		m_cMaxFocus = 3;
 
 		m_bEnterPressed = FALSE;
 		m_cArrowPressed = 0;
-	}  
-	m_cGameModeCount++; 
+	}
+	m_cGameModeCount++;
 	if (m_cGameModeCount > 100) m_cGameModeCount = 100;
- 
+
 	m_DDraw.ClearBackB4();
 
-	DrawNewDialogBox(SPRID_INTERFACE_ND_MAINMENU, -1, -1, 0, TRUE);
+	// Draw custom background
+	DrawMenuBackground();
 
+	// Draw stylized buttons
+	bool bGPU = m_DDraw.m_bUseGPU && (m_DDraw.m_pGPURenderer != NULL);
 
+	struct { int y; const char* label; } buttons[3] = {
+		{ BTN_Y1, "Login" },
+		{ BTN_Y2, "Create Account" },
+		{ BTN_Y3, "Exit" }
+	};
 
-	switch (m_cCurFocus) {
+	for (int i = 0; i < 3; i++) {
+		bool bFocused = (m_cCurFocus == i + 1);
+		int by = buttons[i].y;
 
-	case 1:
-		m_pSprite[SPRID_INTERFACE_ND_MAINMENU]->PutSpriteFast(114 , 159, 1, dwTime);
-		break;
-	case 2:
-		m_pSprite[SPRID_INTERFACE_ND_MAINMENU]->PutSpriteFast(82, 197, 2, dwTime);
-		break;
+		if (bGPU) {
+			CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
 
-	case 3:
-		m_pSprite[SPRID_INTERFACE_ND_MAINMENU]->PutSpriteFast(114, 236, 3, dwTime);
-		break;
+			if (bFocused) {
+				// Hover: brighter warm panel + bright gold border
+				gpu->DrawFilledRect(BTN_X, by, BTN_W, BTN_H,
+					0.20f, 0.14f, 0.06f, 0.85f);
+				gpu->DrawFilledRect(BTN_X, by, BTN_W, 1,
+					0.86f, 0.71f, 0.31f, 1.0f);
+				gpu->DrawFilledRect(BTN_X, by + BTN_H - 1, BTN_W, 1,
+					0.86f, 0.71f, 0.31f, 1.0f);
+				gpu->DrawFilledRect(BTN_X, by, 1, BTN_H,
+					0.86f, 0.71f, 0.31f, 1.0f);
+				gpu->DrawFilledRect(BTN_X + BTN_W - 1, by, 1, BTN_H,
+					0.86f, 0.71f, 0.31f, 1.0f);
+			} else {
+				// Normal: dark semi-transparent panel + dim gold border
+				gpu->DrawFilledRect(BTN_X, by, BTN_W, BTN_H,
+					0.08f, 0.06f, 0.04f, 0.70f);
+				gpu->DrawFilledRect(BTN_X, by, BTN_W, 1,
+					0.71f, 0.55f, 0.24f, 0.60f);
+				gpu->DrawFilledRect(BTN_X, by + BTN_H - 1, BTN_W, 1,
+					0.71f, 0.55f, 0.24f, 0.60f);
+				gpu->DrawFilledRect(BTN_X, by, 1, BTN_H,
+					0.71f, 0.55f, 0.24f, 0.60f);
+				gpu->DrawFilledRect(BTN_X + BTN_W - 1, by, 1, BTN_H,
+					0.71f, 0.55f, 0.24f, 0.60f);
+			}
+		}
+
+		// Center text on button
+		int textW = (int)strlen(buttons[i].label) * 7;
+		if (bGPU) textW = m_DDraw.m_pGPURenderer->GetTextWidth(buttons[i].label);
+		int textX = BTN_X + (BTN_W - textW) / 2;
+		int textY = by + (BTN_H - 12) / 2;
+
+		if (bFocused)
+			PutString2(textX, textY, (char*)buttons[i].label, 255, 230, 150);
+		else
+			PutString2(textX, textY, (char*)buttons[i].label, 210, 180, 100);
 	}
 
+	// Keyboard navigation
 	if (m_cArrowPressed != 0) {
-	
-	   	switch (m_cArrowPressed) {
+		switch (m_cArrowPressed) {
 		case 1:
 			m_cCurFocus--;
 			if (m_cCurFocus <= 0) m_cCurFocus = m_cMaxFocus;
@@ -2766,6 +2956,7 @@ void CGame::UpdateScreen_OnMainMenu()
 		m_cArrowPressed = 0;
 	}
 
+	// Enter key
 	if (m_bEnterPressed == TRUE) {
 		PlaySound('E', 14, 5);
 		m_bEnterPressed = FALSE;
@@ -2777,7 +2968,7 @@ void CGame::UpdateScreen_OnMainMenu()
 		case 2:
 			ClearContents_OnSelectCharacter();
 			delete pMI;
-			ChangeGameMode(GAMEMODE_ONCREATENEWACCOUNT); 
+			ChangeGameMode(GAMEMODE_ONCREATENEWACCOUNT);
 			return;
 		case 3:
 			delete pMI;
@@ -2785,44 +2976,51 @@ void CGame::UpdateScreen_OnMainMenu()
 			return;
 		}
 	}
-	
+
+	// ESC key
+	if (m_bEscPressed == TRUE) {
+		m_bEscPressed = FALSE;
+		delete pMI;
+		ChangeGameMode(GAMEMODE_ONQUIT);
+		return;
+	}
+
 	DrawVersion();
 
 	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
-	
 
 	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
-	
+
+	// Mouse hover updates focus
+	for (int i = 0; i < 3; i++) {
+		int by = buttons[i].y;
+		if (msX >= BTN_X && msX <= BTN_X + BTN_W &&
+			msY >= by && msY <= by + BTN_H) {
+			m_cCurFocus = i + 1;
+		}
+	}
+
+	// Mouse click handling
 	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
 	if (cMIresult == MIRESULT_CLICK) {
-
 		PlaySound('E', 14, 5);
 		m_cCurFocus = iMIbuttonNum;
-		switch (iMIbuttonNum)
-		{
+		switch (iMIbuttonNum) {
 		case 1:
 			ChangeGameMode(GAMEMODE_ONSELECTSERVER);
 			delete pMI;
-			break;
-
+			return;
 		case 2:
 			ClearContents_OnSelectCharacter();
 			delete pMI;
-			ChangeGameMode(GAMEMODE_ONCREATENEWACCOUNT); 
+			ChangeGameMode(GAMEMODE_ONCREATENEWACCOUNT);
 			return;
 		case 3:
 			ChangeGameMode(GAMEMODE_ONQUIT);
 			delete pMI;
-			break;
+			return;
 		}
 	}
-
-//	if ((msX >= 112) && (msY >= 150) && (msX <= 247) && (msY <= 191)) m_cCurFocus = 1;
-//	if ((msX >= 73) && (msY >= 192) && (msX <= 281) && (msY <= 230)) m_cCurFocus = 2;
-//	if ((msX >= 120) && (msY >= 231) && (msX <= 239) && (msY <= 262)) m_cCurFocus = 3;
-	
-//	if (m_cGameModeCount < 6) m_DDraw.DrawShadowBox(0,0,639,479);
-//	if (m_cGameModeCount < 2) m_DDraw.DrawShadowBox(0,0,639,479);
 
 	if (m_DDraw.iFlip() == DDERR_SURFACELOST) RestoreSprites();
 }
@@ -3637,13 +3835,8 @@ void CGame::UpdateScreen_OnLoading(bool bActive)
 **********************************************************************************************************************/
 void CGame::UpdateScreen_OnLoading_Progress()
 {
-	m_DDraw.ClearBackB4();
-	// Simple loading screen — no splash image (prevents stale surface in screenshots)
-	DrawVersion(TRUE);
-	char cLoad[64];
-	wsprintf(cLoad, "Loading... %d%%", (int)m_cLoading);
-	PutString(280, 230, cLoad, RGB(200, 200, 200), FALSE, 1);
-	m_DDraw.iFlip();
+	// Disabled — the black loading overlay interfered with Windows screenshot tools.
+	// The game continues loading in the background without a visible progress screen.
 }
 
 void CGame::OnTimer()
@@ -3901,6 +4094,9 @@ BOOL CGame::_bCheckDlgBoxDoubleClick(short msX, short msY)
 			case 9:
 				DlbBoxDoubleClick_GuideMap(msX, msY);
 				break;
+			case 56:
+				DlgBoxClick_EquipSet(msX, msY);
+				break;
 			}
 			return TRUE;
 		}
@@ -4004,6 +4200,12 @@ BOOL CGame::_bCheckDraggingItemRelease(short msX, short msY)
 
 			case 2:
 				bItemDrop_Inventory(msX, msY);
+				// If item was dragged from a set slot, remove it from the set
+				if (m_iSetDragSourceSet >= 0 && m_iSetDragSourceSlot >= 0) {
+					RemoveItemFromEquipSet(m_iSetDragSourceSet, m_iSetDragSourceSlot);
+					m_iSetDragSourceSet = -1;
+					m_iSetDragSourceSlot = -1;
+				}
 				break;
 
 			case 14:
@@ -4038,9 +4240,21 @@ BOOL CGame::_bCheckDraggingItemRelease(short msX, short msY)
 				bItemDrop_EquipSet(msX, msY);
 				break;
 			}
+			// Clear set-drag state for any non-inventory drop target
+			if (cDlgID != 2 && cDlgID != 56) {
+				m_iSetDragSourceSet = -1;
+				m_iSetDragSourceSlot = -1;
+			}
 			return TRUE;
 	}	}
-	bItemDrop_ExternalScreen((char)m_stMCursor.sSelectedObjectID, msX, msY);
+	// Dropped outside all dialogs (ground drop)
+	if (m_iSetDragSourceSet >= 0 && m_iSetDragSourceSlot >= 0) {
+		// Cancel set drag — don't drop equipped set items on ground
+		m_iSetDragSourceSet = -1;
+		m_iSetDragSourceSlot = -1;
+	} else {
+		bItemDrop_ExternalScreen((char)m_stMCursor.sSelectedObjectID, msX, msY);
+	}
 	return FALSE;
 }
 
@@ -4369,6 +4583,8 @@ void CGame::InitGameSettings()
 	// Equipment Sets
 	m_iActiveEquipSet = -1;
 	m_iEquipSetTab = 0;
+	m_iSetDragSourceSet = -1;
+	m_iSetDragSourceSlot = -1;
 	for (int es = 0; es < MAXEQUIPSETS; es++) {
 		m_stEquipSets[es].bIsConfigured = false;
 		for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
@@ -4395,6 +4611,7 @@ void CGame::InitGameSettings()
 	m_iDashSpeed = 30;
 	m_iAttackSpeedMultiplier = 100;
 	m_bFullscreenMode = FALSE;
+	m_bSkipServerSelect = TRUE;
 	m_iWindowWidth = 1280;
 	m_iWindowHeight = 960;
 	m_dwLogOutCountTime = NULL;
@@ -7727,8 +7944,9 @@ BOOL   CGame::DrawObject_OnAttack(int indexX, int indexY, int sX, int sY, BOOL b
 		if ((_tmp_sAppr2 & 0xF000) != 0) {
 			iWeapon = ((_tmp_sAppr2 & 0x0FF0) >> 4);
 			if (iWeapon == 0) iAdd = 6;
-			if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
-			if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
+			else if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else iAdd = 6;
 			iBodyIndex   = 500 + (_tmp_sOwnerType - 1 )*8*15 + (iAdd * 8);
 			iUndiesIndex = SPRID_UNDIES_M + (_tmp_sAppr1 & 0x000F)*15 + iAdd;
 			iHairIndex	 = SPRID_HAIR_M + ((_tmp_sAppr1 & 0x0F00) >> 8)*15 + iAdd;
@@ -7794,8 +8012,9 @@ BOOL   CGame::DrawObject_OnAttack(int indexX, int indexY, int sX, int sY, BOOL b
 		if ((_tmp_sAppr2 & 0xF000) != 0)
 		{	iWeapon = ((_tmp_sAppr2 & 0x0FF0) >> 4);
 			if (iWeapon == 0) iAdd = 6;
-			if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
-			if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
+			else if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else iAdd = 6;
 			iBodyIndex   = 500 + (_tmp_sOwnerType - 1 )*8*15 + (iAdd * 8);
 			iUndiesIndex = SPRID_UNDIES_W + (_tmp_sAppr1 & 0x000F)*15 + iAdd;
 			iHairIndex	 = SPRID_HAIR_W + ((_tmp_sAppr1 & 0x0F00) >> 8)*15 + iAdd;
@@ -8260,8 +8479,9 @@ BOOL   CGame::DrawObject_OnAttackMove(int indexX, int indexY, int sX, int sY, BO
 		if ((_tmp_sAppr2 & 0xF000) != 0) {
 			iWeapon = ((_tmp_sAppr2 & 0x0FF0) >> 4);
 			if (iWeapon == 0) iAdd = 6;
-			if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
-			if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
+			else if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else iAdd = 6;
 			iBodyIndex   = 500 + (_tmp_sOwnerType - 1 )*8*15 + (iAdd * 8);
 			iUndiesIndex = SPRID_UNDIES_M + (_tmp_sAppr1 & 0x000F)*15 + iAdd;
 			iHairIndex	 = SPRID_HAIR_M + ((_tmp_sAppr1 & 0x0F00) >> 8)*15 + iAdd;
@@ -8327,8 +8547,9 @@ BOOL   CGame::DrawObject_OnAttackMove(int indexX, int indexY, int sX, int sY, BO
 		if ((_tmp_sAppr2 & 0xF000) != 0) {
 			iWeapon = ((_tmp_sAppr2 & 0x0FF0) >> 4);
 			if (iWeapon == 0) iAdd = 6;
-			if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
-			if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else if ((iWeapon >= 1)  && (iWeapon <= 39)) iAdd = 6;
+			else if ((iWeapon >= 40) && (iWeapon <= 59)) iAdd = 7;
+			else iAdd = 6;
 			iBodyIndex   = 500 + (_tmp_sOwnerType - 1 )*8*15 + (iAdd * 8);
 			iUndiesIndex = SPRID_UNDIES_W + (_tmp_sAppr1 & 0x000F)*15 + iAdd;
 			iHairIndex	 = SPRID_HAIR_W + ((_tmp_sAppr1 & 0x0F00) >> 8)*15 + iAdd;
@@ -12276,10 +12497,95 @@ BOOL   CGame::DrawObject_OnStop(int indexX, int indexY, int sX, int sY, BOOL bTr
 		iHelmIndex      = -1;
 		break;
 	}
-	if(m_pSprite[iBodyIndex + (_tmp_cDir - 1)] == NULL) return false; 
+	if(m_pSprite[iBodyIndex + (_tmp_cDir - 1)] == NULL) return false;
+
+	// Debug diagnostic dump (F10)
+	if (g_bSpriteDiagDump && memcmp(m_cPlayerName, _tmp_cName, 10) == 0) {
+		g_bSpriteDiagDump = FALSE;
+		FILE *fDbg = fopen("sprite_debug.txt", "w");
+		if (fDbg) {
+			fprintf(fDbg, "=== SPRITE DIAGNOSTIC DUMP ===\n");
+			fprintf(fDbg, "Player: %s, OwnerType: %d, Dir: %d, Frame: %d\n",
+				_tmp_cName, _tmp_sOwnerType, _tmp_cDir, _tmp_cFrame);
+			fprintf(fDbg, "iBodyIndex: %d, Appr2: 0x%04X, Appr3: 0x%04X\n",
+				iBodyIndex, _tmp_sAppr2, _tmp_sAppr3);
+			fprintf(fDbg, "Equipment indices: Undies=%d, Hair=%d, BodyArmor=%d, ArmArmor=%d\n",
+				iUndiesIndex, iHairIndex, iBodyArmorIndex, iArmArmorIndex);
+			fprintf(fDbg, "  Pants=%d, Boots=%d, Weapon=%d, Shield=%d, Helm=%d, Mantle=%d\n",
+				iPantsIndex, iBootsIndex, iWeaponIndex, iShieldIndex, iHelmIndex, iMantleIndex);
+			fprintf(fDbg, "\n--- Body sprites per direction (forced LoadToGPU + texture readback) ---\n");
+			for (int d = 1; d <= 8; d++) {
+				int sprIdx = iBodyIndex + (d - 1);
+				CSprite *spr = m_pSprite[sprIdx];
+				if (spr == NULL) {
+					fprintf(fDbg, "Dir %d: sprite[%d] = NULL\n", d, sprIdx);
+					continue;
+				}
+				// Force GPU load for all directions
+				if (!spr->m_bIsGPUTexture) {
+					bool loadOK = spr->LoadToGPU();
+					fprintf(fDbg, "Dir %d: sprite[%d] LoadToGPU=%s", d, sprIdx, loadOK ? "OK" : "FAILED");
+				} else {
+					fprintf(fDbg, "Dir %d: sprite[%d] (already loaded)", d, sprIdx);
+				}
+				fprintf(fDbg, " gpuTex=%u isGPU=%d bmpW=%d bmpH=%d frames=%d scale=%d pak=%s\n",
+					spr->m_glTextureID, spr->m_bIsGPUTexture ? 1 : 0,
+					spr->m_wBitmapSizeX, spr->m_wBitmapSizeY,
+					spr->m_iTotalFrame, spr->m_iSpriteScale, spr->m_cPakFileName);
+				// Texture readback diagnostic
+				if (spr->m_bIsGPUTexture && spr->m_glTextureID != 0 &&
+					m_DDraw.m_pGPURenderer != NULL) {
+					CGPURenderer::TextureDiagnostic diag;
+					if (m_DDraw.m_pGPURenderer->DiagnoseTexture(
+						spr->m_glTextureID, spr->m_wBitmapSizeX, spr->m_wBitmapSizeY, diag)) {
+						fprintf(fDbg, "  READBACK: total=%d transparent=%d blackOpaque=%d coloredOpaque=%d",
+							diag.totalPixels, diag.transparentPixels,
+							diag.blackOpaquePixels, diag.coloredOpaquePixels);
+						if (diag.coloredOpaquePixels > 0)
+							fprintf(fDbg, " firstColor=(%d,%d,%d,%d)",
+								diag.firstColorR, diag.firstColorG, diag.firstColorB, diag.firstColorA);
+						if (diag.coloredOpaquePixels == 0 && diag.blackOpaquePixels > 0)
+							fprintf(fDbg, " *** ALL OPAQUE PIXELS ARE BLACK - GPU TEXTURE CORRUPT ***");
+						fprintf(fDbg, "\n");
+					} else {
+						fprintf(fDbg, "  READBACK: FAILED (glGetTexImage error)\n");
+					}
+				}
+			}
+			fprintf(fDbg, "\n--- Equipment sprites (single sprite, multi-frame) ---\n");
+			int eqIndices[] = { iUndiesIndex, iBodyArmorIndex, iArmArmorIndex, iPantsIndex, iBootsIndex, iHelmIndex, iWeaponIndex, iShieldIndex, iMantleIndex };
+			const char *eqNames[] = { "Undies", "BodyArmor", "ArmArmor", "Pants", "Boots", "Helm", "Weapon", "Shield", "Mantle" };
+			for (int e = 0; e < 9; e++) {
+				if (eqIndices[e] == -1) { fprintf(fDbg, "%s: NONE\n", eqNames[e]); continue; }
+				CSprite *spr = m_pSprite[eqIndices[e]];
+				if (spr == NULL) { fprintf(fDbg, "%s[%d]: NULL\n", eqNames[e], eqIndices[e]); continue; }
+				fprintf(fDbg, "%s[%d]: gpuTex=%u isGPU=%d bmpW=%d bmpH=%d frames=%d scale=%d pak=%s\n",
+					eqNames[e], eqIndices[e], spr->m_glTextureID, spr->m_bIsGPUTexture ? 1 : 0,
+					spr->m_wBitmapSizeX, spr->m_wBitmapSizeY,
+					spr->m_iTotalFrame, spr->m_iSpriteScale, spr->m_cPakFileName);
+				// Equipment texture readback (first one only, for comparison)
+				if (e == 0 && spr->m_bIsGPUTexture && spr->m_glTextureID != 0 &&
+					m_DDraw.m_pGPURenderer != NULL) {
+					CGPURenderer::TextureDiagnostic diag;
+					if (m_DDraw.m_pGPURenderer->DiagnoseTexture(
+						spr->m_glTextureID, spr->m_wBitmapSizeX, spr->m_wBitmapSizeY, diag)) {
+						fprintf(fDbg, "  READBACK: total=%d transparent=%d blackOpaque=%d coloredOpaque=%d",
+							diag.totalPixels, diag.transparentPixels,
+							diag.blackOpaquePixels, diag.coloredOpaquePixels);
+						if (diag.coloredOpaquePixels > 0)
+							fprintf(fDbg, " firstColor=(%d,%d,%d,%d)",
+								diag.firstColorR, diag.firstColorG, diag.firstColorB, diag.firstColorA);
+						fprintf(fDbg, "\n");
+					}
+				}
+			}
+			fprintf(fDbg, "\ng_bDisableShadows=%d\n", g_bDisableShadows);
+			fclose(fDbg);
+		}
+	}
 
 	if (m_bIsCrusadeMode || (m_bIsAstoriaMode && memcmp(m_cCurLocation, "astoria", 7) == 0)) DrawObjectFOE(sX, sY, _tmp_cFrame);
-	
+
 	switch (_tmp_sOwnerType) { // hum? la lumiere en dessous ?
 	case 15: // ShopKeeper
 	case 19: // Gandalf
@@ -12355,6 +12661,8 @@ BOOL   CGame::DrawObject_OnStop(int indexX, int indexY, int sX, int sY, BOOL bTr
 
 			SetRect(&m_rcBodyRect, m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.left, m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.top,
 				     m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.right, m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.bottom);
+
+			if (!g_bDisableEquipment) {
 
 			if ((iMantleIndex != -1) && (_cMantleDrawingOrder[_tmp_cDir] == 0)) {
 				if(bInv) m_pSprite[iMantleIndex]->PutTransSprite25(sX, sY, (_tmp_cDir-1) * 8 + _tmp_cFrame, dwTime);
@@ -12452,6 +12760,8 @@ BOOL   CGame::DrawObject_OnStop(int indexX, int indexY, int sX, int sY, BOOL bTr
 						 m_pSprite[iMantleIndex]->PutSpriteFast(sX, sY, (_tmp_cDir-1) * 8 + _tmp_cFrame, dwTime);
 					else m_pSprite[iMantleIndex]->PutSpriteRGB(sX, sY, (_tmp_cDir-1) * 8 + _tmp_cFrame, m_wR[iMantleColor] -m_wR[0], m_wG[iMantleColor] -m_wG[0], m_wB[iMantleColor] -m_wB[0], dwTime);
 			}	}
+
+			} // end g_bDisableEquipment check (branch 1)
 		}else
 		{
 			if (_tmp_sOwnerType == 35)
@@ -12468,6 +12778,8 @@ BOOL   CGame::DrawObject_OnStop(int indexX, int indexY, int sX, int sY, BOOL bTr
 
 			SetRect(&m_rcBodyRect, m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.left, m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.top,
 				     m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.right, m_pSprite[iBodyIndex + (_tmp_cDir - 1)]->m_rcBound.bottom);
+
+			if (!g_bDisableEquipment) {
 
 			if ((iMantleIndex != -1) && (_cMantleDrawingOrder[_tmp_cDir] == 0))
 			{	if(bInv) m_pSprite[iMantleIndex]->PutTransSprite25(sX, sY, (_tmp_cDir-1) * 8 + _tmp_cFrame, dwTime);
@@ -12579,7 +12891,9 @@ BOOL   CGame::DrawObject_OnStop(int indexX, int indexY, int sX, int sY, BOOL bTr
 				case 1: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX, sY,  _tmp_cFrame, m_iDrawFlag, 0, 0, dwTime); break; // Red Glare
 				case 2: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX, sY,  _tmp_cFrame, 0, m_iDrawFlag, 0, dwTime); break; // Green Glare
 				case 3: m_pSprite[iWeaponIndex]->PutTransSpriteRGB(sX, sY,  _tmp_cFrame, 0, 0, m_iDrawFlag, dwTime); break; // Blue Glare
-		}	}	}
+		}	}
+			} // end g_bDisableEquipment check (branch 2)
+		}
 		if (_tmp_sOwnerType == 64) // crop
 		{	switch( _tmp_cFrame ) {
 			case 0: // color effect for crop
@@ -13341,6 +13655,19 @@ void CGame::LogResponseHandler(char * Data)
 			memcpy(m_cGameServerName, cp, 20);
 			cp += 20;
 			MapChangeLog("ENTERGAME_RESP=CONFIRM addr=%s port=%d serverName=%s (LAN=%d localAddr=%s)", cGameServerAddr, iGameServerPort, m_cGameServerName, m_iGameServerMode, m_cLogServerAddr);
+
+			// Drain stale WM_USER_GAMESOCKETEVENT messages from the Windows message queue.
+			// When the old game socket was closed, its handle was freed and may be reused by
+			// the new socket. Stale FD_CLOSE events from the old socket would then be
+			// mistakenly delivered to the new socket (same handle = passes wParam check).
+			{	MSG msg;
+				int nDrained = 0;
+				while (PeekMessage(&msg, m_hWnd, WM_USER_GAMESOCKETEVENT, WM_USER_GAMESOCKETEVENT, PM_REMOVE))
+					nDrained++;
+				if (nDrained > 0)
+					MapChangeLog("GSOCK_STALE_DRAIN: removed %d stale game socket events", nDrained);
+			}
+
 			m_pGSock = new class XSocket(m_hWnd, SOCKETBLOCKLIMIT);
 			if (m_iGameServerMode == 1)
 			{	m_pGSock->bConnect(m_cLogServerAddr, iGameServerPort, WM_USER_GAMESOCKETEVENT);
@@ -13469,13 +13796,11 @@ void CGame::ChangeGameMode(char cMode)
 	m_cGameModeCount = 0;
 	m_dwTime = G_dwGlobalTime;
 
-#ifndef SELECTSERVER
-	if( cMode == GAMEMODE_ONSELECTSERVER )
+	if( m_bSkipServerSelect && cMode == GAMEMODE_ONSELECTSERVER )
 	{	ZeroMemory(m_cWorldServerName, sizeof(m_cWorldServerName));
 		strcpy(m_cWorldServerName, NAME_WORLDNAME1);
 		m_cGameMode = GAMEMODE_ONLOGIN;
 	}
-#endif
 }
 
 BOOL CGame::bReadIp()
@@ -13581,6 +13906,10 @@ BOOL CGame::bReadLoginConfigFile(char * cFn)
 				if (m_iWindowHeight > 2160) m_iWindowHeight = 2160;
 				cReadMode = 0;
 				break;
+		case 11: // skip-server-select
+			m_bSkipServerSelect = (atoi(token) != 0) ? TRUE : FALSE;
+			cReadMode = 0;
+			break;
 			}
 		}else
 		{	if (memcmp(token, "log-server-address",18) == 0) cReadMode = 1;
@@ -13593,6 +13922,7 @@ BOOL CGame::bReadLoginConfigFile(char * cFn)
 			if (memcmp(token, "attack-speed-multiplier",23) == 0) cReadMode = 8;
 			if (memcmp(token, "display-mode",12) == 0)          cReadMode = 9;
 			if (memcmp(token, "resolution",10) == 0)            cReadMode = 10;
+			if (memcmp(token, "skip-server-select",18) == 0)    cReadMode = 11;
 		}
 		token = strtok( NULL, seps );
 	}
@@ -15382,6 +15712,13 @@ int CGame::_iCheckDlgBoxFocus(short msX, short msY, char cButtonSide)
 					m_stMCursor.cSelectedObjectType	= SELECTEDOBJTYPE_DLGBOX;
 					m_stMCursor.sSelectedObjectID   = cDlgID;
 					break;
+
+				case 56: // Equipment Set - drag items out
+					if (bDlgBoxPress_EquipSet(msX, msY) == FALSE) {
+						m_stMCursor.cSelectedObjectType	= SELECTEDOBJTYPE_DLGBOX;
+						m_stMCursor.sSelectedObjectID   = cDlgID;
+					}
+					break;
 				}
 				return 1;
 		}	}
@@ -16351,6 +16688,11 @@ void CGame::DisableDialogBox(int iBoxID)
  int i;
 
 	switch (iBoxID) {
+	case 2:
+		// Close equipment set panel when inventory closes
+		if (m_bIsDialogEnabled[56]) DisableDialogBox(56);
+		break;
+
 	case 4:
 		m_bIsItemDisabled[m_stDialogBoxInfo[4].sView] = FALSE;
 		break;
@@ -23661,29 +24003,34 @@ void CGame::_LoadAgreementTextContents(char cType)
 
 void CGame::UpdateScreen_OnAgreement()
 {
- short sX, sY, msX, msY, msZ;
+ short msX, msY, msZ;
  char  cLB, cRB, cMB;
  char  cMIresult;
- static class CMouseInterface * pMI; 
+ static class CMouseInterface * pMI;
  int i, iTotalLines, iPointerLoc;
  DWORD dwTime = timeGetTime();
- double d1,d2,d3;
+ double d1, d2, d3;
  int iMIbuttonNum;
-	
-	sX = 121;
-	sY = 22;
-	
+ bool bGPU = m_DDraw.m_bUseGPU && (m_DDraw.m_pGPURenderer != NULL);
+
+	// Layout
+	const int PANEL_X = 60, PANEL_Y = 40, PANEL_W = 520, PANEL_H = 420;
+	const int TEXT_X = 80, TEXT_Y = 75, TEXT_W = 470, TEXT_H = 310;
+	const int SCROLL_X = TEXT_X + TEXT_W + 5, SCROLL_H = TEXT_H;
+	const int ABTN_X = 140, ABTN_W = 150, BTN_H = 28, BTN_Y = 405;
+	const int DBTN_X = 350, DBTN_W = 150;
+
 	if (m_cGameModeCount == 0) {
 		m_iAgreeView = 0;
 		_LoadAgreementTextContents(0);
-
 		pMI = new class CMouseInterface;
-		pMI->AddRect(sX+82 -105, sY+355,sX+131 -105,sY+374);
-		pMI->AddRect(sX+235 -105, sY+355,sX+303 -105,sY+375);
+		pMI->AddRect(ABTN_X, BTN_Y, ABTN_X + ABTN_W, BTN_Y + BTN_H);
+		pMI->AddRect(DBTN_X, BTN_Y, DBTN_X + DBTN_W, BTN_Y + BTN_H);
 	}
 
 	m_cGameModeCount++;
 	if (m_cGameModeCount > 100) m_cGameModeCount = 100;
+
 	if (m_bEnterPressed == TRUE) {
 		PlaySound('E', 14, 5);
 		ChangeGameMode(GAMEMODE_ONCREATENEWACCOUNT);
@@ -23702,21 +24049,19 @@ void CGame::UpdateScreen_OnAgreement()
 		m_bEscPressed = FALSE;
 		return;
 	}
+
 	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
 
 	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
 	if (cMIresult == MIRESULT_CLICK) {
 		switch (iMIbuttonNum) {
 		case 1:
-			// Agree
 			PlaySound('E', 14, 5);
 			ChangeGameMode(GAMEMODE_ONCREATENEWACCOUNT);
 			ClearContents_OnCreateNewAccount();
 			delete pMI;
 			return;
-			
 		case 2:
-			// DisAgree
 			PlaySound('E', 14, 5);
 			#ifdef JAPAN_FOR_TERRA
 				ChangeGameMode(GAMEMODE_ONSELECTSERVER);
@@ -23728,58 +24073,71 @@ void CGame::UpdateScreen_OnAgreement()
 		}
 	}
 
-	DrawNewDialogBox(SPRID_INTERFACE_ND_AGREEMENT, 0,0,0, TRUE);
-	DrawNewDialogBox(SPRID_INTERFACE_ND_TEXT, 43, 38,12, FALSE);
+	m_DDraw.ClearBackB4();
+	DrawMenuBackground();
+	DrawFormPanel(PANEL_X, PANEL_Y, PANEL_W, PANEL_H);
 
+	// Title
+	PutString2(255, 50, (char*)"Terms of Service", 255, 230, 150);
+
+	// Text area (darker inner panel)
+	if (bGPU) {
+		m_DDraw.m_pGPURenderer->DrawFilledRect(TEXT_X, TEXT_Y, TEXT_W, TEXT_H, 0.02f, 0.02f, 0.02f, 0.70f);
+	}
+
+	// Count total lines
 	iTotalLines = 0;
-	for (i = 0; i < TEXTDLGMAXLINES; i++) 
-	if (m_pAgreeMsgTextList[i] != NULL) iTotalLines++;
+	for (i = 0; i < TEXTDLGMAXLINES; i++)
+		if (m_pAgreeMsgTextList[i] != NULL) iTotalLines++;
 
-	d1 = (double)m_iAgreeView;
-	d2 = (double)(iTotalLines - 20);
-	d3 = (double)d1 / d2;
-	d1 = 338.0f * d3;
-	iPointerLoc = (int)d1;
-	m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutSpriteFast(sX +361 -112, sY +37 +13 +iPointerLoc, 7, dwTime);
-
-	for (i = 0; i < 20; i++)
-	if (m_pAgreeMsgTextList[i + m_iAgreeView] != NULL) {
-		PutAlignedString(60, 360, sY + 65 +i*13, m_pAgreeMsgTextList[i + m_iAgreeView]->m_pMsg, 45,25,25);
-	}
-
-	if( msZ != 0 )
-	{
-		m_iAgreeView = m_iAgreeView - msZ/60;
-		m_DInput.m_sZ = 0;
-	}
-	if (cLB != 0 && iTotalLines > 20) { 
-		// ��ũ�� �����̵� 
-		if ((msX >= sX +345 -112) && (msX <= sX +380 -112) && (msY >= sY +50) && (msY <= sY +395)) {
-			d1 = (double)(msY - (sY + 37 +13));
-			d2 = (double)(iTotalLines - 17);
-			d3 = (double)(d1 * d2)/(338.0f);
-			m_iAgreeView = (int)d3;
-
-			m_pSprite[SPRID_INTERFACE_ND_GAME2]->PutTransSprite(sX +361 -112, sY +37 +13 +iPointerLoc, 4, dwTime);
+	// Draw text lines (20 visible)
+	for (i = 0; i < 20; i++) {
+		if (m_pAgreeMsgTextList[i + m_iAgreeView] != NULL) {
+			PutAlignedString(TEXT_X + 10, TEXT_X + TEXT_W - 10, TEXT_Y + 10 + i * 14,
+				m_pAgreeMsgTextList[i + m_iAgreeView]->m_pMsg, 200, 190, 170);
 		}
 	}
-	if( m_iAgreeView < 0 ) m_iAgreeView = 0;
-	if( iTotalLines > 20 && m_iAgreeView > iTotalLines-20 ) m_iAgreeView = iTotalLines-20;
 
-	if ((msX > sX + 82 -105) && (msX < sX + 131 -105) && (msY > sY + 355 -3) && (msY < sY + 374 +3)) 
-		 DrawNewDialogBox(SPRID_INTERFACE_ND_BUTTON, sX + 43 + 20 -23 +45 -105,  sY + 265 +90, 13);
-	else DrawNewDialogBox(SPRID_INTERFACE_ND_BUTTON, sX + 43 + 20 -23 +45 -105,  sY + 265 +90, 12);
+	// Scroll bar
+	if (bGPU && iTotalLines > 20) {
+		CGPURenderer* gpu = m_DDraw.m_pGPURenderer;
+		// Track
+		gpu->DrawFilledRect(SCROLL_X, TEXT_Y, 6, SCROLL_H, 0.15f, 0.12f, 0.08f, 0.60f);
+		// Handle
+		d1 = (double)m_iAgreeView;
+		d2 = (double)(iTotalLines - 20);
+		if (d2 > 0) {
+			d3 = d1 / d2;
+			iPointerLoc = (int)((SCROLL_H - 30) * d3);
+			gpu->DrawFilledRect(SCROLL_X, TEXT_Y + iPointerLoc, 6, 30, 0.71f, 0.55f, 0.24f, 0.90f);
+		}
+	}
 
-	if ((msX > sX + 235 -105) && (msX < sX + 303 -105) && (msY > sY + 355 -3) && (msY < sY + 375 +3))
-		 DrawNewDialogBox(SPRID_INTERFACE_ND_BUTTON, sX + 158 + 57 -23 +45 -105, sY + 265 +90, 15);
-	else DrawNewDialogBox(SPRID_INTERFACE_ND_BUTTON, sX + 158 + 57 -23 +45 -105, sY + 265 +90, 14);
+	// Mouse wheel scrolling
+	if (msZ != 0) {
+		m_iAgreeView = m_iAgreeView - msZ / 60;
+		m_DInput.m_sZ = 0;
+	}
+	// Click-drag scrolling
+	if (cLB != 0 && iTotalLines > 20) {
+		if (msX >= SCROLL_X - 5 && msX <= SCROLL_X + 15 && msY >= TEXT_Y && msY <= TEXT_Y + SCROLL_H) {
+			d1 = (double)(msY - TEXT_Y);
+			d2 = (double)(iTotalLines - 20);
+			d3 = (d1 * d2) / (double)SCROLL_H;
+			m_iAgreeView = (int)d3;
+		}
+	}
+	if (m_iAgreeView < 0) m_iAgreeView = 0;
+	if (iTotalLines > 20 && m_iAgreeView > iTotalLines - 20) m_iAgreeView = iTotalLines - 20;
 
-	DrawVersion(); 
-	// ���콺 Ŀ�� �׸���.
+	// Buttons
+	bool bAgreeHover = (msX >= ABTN_X && msX <= ABTN_X + ABTN_W && msY >= BTN_Y && msY <= BTN_Y + BTN_H);
+	bool bDisagreeHover = (msX >= DBTN_X && msX <= DBTN_X + DBTN_W && msY >= BTN_Y && msY <= BTN_Y + BTN_H);
+	DrawStyledButton(ABTN_X, BTN_Y, ABTN_W, BTN_H, "Agree", bAgreeHover);
+	DrawStyledButton(DBTN_X, BTN_Y, DBTN_W, BTN_H, "Disagree", bDisagreeHover);
+
+	DrawVersion();
 	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
-
-//	if (m_cGameModeCount < 6) m_DDraw.DrawShadowBox(0,0,639,479);
-//	if (m_cGameModeCount < 2) m_DDraw.DrawShadowBox(0,0,639,479);
 
 	if (m_DDraw.iFlip() == DDERR_SURFACELOST) RestoreSprites();
 }
@@ -23791,32 +24149,42 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 	char cLB, cRB, cMB;
 	char cMIresult;
 	int  iMIbuttonNum;
-	RECT buttons[3];
 	static class CMouseInterface * pMI;
-	static char cName[12], cPassword[12], cConfirm[12], cPrevFocus, cSSN_A[8], cSSN_B[8], cQuiz[44] ,cAnswer[20], cTempQuiz[44] ;
+	static char cName[12], cPassword[12], cConfirm[12], cPrevFocus, cSSN_A[8], cSSN_B[8], cQuiz[44], cAnswer[20], cTempQuiz[44];
 	DWORD dwTime = timeGetTime();
 	int iFlag = 0;
 
-	SetRect(&buttons[0], 349, 396, 387, 406);
-	SetRect(&buttons[1], 414, 396, 446, 406);
-	SetRect(&buttons[2], 473, 396, 528, 406);
+	// Layout constants
+	const int PANEL_X = 100, PANEL_Y = 60, PANEL_W = 440, PANEL_H = 400;
+	const int LBL_X = 120, FLD_X = 250, FLD_W = 270, FLD_H = 18;
+	const int FLD_START_Y = 105, FLD_SPACE = 30;
+	const int INP_X = 255;
+	const int FLD_Y1 = FLD_START_Y;
+	const int FLD_Y2 = FLD_START_Y + FLD_SPACE;
+	const int FLD_Y3 = FLD_START_Y + FLD_SPACE * 2;
+	const int FLD_Y4 = FLD_START_Y + FLD_SPACE * 3;
+	const int FLD_Y5 = FLD_START_Y + FLD_SPACE * 4;
+	const int FLD_Y6 = FLD_START_Y + FLD_SPACE * 5;
+	const int HELP_Y = 310;
+	const int BTN_Y = 380, BTN_H = 28;
+	const int CBTN_X = 140, CBTN_W = 110;
+	const int CLBTN_X = 265, CLBTN_W = 110;
+	const int CANBTN_X = 390, CANBTN_W = 110;
 
-	if (m_cGameModeCount == 0)
-	{	
+	if (m_cGameModeCount == 0) {
 		pMI = new class CMouseInterface;
-		pMI->AddRect(460, 173, 545, 173+15);	// Account		1
-		pMI->AddRect(460, 195, 545, 195+15);	// Password		2
-		pMI->AddRect(460, 219, 545, 219+15);	// Confirm		3
-		pMI->AddRect(434, 250, 545, 250+15);	// Email		4 // 6
-		pMI->AddRect(414, 306, 545, 306+15);	// Quiz			5 // 4
-		pMI->AddRect(414, 330, 545, 330+15);	// Answer		6 // 5
-		pMI->AddRect(&buttons[0]);				// Create		7
-		pMI->AddRect(&buttons[1]);				// Clear		8
-		pMI->AddRect(&buttons[2]);				// Cancel		9
-		//pMI->AddRect(330,250+(20*1),348,250+(20*1));	// Conf Email	10
-		cPrevFocus  = 1;
+		pMI->AddRect(FLD_X, FLD_Y1, FLD_X + FLD_W, FLD_Y1 + FLD_H);   // Account   1
+		pMI->AddRect(FLD_X, FLD_Y2, FLD_X + FLD_W, FLD_Y2 + FLD_H);   // Password  2
+		pMI->AddRect(FLD_X, FLD_Y3, FLD_X + FLD_W, FLD_Y3 + FLD_H);   // Confirm   3
+		pMI->AddRect(FLD_X, FLD_Y4, FLD_X + FLD_W, FLD_Y4 + FLD_H);   // Email     4
+		pMI->AddRect(FLD_X, FLD_Y5, FLD_X + FLD_W, FLD_Y5 + FLD_H);   // Question  5
+		pMI->AddRect(FLD_X, FLD_Y6, FLD_X + FLD_W, FLD_Y6 + FLD_H);   // Answer    6
+		pMI->AddRect(CBTN_X, BTN_Y, CBTN_X + CBTN_W, BTN_Y + BTN_H);  // Create    7
+		pMI->AddRect(CLBTN_X, BTN_Y, CLBTN_X + CLBTN_W, BTN_Y + BTN_H); // Clear   8
+		pMI->AddRect(CANBTN_X, BTN_Y, CANBTN_X + CANBTN_W, BTN_Y + BTN_H); // Cancel 9
+		cPrevFocus = 1;
 		m_cCurFocus = 1;
-		m_cMaxFocus = 9; //12
+		m_cMaxFocus = 9;
 		m_bEnterPressed = FALSE;
 		m_cArrowPressed = 0;
 		ZeroMemory(m_cEmailAddr, sizeof(m_cEmailAddr));
@@ -23829,286 +24197,208 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 		ZeroMemory(cQuiz, sizeof(cQuiz));
 		ZeroMemory(cTempQuiz, sizeof(cTempQuiz));
 		ZeroMemory(cAnswer, sizeof(cAnswer));
-		StartInputString(460, 173, 11, cName);
+		StartInputString(INP_X, FLD_Y1 + 2, 11, cName);
 		ClearInputString();
 	}
 
 	m_cGameModeCount++;
 	if (m_cGameModeCount > 100) m_cGameModeCount = 100;
-	if (m_cArrowPressed != 0)
-	{	
-		switch (m_cArrowPressed) 
-		{
-		case 1:
-			m_cCurFocus--;
-			if (m_cCurFocus <= 0) m_cCurFocus = m_cMaxFocus;
-			break;
-		case 3:
-			m_cCurFocus++;
-			if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1;
-			break;
+
+	if (m_cArrowPressed != 0) {
+		switch (m_cArrowPressed) {
+		case 1: m_cCurFocus--; if (m_cCurFocus <= 0) m_cCurFocus = m_cMaxFocus; break;
+		case 3: m_cCurFocus++; if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1; break;
 		}
 		m_cArrowPressed = 0;
 	}
 
-	if (m_bEscPressed == TRUE)
-	{	
+	if (m_bEscPressed == TRUE) {
 		ChangeGameMode(GAMEMODE_ONMAINMENU);
 		delete pMI;
 		m_bEscPressed = FALSE;
 		return;
 	}
 
-	if (cPrevFocus != m_cCurFocus)
-	{	
+	if (cPrevFocus != m_cCurFocus) {
 		EndInputString();
-		switch (m_cCurFocus) 
-		{
-		case 1:
-			StartInputString(460,173, 11, cName);
-			break;
-		case 2:
-			StartInputString(460,195, 11, cPassword);
-			break;
-		case 3:
-			StartInputString(460,219, 11, cConfirm);
-			break;
-		case 4:
-			StartInputString(434,250, 31, m_cEmailAddr);
-			break;
-		case 5:
-			StartInputString(414,306, 44, cQuiz);
-			break;
-		case 6:
-			StartInputString(414,330, 19, cAnswer);
-			break;
+		switch (m_cCurFocus) {
+		case 1: StartInputString(INP_X, FLD_Y1 + 2, 11, cName); break;
+		case 2: StartInputString(INP_X, FLD_Y2 + 2, 11, cPassword); break;
+		case 3: StartInputString(INP_X, FLD_Y3 + 2, 11, cConfirm); break;
+		case 4: StartInputString(INP_X, FLD_Y4 + 2, 31, m_cEmailAddr); break;
+		case 5: StartInputString(INP_X, FLD_Y5 + 2, 44, cQuiz); break;
+		case 6: StartInputString(INP_X, FLD_Y6 + 2, 19, cAnswer); break;
 		}
 		cPrevFocus = m_cCurFocus;
 	}
 
 	m_DDraw.ClearBackB4();
-	DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 0,0,0, TRUE);
+	DrawMenuBackground();
+	DrawFormPanel(PANEL_X, PANEL_Y, PANEL_W, PANEL_H);
 
+	// Title
+	PutString2(245, 72, (char*)"Create Account", 255, 230, 150);
 
-	if ((m_cCurFocus == 2) || (m_cCurFocus == 3))
-		 ShowReceivedString(TRUE);
-	else if ((m_cCurFocus == 1) || (m_cCurFocus == 4) || (m_cCurFocus == 5) || (m_cCurFocus == 6))
+	// Field labels and input boxes
+	struct { int y; const char* label; } fields[6] = {
+		{ FLD_Y1, "Account" }, { FLD_Y2, "Password" }, { FLD_Y3, "Confirm" },
+		{ FLD_Y4, "Email" }, { FLD_Y5, "Question" }, { FLD_Y6, "Answer" }
+	};
+	for (int i = 0; i < 6; i++) {
+		PutString2(LBL_X, fields[i].y + 2, (char*)fields[i].label, 210, 180, 100);
+		DrawInputField(FLD_X, fields[i].y, FLD_W, FLD_H, m_cCurFocus == i + 1);
+	}
+
+	// Input cursor
+	if (m_cCurFocus == 2 || m_cCurFocus == 3)
+		ShowReceivedString(TRUE);
+	else if (m_cCurFocus >= 1 && m_cCurFocus <= 6)
 		ShowReceivedString();
 
-
+	// Field text (when not editing that field)
 	if (m_cCurFocus != 1) {
-		if (m_Misc.bCheckValidName(cName) != FALSE)
-			 PutString2(460, 173, cName, 100,200,100);
-		else PutString2(460, 173, cName, 200,100,100);
+		if (m_Misc.bCheckValidName(cName) != FALSE) PutString2(INP_X, FLD_Y1 + 2, cName, 100, 200, 100);
+		else PutString2(INP_X, FLD_Y1 + 2, cName, 200, 100, 100);
 	}
 	if (m_cCurFocus != 2) {
-		if (m_Misc.bCheckValidName(cPassword) != FALSE)
-			 PutString(460, 195, cPassword, RGB(100,200,100), TRUE, 1);
-		else PutString(460, 195, cPassword, RGB(200,100,100), TRUE, 1);
+		if (m_Misc.bCheckValidName(cPassword) != FALSE) PutString(INP_X, FLD_Y2 + 2, cPassword, RGB(100, 200, 100), TRUE, 1);
+		else PutString(INP_X, FLD_Y2 + 2, cPassword, RGB(200, 100, 100), TRUE, 1);
 	}
-
 	if (m_cCurFocus != 3) {
-		if (memcmp(cPassword, cConfirm, 10) == 0)
-			 PutString(460, 219, cConfirm, RGB(100,200,100), TRUE, 1);
-		else PutString(460, 219, cConfirm, RGB(200,100,100), TRUE, 1);
+		if (memcmp(cPassword, cConfirm, 10) == 0) PutString(INP_X, FLD_Y3 + 2, cConfirm, RGB(100, 200, 100), TRUE, 1);
+		else PutString(INP_X, FLD_Y3 + 2, cConfirm, RGB(200, 100, 100), TRUE, 1);
 	}
 	if (memcmp(cPassword, cConfirm, 10) != 0) iFlag = 9;
-
 	if (m_cCurFocus != 4) {
-		if( m_Misc.bIsValidEmail(m_cEmailAddr) )
-			PutString2(434, 250, m_cEmailAddr, 100,200,100);
-		else PutString2(434, 250, m_cEmailAddr, 200,100,100);
+		if (m_Misc.bIsValidEmail(m_cEmailAddr)) PutString2(INP_X, FLD_Y4 + 2, m_cEmailAddr, 100, 200, 100);
+		else PutString2(INP_X, FLD_Y4 + 2, m_cEmailAddr, 200, 100, 100);
 	}
 
-	wsprintf(cTempQuiz,"%s",cQuiz) ;
+	wsprintf(cTempQuiz, "%s", cQuiz);
 	m_Misc.ReplaceString(cTempQuiz, ' ', '_');
 
-	if (m_cCurFocus != 5) {
-		PutString2(414, 306, cQuiz, 100,200,100);
-	}
+	if (m_cCurFocus != 5) PutString2(INP_X, FLD_Y5 + 2, cQuiz, 100, 200, 100);
+	if (m_cCurFocus != 6) PutString2(INP_X, FLD_Y6 + 2, cAnswer, 100, 200, 100);
 
-	if (m_cCurFocus != 6) {
-		PutString2(414, 330, cAnswer, 100,200,100);
-	}
+	// Validation flags
+	if (strlen(cAnswer) == 0)                           iFlag = 11;
+	if (strlen(cTempQuiz) == 0)                         iFlag = 10;
+	if (m_Misc.bCheckValidName(cPassword) == FALSE)     iFlag = 7;
+	if (m_Misc.bCheckValidName(cName) == FALSE)         iFlag = 6;
+	if (m_Misc.bIsValidEmail(m_cEmailAddr) == FALSE)    iFlag = 5;
+	if (strlen(cConfirm) == 0)                          iFlag = 3;
+	if (strlen(cPassword) == 0)                         iFlag = 2;
+	if (strlen(cName) == 0)                             iFlag = 1;
 
-	if (strlen(cAnswer) == 0)							iFlag = 11;
-	if (strlen(cTempQuiz) == 0)							iFlag = 10;
-	if (m_Misc.bCheckValidName(cPassword) == FALSE)		iFlag = 7;
-	if (m_Misc.bCheckValidName(cName) == FALSE)			iFlag = 6;
-	if (m_Misc.bIsValidEmail(m_cEmailAddr) == FALSE)	iFlag = 5;
-	if (strlen(cConfirm) == 0)							iFlag = 3;
-	if (strlen(cPassword) == 0)							iFlag = 2;
-	if ((strlen(cName) == 0 ))							iFlag = 1;
-
-
-	switch (m_cCurFocus) 
-	{
+	// Help text
+	switch (m_cCurFocus) {
 	case 1:
-		PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT1, 255, 245, 0 );
-		PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT2, 255, 245, 0 );
-		PutAlignedString(270, 600, 375, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT3, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT1, 255, 245, 0);
+		PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT2, 255, 245, 0);
+		PutAlignedString(120, 530, HELP_Y + 30, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT3, 255, 245, 0);
 		break;
-
 	case 2:
-		PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT4, 255, 245, 0 );
-		PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT2, 255, 245, 0 );
-		PutAlignedString(270, 600, 375, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT3, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT4, 255, 245, 0);
+		PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT2, 255, 245, 0);
+		PutAlignedString(120, 530, HELP_Y + 30, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT3, 255, 245, 0);
 		break;
-
 	case 3:
-		PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT8, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT8, 255, 245, 0);
 		break;
-
 	case 4:
-		PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT21, 255, 245, 0 );
-		PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT22, 255, 245, 0 );
-		PutAlignedString(270, 600, 375, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT23, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT21, 255, 245, 0);
+		PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT22, 255, 245, 0);
+		PutAlignedString(120, 530, HELP_Y + 30, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT23, 255, 245, 0);
 		break;
-
 	case 5:
-		PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT25, 255, 245, 0 );
-		PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT26, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT25, 255, 245, 0);
+		PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT26, 255, 245, 0);
 		break;
-
 	case 6:
-		PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT29, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT29, 255, 245, 0);
 		break;
-
 	case 7:
 		switch (iFlag) {
-		case 0:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT33, 255, 245, 0 );
-			break;
-
-		case 1:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT35, 255, 245, 0 );
-			break;
-
-		case 2:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT38, 255, 245, 0 );
-			break;
-
-		case 3:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT42, 255, 245, 0 );
-			break;
-
-		case 5:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT50, 255, 245, 0 );
-			break;
-
-		case 6:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT52, 255, 245, 0 );
-			PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT53, 255, 245, 0 );
-			break;
-
-		case 7:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT56, 255, 245, 0 );
-			PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT57, 255, 245, 0 );
-			break;
-
-		case 9:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT63, 255, 245, 0 );
-			PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT64, 255, 245, 0 );
-			PutAlignedString(270, 600, 375, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT65, 255, 245, 0 );
-			break;
-		case 10:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT67, 255, 245, 0 );
-			break;
-		case 11:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT69, 255, 245, 0 );
-			break;
-		case 12:
-			PutAlignedString(270, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT73, 255, 245, 0 );
-			PutAlignedString(270, 600, 360, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT74, 255, 245, 0 );
-			break;
-
-		case 13:
-			PutAlignedString(270, 600, 344, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT77, 255, 245, 0 );
-			PutAlignedString(270, 600, 359, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT78, 255, 245, 0 );
-			break;
-
+		case 0:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT33, 255, 245, 0); break;
+		case 1:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT35, 255, 245, 0); break;
+		case 2:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT38, 255, 245, 0); break;
+		case 3:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT42, 255, 245, 0); break;
+		case 5:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT50, 255, 245, 0); break;
+		case 6:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT52, 255, 245, 0);
+		         PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT53, 255, 245, 0); break;
+		case 7:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT56, 255, 245, 0);
+		         PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT57, 255, 245, 0); break;
+		case 9:  PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT63, 255, 245, 0);
+		         PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT64, 255, 245, 0);
+		         PutAlignedString(120, 530, HELP_Y + 30, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT65, 255, 245, 0); break;
+		case 10: PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT67, 255, 245, 0); break;
+		case 11: PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT69, 255, 245, 0); break;
+		case 12: PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT73, 255, 245, 0);
+		         PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT74, 255, 245, 0); break;
+		case 13: PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT77, 255, 245, 0);
+		         PutAlignedString(120, 530, HELP_Y + 15, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT78, 255, 245, 0); break;
 		}
 		break;
-
 	case 8:
-		PutAlignedString(150, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT80, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT80, 255, 245, 0);
 		break;
-
 	case 9:
-		PutAlignedString(190, 600, 345, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT81, 255, 245, 0 );
+		PutAlignedString(120, 530, HELP_Y, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT81, 255, 245, 0);
 		break;
 	}
+
+	// Buttons
+	DrawStyledButton(CBTN_X, BTN_Y, CBTN_W, BTN_H, "Create", m_cCurFocus == 7);
+	DrawStyledButton(CLBTN_X, BTN_Y, CLBTN_W, BTN_H, "Clear", m_cCurFocus == 8);
+	DrawStyledButton(CANBTN_X, BTN_Y, CANBTN_W, BTN_H, "Cancel", m_cCurFocus == 9);
 
 	DrawVersion(TRUE);
 	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
 
-	for(int n=0; n < 3; n++)
-	{
-		if((msX >= buttons[n].left) && (msY >= buttons[n].top) &&
-			(msX <= buttons[n].right) && (msY <= buttons[n].bottom)) 
-		{
-			m_cCurFocus = 7+n;
-		}
-	}
-
-	if(m_cCurFocus >= 7)
-		m_pSprite[SPRID_INTERFACE_ND_NEWACCOUNT]->PutSpriteFast(buttons[m_cCurFocus-7].left , buttons[m_cCurFocus-7].top,
-		m_cCurFocus-6, dwTime);
+	// Mouse hover on buttons
+	if (msX >= CBTN_X && msX <= CBTN_X + CBTN_W && msY >= BTN_Y && msY <= BTN_Y + BTN_H) m_cCurFocus = 7;
+	if (msX >= CLBTN_X && msX <= CLBTN_X + CLBTN_W && msY >= BTN_Y && msY <= BTN_Y + BTN_H) m_cCurFocus = 8;
+	if (msX >= CANBTN_X && msX <= CANBTN_X + CANBTN_W && msY >= BTN_Y && msY <= BTN_Y + BTN_H) m_cCurFocus = 9;
 
 	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
-	if (m_bEnterPressed == TRUE)
-	{	
+
+	if (m_bEnterPressed == TRUE) {
 		PlaySound('E', 14, 5);
-		switch (m_cCurFocus) 
-		{
-		case 1:
-		case 2:
-		case 3:
-		case 4:
-		case 5:
-		case 6:
+		switch (m_cCurFocus) {
+		case 1: case 2: case 3: case 4: case 5: case 6:
 			m_cCurFocus++;
 			if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1;
 			break;
-
 		case 7:
 			if (iFlag != 0) return;
 			ZeroMemory(m_cAccountName, sizeof(m_cAccountName));
 			ZeroMemory(m_cAccountPassword, sizeof(m_cAccountPassword));
-
 			ZeroMemory(m_cAccountQuiz, sizeof(m_cAccountQuiz));
 			ZeroMemory(m_cAccountAnswer, sizeof(m_cAccountAnswer));
-
 			strcpy(m_cAccountName, cName);
 			strcpy(m_cAccountPassword, cPassword);
-
 			strcpy(m_cAccountQuiz, cTempQuiz);
 			strcpy(m_cAccountAnswer, cAnswer);
-			m_cAccountQuiz[45] = ' ' ;
-			m_cAccountAnswer[20] = ' ' ;
-
+			m_cAccountQuiz[45] = ' ';
+			m_cAccountAnswer[20] = ' ';
 			ZeroMemory(m_cAccountSSN, sizeof(m_cAccountSSN));
 			wsprintf(m_cAccountSSN, "%s-%s", cSSN_A, cSSN_B);
-
-			if (memcmp(cPassword, cConfirm, 10) != 0)
-			{	ChangeGameMode(GAMEMODE_ONMSG);
+			if (memcmp(cPassword, cConfirm, 10) != 0) {
+				ChangeGameMode(GAMEMODE_ONMSG);
 				ZeroMemory(m_cMsg, sizeof(m_cMsg));
 				strcpy(m_cMsg, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT82);
-				               //"Cannot create account! - password not match!"
 				delete pMI;
 				return;
 			}
 			m_pLSock = new class XSocket(m_hWnd, SOCKETBLOCKLIMIT);
 			m_pLSock->bConnect(m_cLogServerAddr, m_iLogServerPort, WM_USER_LOGSOCKETEVENT);
 			m_pLSock->bInitBufferSize(30000);
-
 			ChangeGameMode(GAMEMODE_ONCONNECTING);
 			m_dwConnectMode = MSGID_REQUEST_CREATENEWACCOUNT;
 			ZeroMemory(m_cMsg, sizeof(m_cMsg));
 			strcpy(m_cMsg, "00");
 			delete pMI;
 			return;
-
 		case 8:
 			ZeroMemory(cName, sizeof(cName));
 			ZeroMemory(cPassword, sizeof(cPassword));
@@ -24122,9 +24412,7 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 			ZeroMemory(cQuiz, sizeof(cQuiz));
 			ZeroMemory(cTempQuiz, sizeof(cTempQuiz));
 			ZeroMemory(cAnswer, sizeof(cAnswer));
-
 			break;
-
 		case 9:
 			ChangeGameMode(GAMEMODE_ONMAINMENU);
 			delete pMI;
@@ -24136,39 +24424,29 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
 	if (cMIresult == MIRESULT_CLICK) {
 		PlaySound('E', 14, 5);
-
-		switch (iMIbuttonNum) 
-		{
+		switch (iMIbuttonNum) {
 		default:
 			m_cCurFocus = iMIbuttonNum;
 			break;
-
 		case 7:
 			if (iFlag != 0) return;
 			ZeroMemory(m_cAccountName, sizeof(m_cAccountName));
 			ZeroMemory(m_cAccountPassword, sizeof(m_cAccountPassword));
-
 			ZeroMemory(m_cAccountQuiz, sizeof(m_cAccountQuiz));
 			ZeroMemory(m_cAccountAnswer, sizeof(m_cAccountAnswer));
-
-
 			strcpy(m_cAccountName, cName);
 			strcpy(m_cAccountPassword, cPassword);
 			strcpy(m_cAccountQuiz, cTempQuiz);
 			strcpy(m_cAccountAnswer, cAnswer);
-
 			ZeroMemory(m_cAccountSSN, sizeof(m_cAccountSSN));
 			wsprintf(m_cAccountSSN, "%s-%s", cSSN_A, cSSN_B);
-
-			if (memcmp(cPassword, cConfirm, 10) != 0)
-			{	ChangeGameMode(GAMEMODE_ONMSG);
+			if (memcmp(cPassword, cConfirm, 10) != 0) {
+				ChangeGameMode(GAMEMODE_ONMSG);
 				ZeroMemory(m_cMsg, sizeof(m_cMsg));
 				strcpy(m_cMsg, UPDATE_SCREEN_ON_CREATE_NEW_ACCOUNT82);
-				               //"Cannot create account! - password not match!"
 				delete pMI;
 				return;
 			}
-
 			m_pLSock = new class XSocket(m_hWnd, SOCKETBLOCKLIMIT);
 			m_pLSock->bConnect(m_cLogServerAddr, m_iLogServerPort, WM_USER_LOGSOCKETEVENT);
 			m_pLSock->bInitBufferSize(30000);
@@ -24178,7 +24456,6 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 			strcpy(m_cMsg, "00");
 			delete pMI;
 			return;
-
 		case 8:
 			ZeroMemory(cName, sizeof(cName));
 			ZeroMemory(cPassword, sizeof(cPassword));
@@ -24193,7 +24470,6 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 			ZeroMemory(cTempQuiz, sizeof(cTempQuiz));
 			ZeroMemory(cAnswer, sizeof(cAnswer));
 			break;
-
 		case 9:
 			ChangeGameMode(GAMEMODE_ONMAINMENU);
 			delete pMI;
@@ -24201,35 +24477,35 @@ void CGame::UpdateScreen_OnCreateNewAccount()
 		}
 	}
 
-	if ((msX >= 349) && (msX <= 387) && (msY >= 396) && (msY <= 406))  m_cCurFocus = 7;  //12
-	if ((msX >= 414) && (msX <= 446) && (msY >= 396) && (msY <= 406)) m_cCurFocus = 8;  //13
-	if ((msX >= 472) && (msX <= 528) && (msY >= 396) && (msY <= 406)) m_cCurFocus = 9; //14
-
-//	if (m_cGameModeCount < 6) m_DDraw.DrawShadowBox(0,0,639,479);
-//	if (m_cGameModeCount < 2) m_DDraw.DrawShadowBox(0,0,639,479);
-
 	if (m_DDraw.iFlip() == DDERR_SURFACELOST) RestoreSprites();
 }
 #endif //endif from #ifdef MAKE_ACCOUNT
 
 void CGame::UpdateScreen_OnLogin()
 {
- short msX, msY, msZ, sX, sY;
+ short msX, msY, msZ;
  char cLB, cRB, cMB;
  char cMIresult;
  int  iMIbuttonNum;
  static class CMouseInterface * pMI;
  static char  cPassword[12], cPrevFocus;
  static char cName[12];
-	sX = 146;
-	sY = 114;
+
+	// Layout constants
+	const int FLD_X = 260, FLD_W = 220, FLD_H = 18;
+	const int FLD_Y1 = 218, FLD_Y2 = 250;
+	const int INP_X = 265, INP_Y1 = 220, INP_Y2 = 252;
+	const int LBTN_X = 180, LBTN_W = 130, BTN_H = 28;
+	const int CBTN_X = 330, CBTN_W = 130;
+	const int BTN_Y = 310;
+
 	if (m_cGameModeCount == 0)
 	{	EndInputString();
 		pMI = new class CMouseInterface;
-		pMI->AddRect(80, 151, 337, 179);
-		pMI->AddRect(80, 180, 337, 205);
-		pMI->AddRect(80, 280, 163, 302);
-		pMI->AddRect(258, 280, 327, 302);
+		pMI->AddRect(FLD_X, FLD_Y1, FLD_X + FLD_W, FLD_Y1 + FLD_H);          // Account field
+		pMI->AddRect(FLD_X, FLD_Y2, FLD_X + FLD_W, FLD_Y2 + FLD_H);          // Password field
+		pMI->AddRect(LBTN_X, BTN_Y, LBTN_X + LBTN_W, BTN_Y + BTN_H);        // Login button
+		pMI->AddRect(CBTN_X, BTN_Y, CBTN_X + CBTN_W, BTN_Y + BTN_H);        // Cancel button
 		cPrevFocus  = 1;
 		m_cCurFocus = 1;
 		m_cMaxFocus = 4;
@@ -24237,110 +24513,32 @@ void CGame::UpdateScreen_OnLogin()
 		m_cArrowPressed = 0;
 		ZeroMemory(cName, sizeof(cName));
 		ZeroMemory(cPassword, sizeof(cPassword));
-		StartInputString(180, 162, 11, cName);
+		StartInputString(INP_X, INP_Y1, 11, cName);
 		ClearInputString();
 	}
 
 	m_cGameModeCount++;
 	if (m_cGameModeCount > 100) m_cGameModeCount = 100;
 
-	if (m_cArrowPressed != 0)
-	{	switch (m_cArrowPressed) {
-		case 1:
-			m_cCurFocus--;
-			if (m_cCurFocus <= 0) m_cCurFocus = m_cMaxFocus;
-			break;
-
-		case 2:
-			if (m_cCurFocus == 3) m_cCurFocus = 4;
-			else if (m_cCurFocus == 4) m_cCurFocus = 3;
-			break;
-
-		case 3:
-			m_cCurFocus++;
-			if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1;
-			break;
-
-		case 4:
-			if (m_cCurFocus == 3) m_cCurFocus = 4;
-			else if (m_cCurFocus == 4) m_cCurFocus = 3;
-			break;
+	if (m_cArrowPressed != 0) {
+		switch (m_cArrowPressed) {
+		case 1: m_cCurFocus--; if (m_cCurFocus <= 0) m_cCurFocus = m_cMaxFocus; break;
+		case 2: if (m_cCurFocus == 3) m_cCurFocus = 4; else if (m_cCurFocus == 4) m_cCurFocus = 3; break;
+		case 3: m_cCurFocus++; if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1; break;
+		case 4: if (m_cCurFocus == 3) m_cCurFocus = 4; else if (m_cCurFocus == 4) m_cCurFocus = 3; break;
 		}
 		m_cArrowPressed = 0;
 	}
 
-	if (m_bEnterPressed == TRUE)
-	{	m_bEnterPressed = FALSE;
+	if (m_bEnterPressed == TRUE) {
+		m_bEnterPressed = FALSE;
 		PlaySound('E', 14, 5);
-
 		switch (m_cCurFocus) {
 		case 1:
 			m_cCurFocus++;
-			if( m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1;
+			if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1;
 			break;
 		case 2:
-		case 3:
-			if ((strlen(cName) == 0) || (strlen(cPassword) == 0)) break;
-			ZeroMemory(m_cAccountName, sizeof(m_cAccountName));
-			ZeroMemory(m_cAccountPassword, sizeof(m_cAccountPassword));
-			strcpy(m_cAccountName, cName);
-			strcpy(m_cAccountPassword, cPassword);
-			m_pLSock = new class XSocket(m_hWnd, SOCKETBLOCKLIMIT);
-			m_pLSock->bConnect(m_cLogServerAddr, m_iLogServerPort +(rand()%1), WM_USER_LOGSOCKETEVENT);
-			m_pLSock->bInitBufferSize(30000);
-			ChangeGameMode(GAMEMODE_ONCONNECTING);
-			m_dwConnectMode = MSGID_REQUEST_LOGIN;
-			ZeroMemory(m_cMsg, sizeof(m_cMsg));
-			strcpy(m_cMsg, "11");
-			delete pMI;
-			return;
-		case 4:	// Cancel
-#ifdef SELECTSERVER
-			ChangeGameMode(GAMEMODE_ONSELECTSERVER);
-#else
-			ChangeGameMode(GAMEMODE_ONMAINMENU);
-#endif
-			delete pMI;
-			return;
-	}	}
-
-	if (m_bEscPressed == TRUE)
-	{	EndInputString();
-		ChangeGameMode(GAMEMODE_ONMAINMENU);
-		delete pMI;
-		m_bEscPressed = FALSE;
-		return;
-	}
-
-	if (cPrevFocus != m_cCurFocus)
-	{	EndInputString();
-		switch (m_cCurFocus) {
-		case 1:
-			StartInputString(180, 162, 11, cName);
-			break;
-		case 2:
-			StartInputString(180, 185, 11, cPassword, TRUE);
-			break;
-		case 3:
-		case 4:
-			break;
-		}
-		cPrevFocus = m_cCurFocus;
-	}
-
-	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
-	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
-	if (cMIresult == MIRESULT_CLICK)
-	{	PlaySound('E', 14, 5);
-		switch (iMIbuttonNum) {
-		case 1:
-			m_cCurFocus = 1;
-			break;
-
-		case 2:
-			m_cCurFocus = 2;
-			break;
-
 		case 3:
 			if ((strlen(cName) == 0) || (strlen(cPassword) == 0)) break;
 			EndInputString();
@@ -24349,7 +24547,7 @@ void CGame::UpdateScreen_OnLogin()
 			strcpy(m_cAccountName, cName);
 			strcpy(m_cAccountPassword, cPassword);
 			m_pLSock = new class XSocket(m_hWnd, SOCKETBLOCKLIMIT);
-			m_pLSock->bConnect(m_cLogServerAddr, m_iLogServerPort +(rand()%1), WM_USER_LOGSOCKETEVENT);
+			m_pLSock->bConnect(m_cLogServerAddr, m_iLogServerPort + (rand() % 1), WM_USER_LOGSOCKETEVENT);
 			m_pLSock->bInitBufferSize(30000);
 			ChangeGameMode(GAMEMODE_ONCONNECTING);
 			m_dwConnectMode = MSGID_REQUEST_LOGIN;
@@ -24357,19 +24555,73 @@ void CGame::UpdateScreen_OnLogin()
 			strcpy(m_cMsg, "11");
 			delete pMI;
 			return;
-
 		case 4:
 #ifdef SELECTSERVER
-			ChangeGameMode(GAMEMODE_ONSELECTSERVER); // ONMAINMENU
+			ChangeGameMode(GAMEMODE_ONSELECTSERVER);
 #else
 			ChangeGameMode(GAMEMODE_ONMAINMENU);
 #endif
 			delete pMI;
 			return;
-	}	}
+		}
+	}
 
-	if ((msX >= 80) && (msX <= 163) && (msY >= 280) && (msY <= 302)) m_cCurFocus = 3;
-	if ((msX >= 258) && (msX <= 327) && (msY >= 280) && (msY <= 302)) m_cCurFocus = 4;
+	if (m_bEscPressed == TRUE) {
+		EndInputString();
+		ChangeGameMode(GAMEMODE_ONMAINMENU);
+		delete pMI;
+		m_bEscPressed = FALSE;
+		return;
+	}
+
+	if (cPrevFocus != m_cCurFocus) {
+		EndInputString();
+		switch (m_cCurFocus) {
+		case 1: StartInputString(INP_X, INP_Y1, 11, cName); break;
+		case 2: StartInputString(INP_X, INP_Y2, 11, cPassword, TRUE); break;
+		case 3: case 4: break;
+		}
+		cPrevFocus = m_cCurFocus;
+	}
+
+	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
+
+	// Mouse hover on buttons
+	if (msX >= LBTN_X && msX <= LBTN_X + LBTN_W && msY >= BTN_Y && msY <= BTN_Y + BTN_H) m_cCurFocus = 3;
+	if (msX >= CBTN_X && msX <= CBTN_X + CBTN_W && msY >= BTN_Y && msY <= BTN_Y + BTN_H) m_cCurFocus = 4;
+
+	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
+	if (cMIresult == MIRESULT_CLICK) {
+		PlaySound('E', 14, 5);
+		switch (iMIbuttonNum) {
+		case 1: m_cCurFocus = 1; break;
+		case 2: m_cCurFocus = 2; break;
+		case 3:
+			if ((strlen(cName) == 0) || (strlen(cPassword) == 0)) break;
+			EndInputString();
+			ZeroMemory(m_cAccountName, sizeof(m_cAccountName));
+			ZeroMemory(m_cAccountPassword, sizeof(m_cAccountPassword));
+			strcpy(m_cAccountName, cName);
+			strcpy(m_cAccountPassword, cPassword);
+			m_pLSock = new class XSocket(m_hWnd, SOCKETBLOCKLIMIT);
+			m_pLSock->bConnect(m_cLogServerAddr, m_iLogServerPort + (rand() % 1), WM_USER_LOGSOCKETEVENT);
+			m_pLSock->bInitBufferSize(30000);
+			ChangeGameMode(GAMEMODE_ONCONNECTING);
+			m_dwConnectMode = MSGID_REQUEST_LOGIN;
+			ZeroMemory(m_cMsg, sizeof(m_cMsg));
+			strcpy(m_cMsg, "11");
+			delete pMI;
+			return;
+		case 4:
+#ifdef SELECTSERVER
+			ChangeGameMode(GAMEMODE_ONSELECTSERVER);
+#else
+			ChangeGameMode(GAMEMODE_ONMAINMENU);
+#endif
+			delete pMI;
+			return;
+		}
+	}
 
 	_Draw_OnLogin(cName, cPassword, msX, msY, m_cGameModeCount);
 	if (m_DDraw.iFlip() == DDERR_SURFACELOST) RestoreSprites();
@@ -24378,125 +24630,54 @@ void CGame::UpdateScreen_OnLogin()
 
 void CGame::UpdateScreen_OnSelectServer()
 {
- short msX, msY, msZ, sX, sY;
+ short msX, msY, msZ;
  char cLB, cRB, cMB;
  char cMIresult;
  int  iMIbuttonNum;
  static class CMouseInterface * pMI;
- static char  cPrevFocus;
  DWORD dwTime = timeGetTime();
- BOOL bFlag = TRUE;
 
-	sX = 146;
-	sY = 114;
+	const int BTN_X = 200, BTN_W = 240, BTN_H = 28, BTN_GAP = 10;
+	const int BTN_Y1 = 255, BTN_Y2 = 293, BTN_Y3 = 340;
+
 	if (m_cGameModeCount == 0) {
 		EndInputString();
-
 		pMI = new class CMouseInterface;
-		pMI->AddRect(130,177,270,198);
-		pMI->AddRect(130,199,270,225);
-		pMI->AddRect(256,279,331,308);
-
-		cPrevFocus  = 1;
+		pMI->AddRect(BTN_X, BTN_Y1, BTN_X + BTN_W, BTN_Y1 + BTN_H);
+		pMI->AddRect(BTN_X, BTN_Y2, BTN_X + BTN_W, BTN_Y2 + BTN_H);
+		pMI->AddRect(BTN_X, BTN_Y3, BTN_X + BTN_W, BTN_Y3 + BTN_H);
 		m_cCurFocus = 1;
 		m_cMaxFocus = 3;
-
 		m_bEnterPressed = FALSE;
 		m_cArrowPressed = 0;
 	}
 	m_cGameModeCount++;
 	if (m_cGameModeCount > 100) m_cGameModeCount = 100;
 
-	if (m_cArrowPressed != 0)
-	{	switch (m_cArrowPressed) {
-		case 1:
-			m_cCurFocus--;
-			if (m_cCurFocus <= 0) m_cCurFocus = m_cMaxFocus;
-			break;
-
-		case 3:
-			m_cCurFocus++;
-			if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1;
-			break;
+	if (m_cArrowPressed != 0) {
+		switch (m_cArrowPressed) {
+		case 1: m_cCurFocus--; if (m_cCurFocus <= 0) m_cCurFocus = m_cMaxFocus; break;
+		case 3: m_cCurFocus++; if (m_cCurFocus > m_cMaxFocus) m_cCurFocus = 1; break;
 		}
 		m_cArrowPressed = 0;
 	}
 
-	if (m_bEnterPressed == TRUE)
-	{	m_bEnterPressed = FALSE;
+	if (m_bEnterPressed == TRUE) {
+		m_bEnterPressed = FALSE;
 		PlaySound('E', 14, 5);
 		switch (m_cCurFocus) {
 		case 1:
-			if (strlen(m_cWorldServerName) ==0)
 			ZeroMemory(m_cWorldServerName, sizeof(m_cWorldServerName));
 			strcpy(m_cWorldServerName, NAME_WORLDNAME1);
 			ChangeGameMode(GAMEMODE_ONLOGIN);
 			delete pMI;
 			return;
-
 		case 2:
 			ZeroMemory(m_cWorldServerName, sizeof(m_cWorldServerName));
 			strcpy(m_cWorldServerName, "WS2");
 			ChangeGameMode(GAMEMODE_ONLOGIN);
 			delete pMI;
 			return;
-
-		case 3:	// Cancel
-			ChangeGameMode(GAMEMODE_ONMAINMENU);
-			delete pMI;
-			return;
-	}	}
-
-	if (m_bEscPressed == TRUE)
-	{	ChangeGameMode(GAMEMODE_ONMAINMENU);
-		delete pMI;
-		m_bEscPressed = FALSE;
-		return;
-	}
-	if (cPrevFocus != m_cCurFocus)
-	{	cPrevFocus = m_cCurFocus;
-	}
-	m_DDraw.ClearBackB4();
-	DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 0,0,0, TRUE);
-	if (m_cGameModeCount > 20) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 40,121,1, TRUE);
-	else if ((m_cGameModeCount >= 15) && (m_cGameModeCount <= 20)) m_pSprite[SPRID_INTERFACE_ND_LOGIN]->PutTransSprite25(40,121,1, TRUE);
-
-	if (m_cGameModeCount > 20)
-	{	if (m_cCurFocus == 1) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 138, 177, 5, TRUE);
-		if (m_cCurFocus == 2) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 130, 205, 6, TRUE);
-		if (m_cCurFocus == 3) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 256, 282, 4, TRUE);
-	}
-	DrawVersion();
-	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
-	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
-
-	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
-	if (cMIresult == MIRESULT_CLICK) {
-		PlaySound('E', 14, 5);
-
-		switch (iMIbuttonNum) {
-		case 1:
-			if (m_cCurFocus == 1) {
-				ZeroMemory(m_cWorldServerName, sizeof(m_cWorldServerName));
-				strcpy(m_cWorldServerName, NAME_WORLDNAME1);
-				ChangeGameMode(GAMEMODE_ONLOGIN);
-				delete pMI;
-				return;
-			}
-			else m_cCurFocus = 1;
-			break;
-
-		case 2:
-			if (m_cCurFocus == 2) {
-				ZeroMemory(m_cWorldServerName, sizeof(m_cWorldServerName));
-				strcpy(m_cWorldServerName, "WS2");
-				ChangeGameMode(GAMEMODE_ONLOGIN);
-				delete pMI;
-				return;
-			}
-			else m_cCurFocus = 2;
-			break;
-
 		case 3:
 			ChangeGameMode(GAMEMODE_ONMAINMENU);
 			delete pMI;
@@ -24504,12 +24685,56 @@ void CGame::UpdateScreen_OnSelectServer()
 		}
 	}
 
-	if ((msX >= 130) && (msX <= 295) && (msY >= 175) && (msY <= 198)) m_cCurFocus = 1;
-	if ((msX >= 130) && (msX <= 295) && (msY >= 199) && (msY <= 225)) m_cCurFocus = 2;
-	if ((msX >= 256) && (msX <= 331) && (msY >= 279) && (msY <= 308)) m_cCurFocus = 3;
+	if (m_bEscPressed == TRUE) {
+		ChangeGameMode(GAMEMODE_ONMAINMENU);
+		delete pMI;
+		m_bEscPressed = FALSE;
+		return;
+	}
 
-//	if (m_cGameModeCount < 6) m_DDraw.DrawShadowBox(0,0,639,479);
-//	if (m_cGameModeCount < 2) m_DDraw.DrawShadowBox(0,0,639,479);
+	m_DDraw.ClearBackB4();
+	DrawMenuBackground();
+	DrawFormPanel(180, 210, 280, 175);
+	PutString2(270, 222, (char*)"Select Server", 255, 230, 150);
+
+	DrawStyledButton(BTN_X, BTN_Y1, BTN_W, BTN_H, NAME_WORLDNAME1, m_cCurFocus == 1);
+	DrawStyledButton(BTN_X, BTN_Y2, BTN_W, BTN_H, "WS2", m_cCurFocus == 2);
+	DrawStyledButton(BTN_X, BTN_Y3, BTN_W, BTN_H, "Cancel", m_cCurFocus == 3);
+
+	DrawVersion();
+	m_DInput.UpdateMouseState(&msX, &msY, &msZ, &cLB, &cRB, &cMB);
+	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
+
+	// Mouse hover
+	struct { int y; } btns[3] = { {BTN_Y1}, {BTN_Y2}, {BTN_Y3} };
+	for (int i = 0; i < 3; i++) {
+		if (msX >= BTN_X && msX <= BTN_X + BTN_W &&
+			msY >= btns[i].y && msY <= btns[i].y + BTN_H)
+			m_cCurFocus = i + 1;
+	}
+
+	iMIbuttonNum = pMI->iGetStatus(msX, msY, cLB, &cMIresult);
+	if (cMIresult == MIRESULT_CLICK) {
+		PlaySound('E', 14, 5);
+		switch (iMIbuttonNum) {
+		case 1:
+			ZeroMemory(m_cWorldServerName, sizeof(m_cWorldServerName));
+			strcpy(m_cWorldServerName, NAME_WORLDNAME1);
+			ChangeGameMode(GAMEMODE_ONLOGIN);
+			delete pMI;
+			return;
+		case 2:
+			ZeroMemory(m_cWorldServerName, sizeof(m_cWorldServerName));
+			strcpy(m_cWorldServerName, "WS2");
+			ChangeGameMode(GAMEMODE_ONLOGIN);
+			delete pMI;
+			return;
+		case 3:
+			ChangeGameMode(GAMEMODE_ONMAINMENU);
+			delete pMI;
+			return;
+		}
+	}
 
 	if (m_DDraw.iFlip() == DDERR_SURFACELOST) RestoreSprites();
 }
@@ -24826,6 +25051,19 @@ void CGame::OnKeyUp(WPARAM wParam)
 		if (m_bIsDialogEnabled[10] == FALSE)
 			EnableDialogBox(10, NULL, NULL, NULL);
 		else DisableDialogBox(10);
+		break;
+
+	case VK_PAUSE:
+		if (GetKeyState(VK_MENU) & 0x8000) {
+			g_bDisableEquipment = !g_bDisableEquipment;
+			AddEventList(g_bDisableEquipment ? "Equipment DISABLED - body only (debug)" : "Equipment ENABLED", 10);
+		} else if (GetKeyState(VK_SHIFT) & 0x8000) {
+			g_bDisableShadows = !g_bDisableShadows;
+			AddEventList(g_bDisableShadows ? "Shadows DISABLED (debug)" : "Shadows ENABLED", 10);
+		} else {
+			g_bSpriteDiagDump = TRUE;
+			AddEventList("Sprite diagnostic dump triggered - check sprite_debug.txt", 10);
+		}
 		break;
 
 	case VK_F11:
@@ -25682,7 +25920,7 @@ void CGame::UpdateScreen_OnLogResMsg()
 		UpdateScreen_OnSelectCharacter(0, 0, 0, 0, TRUE);
 		break;
 	case '8':
-		DrawNewDialogBox(SPRID_INTERFACE_ND_MAINMENU, -1, -1, 0, TRUE);
+		DrawMenuBackground();
 		break;
 	}
 
@@ -35717,45 +35955,58 @@ void CGame::_Draw_OnLogin(char *pAccount, char *pPassword, int msX, int msY, int
  BOOL bFlag = TRUE;
  DWORD dwTime = timeGetTime();
 
-    m_DDraw.ClearBackB4();
+	const int FLD_X = 260, FLD_W = 220, FLD_H = 18;
+	const int FLD_Y1 = 218, FLD_Y2 = 250;
+	const int INP_X = 265, INP_Y1 = 220, INP_Y2 = 252;
+	const int LBTN_X = 180, LBTN_W = 130, BTN_H = 28;
+	const int CBTN_X = 330, CBTN_W = 130;
+	const int BTN_Y = 310;
 
-	DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 0,0,0, TRUE);
-	DrawVersion();
+	m_DDraw.ClearBackB4();
+	DrawMenuBackground();
+	DrawFormPanel(140, 195, 360, 155);
 
-	if ((iFrame >= 15) && (iFrame <= 20)) m_pSprite[SPRID_INTERFACE_ND_LOGIN]->PutTransSprite25(39,121, 2, TRUE);
-	else if (iFrame > 20) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 39,121, 2, TRUE);
+	// Labels
+	PutString2(165, INP_Y1, (char*)"Account", 210, 180, 100);
+	PutString2(165, INP_Y2, (char*)"Password", 210, 180, 100);
 
+	// Input fields
+	DrawInputField(FLD_X, FLD_Y1, FLD_W, FLD_H, m_cCurFocus == 1);
+	DrawInputField(FLD_X, FLD_Y2, FLD_W, FLD_H, m_cCurFocus == 2);
+
+	// Account text (when not editing)
 	if (m_cCurFocus != 1) {
 		if (m_Misc.bCheckValidName(pAccount) != FALSE)
-			 PutString2(180, 162, pAccount, 200,200,200);
-		else PutString2(180, 162, pAccount, 200,100,100);
+			PutString2(INP_X, INP_Y1, pAccount, 200, 200, 200);
+		else PutString2(INP_X, INP_Y1, pAccount, 200, 100, 100);
 	}
 	if ((m_Misc.bCheckValidName(pAccount) == FALSE) || (strlen(pAccount) == 0)) bFlag = FALSE;
 
+	// Password text (masked, when not editing)
 	if (m_cCurFocus != 2) {
 		char cMasked[12];
 		int iPwLen = strlen(pPassword);
 		if (iPwLen > 11) iPwLen = 11;
 		memset(cMasked, '*', iPwLen);
 		cMasked[iPwLen] = 0;
-		if ((m_Misc.bCheckValidString(pPassword) != FALSE))
-			 PutString(180, 185, cMasked, RGB(200,200,200), TRUE, 1);
-		else PutString(180, 185, cMasked, RGB(200,100,100), TRUE, 1);
+		if (m_Misc.bCheckValidString(pPassword) != FALSE)
+			PutString(INP_X, INP_Y2, cMasked, RGB(200, 200, 200), TRUE, 1);
+		else PutString(INP_X, INP_Y2, cMasked, RGB(200, 100, 100), TRUE, 1);
 	}
 	if ((m_Misc.bCheckValidString(pPassword) == FALSE) || (strlen(pPassword) == 0)) bFlag = FALSE;
 
-	if (m_cCurFocus == 1)
-		ShowReceivedString();
-	else if (m_cCurFocus == 2)
-		ShowReceivedString(TRUE);
+	// Input cursor
+	if (m_cCurFocus == 1) ShowReceivedString();
+	else if (m_cCurFocus == 2) ShowReceivedString(TRUE);
 
-	if (bFlag == TRUE)
-	{	if (m_cCurFocus == 3) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 80,282, 3, TRUE);
-	}
-	if (m_cCurFocus == 4) DrawNewDialogBox(SPRID_INTERFACE_ND_LOGIN, 256,282,4, TRUE);
-	if ((m_bIsHideLocalCursor != TRUE) && (msX != 0) && (msY != 0)) {
-	m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
-	}
+	// Buttons
+	DrawStyledButton(LBTN_X, BTN_Y, LBTN_W, BTN_H, "Login", m_cCurFocus == 3 && bFlag);
+	DrawStyledButton(CBTN_X, BTN_Y, CBTN_W, BTN_H, "Cancel", m_cCurFocus == 4);
+
+	DrawVersion();
+
+	if ((m_bIsHideLocalCursor != TRUE) && (msX != 0) && (msY != 0))
+		m_pSprite[SPRID_MOUSECURSOR]->PutSpriteFast(msX, msY, 0, dwTime);
 }
 
 void CGame::ShowEventList(DWORD dwTime)
@@ -39609,24 +39860,43 @@ void CGame::RestoreOriginalEquipment()
 void CGame::ClearEquipmentSet(int setIndex)
 {
 	if (setIndex < 0 || setIndex >= MAXEQUIPSETS) return;
-	m_stEquipSets[setIndex].bIsConfigured = false;
+	// Un-hide all inventory items that were claimed by this set
+	stEquipmentSet *pSet = &m_stEquipSets[setIndex];
 	for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
-		ZeroMemory(m_stEquipSets[setIndex].cItemName[sl], 21);
-		m_stEquipSets[setIndex].cEquipPos[sl] = 0;
-		m_stEquipSets[setIndex].sItemSprite[sl] = 0;
-		m_stEquipSets[setIndex].sItemSpriteFrame[sl] = 0;
-		m_stEquipSets[setIndex].cItemColor[sl] = 0;
+		if (pSet->cEquipPos[sl] == 0 || strlen(pSet->cItemName[sl]) == 0) continue;
+		for (int i = 0; i < MAXITEMS; i++) {
+			if (m_pItemList[i] == NULL) continue;
+			if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[sl], 20) == 0 &&
+				m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[sl]) {
+				m_bHeldBySetSwap[i] = false;
+				break;
+			}
+		}
+	}
+	pSet->bIsConfigured = false;
+	for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+		ZeroMemory(pSet->cItemName[sl], 21);
+		pSet->cEquipPos[sl] = 0;
+		pSet->sItemSprite[sl] = 0;
+		pSet->sItemSpriteFrame[sl] = 0;
+		pSet->cItemColor[sl] = 0;
 	}
 	char cMsg[64];
 	wsprintf(cMsg, "Equipment Set %d cleared.", setIndex + 1);
 	AddEventList(cMsg, 10);
 	SaveEquipSetsToFile();
+	UpdateItemSetVisibility();
 }
 
 void CGame::SaveEquipSetsToFile()
 {
+	char cFileName[64];
+	if (strlen(m_cPlayerName) > 0)
+		wsprintf(cFileName, "equipsets_%s.cfg", m_cPlayerName);
+	else
+		strcpy(cFileName, "equipsets.cfg");
 	FILE *fp;
-	fp = fopen("equipsets.cfg", "wt");
+	fp = fopen(cFileName, "wt");
 	if (fp == NULL) return;
 
 	for (int s = 0; s < MAXEQUIPSETS; s++) {
@@ -39646,8 +39916,13 @@ void CGame::SaveEquipSetsToFile()
 
 void CGame::LoadEquipSetsFromFile()
 {
+	char cFileName[64];
+	if (strlen(m_cPlayerName) > 0)
+		wsprintf(cFileName, "equipsets_%s.cfg", m_cPlayerName);
+	else
+		strcpy(cFileName, "equipsets.cfg");
 	FILE *fp;
-	fp = fopen("equipsets.cfg", "rt");
+	fp = fopen(cFileName, "rt");
 	if (fp == NULL) return;
 
 	char cLine[256];
@@ -39855,6 +40130,70 @@ void CGame::DrawDialogBox_EquipSet(int msX, int msY)
 	PutAlignedString(sX + 82, sX + 145, btnY, (char *)"Clear", bClrHover ? 255 : 180, bClrHover ? 100 : 100, bClrHover ? 100 : 100);
 }
 
+void CGame::RemoveItemFromEquipSet(int setIndex, int slot)
+{
+	if (setIndex < 0 || setIndex >= MAXEQUIPSETS) return;
+	stEquipmentSet *pSet = &m_stEquipSets[setIndex];
+	if (slot < 0 || slot >= EQUIPSET_SLOTS) return;
+	if (pSet->cEquipPos[slot] == 0 || strlen(pSet->cItemName[slot]) == 0) return;
+
+	char cMsg[64];
+	wsprintf(cMsg, "Removed %s from Set %d", pSet->cItemName[slot], setIndex + 1);
+
+	// Un-hide the inventory item that was in this slot
+	for (int i = 0; i < MAXITEMS; i++) {
+		if (m_pItemList[i] == NULL) continue;
+		if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[slot], 20) == 0 &&
+			m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[slot]) {
+			m_bHeldBySetSwap[i] = false;
+			break;
+		}
+	}
+
+	ZeroMemory(pSet->cItemName[slot], 21);
+	pSet->cEquipPos[slot] = 0;
+	pSet->sItemSprite[slot] = 0;
+	pSet->sItemSpriteFrame[slot] = 0;
+	pSet->cItemColor[slot] = 0;
+
+	// Check if set is still configured
+	pSet->bIsConfigured = false;
+	for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
+		if (pSet->cEquipPos[sl] != 0) { pSet->bIsConfigured = true; break; }
+	}
+
+	AddEventList(cMsg, 10);
+	SaveEquipSetsToFile();
+	UpdateItemSetVisibility();
+	PlaySound('E', 14, 5);
+}
+
+// Find the actual slot for a click on the shared RHAND/TWOHAND or BODY/FULLBODY area
+static int FindFilledSlotAtPosition(CGame::stEquipmentSet *pSet, int ep)
+{
+	int slot = ep - 1;
+	if (pSet->cEquipPos[slot] != 0 && strlen(pSet->cItemName[slot]) > 0) return slot;
+
+	// Check shared counterpart
+	if (ep == EQUIPPOS_RHAND) {
+		int thSlot = EQUIPPOS_TWOHAND - 1;
+		if (pSet->cEquipPos[thSlot] != 0 && strlen(pSet->cItemName[thSlot]) > 0) return thSlot;
+	}
+	else if (ep == EQUIPPOS_TWOHAND) {
+		int rhSlot = EQUIPPOS_RHAND - 1;
+		if (pSet->cEquipPos[rhSlot] != 0 && strlen(pSet->cItemName[rhSlot]) > 0) return rhSlot;
+	}
+	else if (ep == EQUIPPOS_BODY) {
+		int fbSlot = EQUIPPOS_FULLBODY - 1;
+		if (pSet->cEquipPos[fbSlot] != 0 && strlen(pSet->cItemName[fbSlot]) > 0) return fbSlot;
+	}
+	else if (ep == EQUIPPOS_FULLBODY) {
+		int bodySlot = EQUIPPOS_BODY - 1;
+		if (pSet->cEquipPos[bodySlot] != 0 && strlen(pSet->cItemName[bodySlot]) > 0) return bodySlot;
+	}
+	return -1;
+}
+
 void CGame::DlgBoxClick_EquipSet(short msX, short msY)
 {
 	short sX = m_stDialogBoxInfo[56].sX;
@@ -39865,32 +40204,26 @@ void CGame::DlgBoxClick_EquipSet(short msX, short msY)
 	int colX[3] = { sX + 14, sX + 63, sX + 112 };
 	int rowY[5] = { sY + 28, sY + 60, sY + 92, sY + 124, sY + 156 };
 
-	// Check clicks on equipment slot boxes — clicking a filled slot removes it
+	// Check clicks on equipment slot boxes
 	for (int ep = 1; ep <= 13; ep++) {
 		int c = s_EquipSlotGrid[ep].col;
 		int r = s_EquipSlotGrid[ep].row;
 		if (c < 0) continue;
 
+		// Skip shared duplicates (TWOHAND after RHAND, FULLBODY after BODY)
+		if (ep == EQUIPPOS_TWOHAND || ep == EQUIPPOS_FULLBODY) continue;
+
 		int bx = colX[c];
 		int by = rowY[r];
 		if (msX >= bx && msX <= bx + slotW && msY >= by && msY <= by + slotH) {
-			int slot = ep - 1;
-			if (pSet->cEquipPos[slot] != 0 && strlen(pSet->cItemName[slot]) > 0) {
-				char cMsg[64];
-				wsprintf(cMsg, "Removed %s from Set %d", pSet->cItemName[slot], m_iEquipSetTab + 1);
-				ZeroMemory(pSet->cItemName[slot], 21);
-				pSet->cEquipPos[slot] = 0;
-				pSet->sItemSprite[slot] = 0;
-				pSet->sItemSpriteFrame[slot] = 0;
-				pSet->cItemColor[slot] = 0;
-				// Check if set is still configured
-				pSet->bIsConfigured = false;
-				for (int sl = 0; sl < EQUIPSET_SLOTS; sl++) {
-					if (pSet->cEquipPos[sl] != 0) { pSet->bIsConfigured = true; break; }
-				}
-				AddEventList(cMsg, 10);
-				SaveEquipSetsToFile();
-				PlaySound('E', 14, 5);
+			int slot = FindFilledSlotAtPosition(pSet, ep);
+			if (slot >= 0) {
+				RemoveItemFromEquipSet(m_iEquipSetTab, slot);
+				// Clear cursor item so _bCheckDraggingItemRelease won't re-add it
+				m_stMCursor.cSelectedObjectType = NULL;
+				m_stMCursor.sSelectedObjectID = NULL;
+				m_iSetDragSourceSet = -1;
+				m_iSetDragSourceSlot = -1;
 			}
 			return;
 		}
@@ -39913,8 +40246,60 @@ void CGame::DlgBoxClick_EquipSet(short msX, short msY)
 	}
 }
 
+BOOL CGame::bDlgBoxPress_EquipSet(short msX, short msY)
+{
+	if (m_iEquipSetTab < 0 || m_iEquipSetTab >= MAXEQUIPSETS) return FALSE;
+	stEquipmentSet *pSet = &m_stEquipSets[m_iEquipSetTab];
+
+	short sX = m_stDialogBoxInfo[56].sX;
+	short sY = m_stDialogBoxInfo[56].sY;
+	int slotW = 28, slotH = 28;
+	int colX[3] = { sX + 14, sX + 63, sX + 112 };
+	int rowY[5] = { sY + 28, sY + 60, sY + 92, sY + 124, sY + 156 };
+
+	for (int ep = 1; ep <= 13; ep++) {
+		int c = s_EquipSlotGrid[ep].col;
+		int r = s_EquipSlotGrid[ep].row;
+		if (c < 0) continue;
+		if (ep == EQUIPPOS_TWOHAND || ep == EQUIPPOS_FULLBODY) continue;
+
+		int bx = colX[c];
+		int by = rowY[r];
+		if (msX >= bx && msX <= bx + slotW && msY >= by && msY <= by + slotH) {
+			int slot = FindFilledSlotAtPosition(pSet, ep);
+			if (slot < 0) return FALSE;
+
+			// Find the matching inventory item
+			for (int i = 0; i < MAXITEMS; i++) {
+				if (m_pItemList[i] == NULL) continue;
+				if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[slot], 20) == 0 &&
+					m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[slot]) {
+					// Pick up item on cursor
+					m_stMCursor.cSelectedObjectType = SELECTEDOBJTYPE_ITEM;
+					m_stMCursor.sSelectedObjectID = i;
+					m_stMCursor.sDistX = 0;
+					m_stMCursor.sDistY = 0;
+					// Track source so we can remove from set on successful drop
+					m_iSetDragSourceSet = m_iEquipSetTab;
+					m_iSetDragSourceSlot = slot;
+					return TRUE;
+				}
+			}
+			return FALSE;
+		}
+	}
+	return FALSE;
+}
+
 void CGame::bItemDrop_EquipSet(short msX, short msY)
 {
+	// If dropping an item back onto the set panel that it was dragged FROM, cancel the drag
+	if (m_iSetDragSourceSet >= 0 && m_iSetDragSourceSlot >= 0) {
+		m_iSetDragSourceSet = -1;
+		m_iSetDragSourceSlot = -1;
+		return;
+	}
+
 	if (m_iEquipSetTab < 0 || m_iEquipSetTab >= MAXEQUIPSETS) return;
 	int itemIdx = m_stMCursor.sSelectedObjectID;
 	if (itemIdx < 0 || itemIdx >= MAXITEMS || m_pItemList[itemIdx] == NULL) return;
@@ -39946,50 +40331,46 @@ void CGame::bItemDrop_EquipSet(short msX, short msY)
 	pSet->cItemColor[slot] = m_pItemList[itemIdx]->m_cItemColor;
 	pSet->bIsConfigured = true;
 
+	// Helper: clear a set slot and un-hide any inventory item that was in it
+	auto ClearConflictSlot = [&](int clearSlot) {
+		if (clearSlot < 0 || clearSlot >= EQUIPSET_SLOTS) return;
+		if (pSet->cEquipPos[clearSlot] == 0) return;
+		// Find inventory items matching the displaced slot and clear hidden flags
+		for (int i = 0; i < MAXITEMS; i++) {
+			if (m_pItemList[i] == NULL) continue;
+			if (memcmp(m_pItemList[i]->m_cName, pSet->cItemName[clearSlot], 20) == 0 &&
+				m_pItemList[i]->m_cEquipPos == pSet->cEquipPos[clearSlot]) {
+				m_bHeldBySetSwap[i] = false;
+				break;
+			}
+		}
+		ZeroMemory(pSet->cItemName[clearSlot], 21);
+		pSet->cEquipPos[clearSlot] = 0;
+		pSet->sItemSprite[clearSlot] = 0;
+		pSet->sItemSpriteFrame[clearSlot] = 0;
+		pSet->cItemColor[clearSlot] = 0;
+	};
+
 	// If TWOHAND, clear RHAND and LHAND individual slots
 	if (cEquipPos == EQUIPPOS_TWOHAND) {
-		int rhSlot = EQUIPPOS_RHAND - 1;
-		int lhSlot = EQUIPPOS_LHAND - 1;
-		ZeroMemory(pSet->cItemName[rhSlot], 21);
-		pSet->cEquipPos[rhSlot] = 0;
-		pSet->sItemSprite[rhSlot] = 0;
-		pSet->sItemSpriteFrame[rhSlot] = 0;
-		pSet->cItemColor[rhSlot] = 0;
-		ZeroMemory(pSet->cItemName[lhSlot], 21);
-		pSet->cEquipPos[lhSlot] = 0;
-		pSet->sItemSprite[lhSlot] = 0;
-		pSet->sItemSpriteFrame[lhSlot] = 0;
-		pSet->cItemColor[lhSlot] = 0;
+		ClearConflictSlot(EQUIPPOS_RHAND - 1);
+		ClearConflictSlot(EQUIPPOS_LHAND - 1);
 	}
 	// If equipping RHAND or LHAND, clear TWOHAND slot
 	if (cEquipPos == EQUIPPOS_RHAND || cEquipPos == EQUIPPOS_LHAND) {
-		int thSlot = EQUIPPOS_TWOHAND - 1;
-		ZeroMemory(pSet->cItemName[thSlot], 21);
-		pSet->cEquipPos[thSlot] = 0;
-		pSet->sItemSprite[thSlot] = 0;
-		pSet->sItemSpriteFrame[thSlot] = 0;
-		pSet->cItemColor[thSlot] = 0;
+		ClearConflictSlot(EQUIPPOS_TWOHAND - 1);
 	}
 	// If FULLBODY, clear BODY slot
 	if (cEquipPos == EQUIPPOS_FULLBODY) {
-		int bodySlot = EQUIPPOS_BODY - 1;
-		ZeroMemory(pSet->cItemName[bodySlot], 21);
-		pSet->cEquipPos[bodySlot] = 0;
-		pSet->sItemSprite[bodySlot] = 0;
-		pSet->sItemSpriteFrame[bodySlot] = 0;
-		pSet->cItemColor[bodySlot] = 0;
+		ClearConflictSlot(EQUIPPOS_BODY - 1);
 	}
 	// If BODY, clear FULLBODY slot
 	if (cEquipPos == EQUIPPOS_BODY) {
-		int fbSlot = EQUIPPOS_FULLBODY - 1;
-		ZeroMemory(pSet->cItemName[fbSlot], 21);
-		pSet->cEquipPos[fbSlot] = 0;
-		pSet->sItemSprite[fbSlot] = 0;
-		pSet->sItemSpriteFrame[fbSlot] = 0;
-		pSet->cItemColor[fbSlot] = 0;
+		ClearConflictSlot(EQUIPPOS_FULLBODY - 1);
 	}
 
 	SaveEquipSetsToFile();
+	UpdateItemSetVisibility();
 
 	char cMsg[64];
 	wsprintf(cMsg, "Saved %s to Set %d", m_pItemList[itemIdx]->m_cName, m_iEquipSetTab + 1);

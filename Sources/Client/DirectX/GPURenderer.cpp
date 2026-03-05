@@ -673,6 +673,65 @@ void CGPURenderer::QueueSprite(GLuint textureID, int dstX, int dstY,
     m_drawCmds.push_back(cmd);
 }
 
+void CGPURenderer::QueueSpriteStretched(GLuint textureID,
+                                         int dstX, int dstY, int dstW, int dstH,
+                                         int srcX, int srcY, int srcW, int srcH,
+                                         int texWidth, int texHeight,
+                                         GPUBlendMode blendMode, float alpha)
+{
+    if (!m_bInitialized) return;
+
+    // Flush if state changed
+    if (!m_drawCmds.empty()) {
+        const SpriteDrawCmd& last = m_drawCmds.back();
+        if (last.textureID != textureID ||
+            last.blendMode != blendMode ||
+            last.alpha != alpha ||
+            m_vertices.size() >= MAX_SPRITES_PER_BATCH * VERTICES_PER_SPRITE) {
+            Flush();
+        }
+    }
+
+    // UV coordinates from source rect in texture space
+    float u0 = (float)srcX / (float)texWidth;
+    float v0 = (float)srcY / (float)texHeight;
+    float u1 = (float)(srcX + srcW) / (float)texWidth;
+    float v1 = (float)(srcY + srcH) / (float)texHeight;
+
+    // Destination quad in virtual coordinates (independent of source size)
+    float x0 = (float)dstX;
+    float y0 = (float)dstY;
+    float x1 = (float)(dstX + dstW);
+    float y1 = (float)(dstY + dstH);
+
+    GLuint baseIndex = (GLuint)m_vertices.size();
+    SpriteVertex v;
+    v.r = 1.0f; v.g = 1.0f; v.b = 1.0f; v.a = 1.0f;
+
+    v.x = x0; v.y = y0; v.u = u0; v.v = v0; m_vertices.push_back(v);
+    v.x = x1; v.y = y0; v.u = u1; v.v = v0; m_vertices.push_back(v);
+    v.x = x1; v.y = y1; v.u = u1; v.v = v1; m_vertices.push_back(v);
+    v.x = x0; v.y = y1; v.u = u0; v.v = v1; m_vertices.push_back(v);
+
+    m_indices.push_back(baseIndex + 0);
+    m_indices.push_back(baseIndex + 1);
+    m_indices.push_back(baseIndex + 2);
+    m_indices.push_back(baseIndex + 0);
+    m_indices.push_back(baseIndex + 2);
+    m_indices.push_back(baseIndex + 3);
+
+    SpriteDrawCmd cmd;
+    cmd.textureID = textureID;
+    cmd.dstX = dstX; cmd.dstY = dstY;
+    cmd.srcX = srcX; cmd.srcY = srcY;
+    cmd.width = dstW; cmd.height = dstH;
+    cmd.texWidth = texWidth; cmd.texHeight = texHeight;
+    cmd.blendMode = blendMode;
+    cmd.alpha = alpha;
+    cmd.colorR = 0.0f; cmd.colorG = 0.0f; cmd.colorB = 0.0f;
+    m_drawCmds.push_back(cmd);
+}
+
 void CGPURenderer::Flush()
 {
     if (m_vertices.empty() || !m_bInitialized) return;
@@ -890,9 +949,44 @@ GLuint CGPURenderer::CreateTexture(const uint8_t* rgbaData, int width, int heigh
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, rgbaData);
 
+    // Check for GPU texture upload errors
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        char buf[256];
+        sprintf(buf, "[GPU ERROR] glTexImage2D failed: 0x%X for %dx%d texture (ID=%u)\n",
+                err, width, height, textureID);
+        OutputDebugStringA(buf);
+    }
+
     // Nearest-neighbor filtering for pixel art
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    return textureID;
+}
+
+GLuint CGPURenderer::CreateTextureLinear(const uint8_t* rgbaData, int width, int height)
+{
+    GLuint textureID;
+    glGenTextures(1, &textureID);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, rgbaData);
+
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        char buf[256];
+        sprintf(buf, "[GPU ERROR] glTexImage2D failed: 0x%X for %dx%d texture (ID=%u)\n",
+                err, width, height, textureID);
+        OutputDebugStringA(buf);
+    }
+
+    // Bilinear filtering for photographic/painted images
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
@@ -904,6 +998,46 @@ void CGPURenderer::DeleteTexture(GLuint textureID)
     if (textureID != 0) {
         glDeleteTextures(1, &textureID);
     }
+}
+
+bool CGPURenderer::DiagnoseTexture(GLuint textureID, int width, int height, TextureDiagnostic& diag)
+{
+    memset(&diag, 0, sizeof(diag));
+    diag.totalPixels = width * height;
+    diag.readbackOK = false;
+    if (textureID == 0 || width <= 0 || height <= 0) return false;
+
+    uint8_t* pixels = new (std::nothrow) uint8_t[width * height * 4];
+    if (!pixels) return false;
+
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        delete[] pixels;
+        return false;
+    }
+
+    diag.readbackOK = true;
+    bool foundColored = false;
+    for (int i = 0; i < width * height; i++) {
+        uint8_t r = pixels[i*4+0], g = pixels[i*4+1], b = pixels[i*4+2], a = pixels[i*4+3];
+        if (a < 13) {
+            diag.transparentPixels++;
+        } else if (r == 0 && g == 0 && b == 0) {
+            diag.blackOpaquePixels++;
+        } else {
+            diag.coloredOpaquePixels++;
+            if (!foundColored) {
+                diag.firstColorR = r; diag.firstColorG = g;
+                diag.firstColorB = b; diag.firstColorA = a;
+                foundColored = true;
+            }
+        }
+    }
+
+    delete[] pixels;
+    return true;
 }
 
 void CGPURenderer::SetNativeResolution(int width, int height)
