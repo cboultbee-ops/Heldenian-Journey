@@ -92,7 +92,7 @@
 #define TEXTDLGMAXLINES		300 //v2.18 3000->300
 
 #define MAXMAGICTYPE		100
-#define MAXSKILLTYPE		10
+#define MAXSKILLTYPE		17
 #define MAXEQUIPSETS		3
 #define EQUIPSET_SLOTS		14  // matches MAXITEMEQUIPPOS minus NONE
 #define MAXWHETHEROBJECTS	600
@@ -889,6 +889,7 @@ public:
 	bool ActivateSpecialAbility(int iAbilityIndex);
 	void SendSpecialAbilityActivation(int iAbilityIndex);
 	void ApplySpeedBuff(bool bActivate);
+	void ApplySpeedSettings();
 
 	// Speed buff (client-side animation override)
 	bool  m_bSpeedBuffActive;

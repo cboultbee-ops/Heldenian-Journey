@@ -11,19 +11,19 @@ Item  = DilutionPotion     3     0     9     23 20 0 0 0 0    0      0      6   
 Item  = Baguette           7     0     7     1 6 0  0 0 0     0      0      6    8       5       17    -1     0   0 
 Item  = Meat               7     0     7     1 8 0  0 0 0     0      0      6    7       10      52    -1     0   0
 
-Item  = FishingManual      3     0     9     1  20 0 0 0 0    0      0      6    9       100     1     -1     0   0
+Item  = FishingManual      3     0     9     12 20 0 0 0 0    0      0      6    9       100     1     -1     0   0
 Item  = FishingRod         8     0     0     1 8 0  0 0 0     100    0      14   0       100     300   -1     0   0  
 
 Item  = RecallScroll       3     0     11    1 0 0 0 0 0      0      0      6    9       120     1     -1     0   0   
 Item  = InvisibilityScroll 3     0     11    2 0 0 0 0 0      0      0      6    9       560     1     -1     0   0   
 Item  = DetectInviScroll   3     0     11    3 0 0 0 0 0      0      0      6    9       330     1     -1     0   0   
-Item  = MagicResistManual	   3     0     9     3 20 0 0 0 0    0      0      6    92        50     1    -1     0   0  
+Item  = MagicResistManual	   3     0     9     10 20 0 0 0 0   0      0      6    92        50     1    -1     0   0  
 Item  = LuckyPrizeTicket   3     0     23    1 0 0  0 0 0     1      9      6    9       50000    1     -1   0     0 
 Item  = CraftingVessel	  10     0     0     1 0 0 0 0 0      300    0      22   0       1000    700   -1     0   0
 
-Item  = AlchemyManual      3     0     9     12 20 0 0 0 0    0      0      6    9       10     1     -1     0   0
+Item  = AlchemyManual      3     0     9     2 20 0 0 0 0     0      0      6    9       10     1     -1     0   0
 Item  = AlchemyBowl       10     0     0     1 0 0 0 0 0      300    0      6    55     1000   700     -1     0   0
-Item  = FarmingManual 	    3   0     9     2 20 0 0 0 0     0      0      6     92    100      1     -1     0   0
+Item  = FarmingManual 	    3   0     9     11 20 0 0 0 0     0      0      6     92    100      1     -1     0   0
 
 ;-------Name---------------Type--EPos--Effect--ETValue--------MaxLife--MFixC--Spr--SFrame--Price---Wgt--ApprV-Speed-LevelLimit
 

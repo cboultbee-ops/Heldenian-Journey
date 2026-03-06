@@ -48,7 +48,7 @@ typedef signed long     sDWORD;
 #define MAX_SERVERCHANGERESPONSE		60*1000
 
 #define MAXCLIENTS                  500
-#define MAXSKILLS                   10
+#define MAXSKILLS                   17
 #define MAXITEMS                    50
 #define MAXBANKITEMS                120
 

@@ -191,6 +191,7 @@ CGame::CGame(HWND hWnd) : m_hWnd(hWnd)
 		m_sSlateSuccessRate		= 0;
 		m_iPrimaryDropRate		= 0;
 		m_iSecondaryDropRate	= 0;
+		m_iRepDropDivisor		= 2;
 		m_iEnemyKillAdjust      = 1; 
 		m_sRaidTimeMonday		= 0; 
 		m_sRaidTimeTuesday      = 0; 
@@ -206,11 +207,23 @@ CGame::CGame(HWND hWnd) : m_hWnd(hWnd)
 		m_sMinSpeedFencing		= 1;
 		m_sMinSpeedShortSword	= 0;
 		m_sMinSpeedArchery		= 1;
+		m_sMinSpeedHammer		= 4;
+		m_sMinSpeedStaff		= 1;
+		m_sSpeedMultShortSword	= 100;
+		m_sSpeedMultLongSword	= 100;
+		m_sSpeedMultFencing		= 100;
+		m_sSpeedMultAxe			= 100;
+		m_sSpeedMultHammer		= 100;
+		m_sSpeedMultStaff		= 100;
+		m_sSpeedMultArchery		= 100;
 		m_iAttackFreqMin		= 0;
 		m_iMoveFreqMin			= 0;
 		m_iMagicFreqMin			= 1500;
 		m_iSuperAttackMultiplier = 100;
 		m_iAttackSpeedMultiplier = 100;
+		m_iWalkSpeed = 70;
+		m_iRunSpeed = 42;
+		m_iDashSpeed = 30;
 		m_bRecallDamageTimer = 1;
 		m_sCharSkillLimit		= 0;
 
@@ -1748,6 +1761,9 @@ void CGame::PlayerMapEntry(int iClientH, bool setRecallTime)
 		SendNotifyMsg(NULL, iClientH, NOTIFY_QUESTCOUNTER, cQuestRemain, NULL, NULL, NULL);
 		_bCheckIsQuestCompleted(iClientH);
 	}
+
+	// Send server-authoritative speed settings to client
+	SendNotifyMsg(NULL, iClientH, NOTIFY_SPEEDCONFIG, m_iWalkSpeed, m_iRunSpeed, m_iDashSpeed, NULL, m_iAttackSpeedMultiplier);
 }
 
 int CGame::iComposeInitMapData(short sX, short sY, int iClientH, char * pData)
@@ -2147,20 +2163,21 @@ void CGame::SendEventToNearClient_TypeA(short sOwnerH, char cOwnerType, DWORD dw
 		case OBJECTDAMAGE:
 		case OBJECTDAMAGEMOVE:
 		case OBJECTDYING:
-			dataLength = 11;
+			dataLength = 12;
 
 			wp  = (WORD *)cp;
 			*wp = sOwnerH + 30000;
 			cp += 2;
 			*cp = pClient->m_cDir;
 			cp++;
-			*cp = (unsigned char)sV1;
-			cp++;
+			sp = (short *)cp;
+			*sp = sV1;
+			cp += 2;
 			*cp = (unsigned char)sV2;
 			cp++;
 
 			if(wMsgType == OBJECTDYING){
-				dataLength = 15;
+				dataLength = 16;
 
 				sp  = (short *)cp;
 				*sp = pClient->m_sX;
@@ -2273,20 +2290,21 @@ void CGame::SendEventToNearClient_TypeA(short sOwnerH, char cOwnerType, DWORD dw
 		case OBJECTDAMAGE:
 		case OBJECTDAMAGEMOVE:
 		case OBJECTDYING:
-			dataLength = 11;
+			dataLength = 12;
 
 			wp  = (WORD *)cp;
 			*wp = sOwnerH + 40000;
 			cp += 2;
 			*cp = pNpc->m_cDir;
 			cp++;
-			*cp = (unsigned char)sV1;
-			cp++;
+			sp = (short *)cp;
+			*sp = sV1;
+			cp += 2;
 			*cp = (unsigned char)sV2;
 			cp++;
 
 			if (wMsgType == OBJECTDYING){
-				dataLength = 15;
+				dataLength = 16;
 
 				sp  = (short *)cp;
 				*sp = pNpc->m_sX;
@@ -3881,43 +3899,18 @@ void CGame::InitPlayerData(int iClientH, char * pData, DWORD dwSize)
 
 	cp = (char *)(pBuffer + INDEX2_MSGTYPE + 2);
 
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[0];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[1];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[2];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[3];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[4];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[5];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[6];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[7];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[8];
-	cp += 2;
-	ip   = (int *)cp;
-	*ip  = m_pClientList[iClientH]->m_cSkillMastery[9];
-	cp += 2;
+	for (i = 0; i < MAXSKILLTYPE; i++) {
+		ip   = (int *)cp;
+		*ip  = m_pClientList[iClientH]->m_cSkillMastery[i];
+		cp += 2;
+	}
 
 	for (i = 0; i < MAXMAGICTYPE; i++) {
 		*cp = m_pClientList[iClientH]->m_cMagicMastery[i];
 		cp++;
 	}
 
-	iRet = m_pClientList[iClientH]->m_pXSock->iSendMsg(pBuffer, 6 + 20 + 100);
+	iRet = m_pClientList[iClientH]->m_pXSock->iSendMsg(pBuffer, 6 + (MAXSKILLTYPE * 2) + MAXMAGICTYPE);
 
 	switch (iRet) {
 	case XSOCKEVENT_QUENEFULL:
@@ -4478,15 +4471,127 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
                cReadMode = 0;
                break;
 
-			case 14: 
-               m_cRepDropModifier = atoi(token); 
-               wsprintf(cTxt, "(*) Rep<->Drop modifier: (%d)", m_cRepDropModifier); 
-               PutLogList(cTxt); 
+			case 14:
+               m_cRepDropModifier = atoi(token);
+               wsprintf(cTxt, "(*) Rep<->Drop modifier: (%d)", m_cRepDropModifier);
+               PutLogList(cTxt);
                if (m_cRepDropModifier < 0) m_cRepDropModifier = 0;
-               cReadMode = 0; 
+               cReadMode = 0;
                break;
 
-			
+			case 28:
+               m_iRepDropDivisor = atoi(token);
+               if (m_iRepDropDivisor < 1) m_iRepDropDivisor = 1;
+               wsprintf(cTxt, "(*) Rep Drop Divisor: (%d)", m_iRepDropDivisor);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 29:
+               m_sMinSpeedHammer = atoi(token);
+               wsprintf(cTxt, "(*) Min speed hammer: (%d)", m_sMinSpeedHammer);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 30:
+               m_sMinSpeedStaff = atoi(token);
+               wsprintf(cTxt, "(*) Min speed staff: (%d)", m_sMinSpeedStaff);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 31:
+               m_sSpeedMultShortSword = atoi(token);
+               if (m_sSpeedMultShortSword < 10) m_sSpeedMultShortSword = 10;
+               if (m_sSpeedMultShortSword > 500) m_sSpeedMultShortSword = 500;
+               wsprintf(cTxt, "(*) Speed mult shortsword: (%d)%%", m_sSpeedMultShortSword);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 32:
+               m_sSpeedMultLongSword = atoi(token);
+               if (m_sSpeedMultLongSword < 10) m_sSpeedMultLongSword = 10;
+               if (m_sSpeedMultLongSword > 500) m_sSpeedMultLongSword = 500;
+               wsprintf(cTxt, "(*) Speed mult longsword: (%d)%%", m_sSpeedMultLongSword);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 33:
+               m_sSpeedMultFencing = atoi(token);
+               if (m_sSpeedMultFencing < 10) m_sSpeedMultFencing = 10;
+               if (m_sSpeedMultFencing > 500) m_sSpeedMultFencing = 500;
+               wsprintf(cTxt, "(*) Speed mult fencing: (%d)%%", m_sSpeedMultFencing);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 34:
+               m_sSpeedMultAxe = atoi(token);
+               if (m_sSpeedMultAxe < 10) m_sSpeedMultAxe = 10;
+               if (m_sSpeedMultAxe > 500) m_sSpeedMultAxe = 500;
+               wsprintf(cTxt, "(*) Speed mult axe: (%d)%%", m_sSpeedMultAxe);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 35:
+               m_sSpeedMultHammer = atoi(token);
+               if (m_sSpeedMultHammer < 10) m_sSpeedMultHammer = 10;
+               if (m_sSpeedMultHammer > 500) m_sSpeedMultHammer = 500;
+               wsprintf(cTxt, "(*) Speed mult hammer: (%d)%%", m_sSpeedMultHammer);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 36:
+               m_sSpeedMultStaff = atoi(token);
+               if (m_sSpeedMultStaff < 10) m_sSpeedMultStaff = 10;
+               if (m_sSpeedMultStaff > 500) m_sSpeedMultStaff = 500;
+               wsprintf(cTxt, "(*) Speed mult staff: (%d)%%", m_sSpeedMultStaff);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 37:
+               m_sSpeedMultArchery = atoi(token);
+               if (m_sSpeedMultArchery < 10) m_sSpeedMultArchery = 10;
+               if (m_sSpeedMultArchery > 500) m_sSpeedMultArchery = 500;
+               wsprintf(cTxt, "(*) Speed mult archery: (%d)%%", m_sSpeedMultArchery);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 38:
+               m_iWalkSpeed = atoi(token);
+               if (m_iWalkSpeed < 10) m_iWalkSpeed = 10;
+               if (m_iWalkSpeed > 200) m_iWalkSpeed = 200;
+               wsprintf(cTxt, "(*) Walk speed: (%d) ms/frame", m_iWalkSpeed);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 39:
+               m_iRunSpeed = atoi(token);
+               if (m_iRunSpeed < 10) m_iRunSpeed = 10;
+               if (m_iRunSpeed > 200) m_iRunSpeed = 200;
+               wsprintf(cTxt, "(*) Run speed: (%d) ms/frame", m_iRunSpeed);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+		 case 40:
+               m_iDashSpeed = atoi(token);
+               if (m_iDashSpeed < 10) m_iDashSpeed = 10;
+               if (m_iDashSpeed > 200) m_iDashSpeed = 200;
+               wsprintf(cTxt, "(*) Dash speed: (%d) ms/frame", m_iDashSpeed);
+               PutLogList(cTxt);
+               cReadMode = 0;
+               break;
+
+
 			case 15: 
                m_sMaxPlayerLevel = atoi(token); 
 			if (m_sMaxPlayerLevel >= 801) m_sMaxPlayerLevel = 800; 
@@ -4612,8 +4717,21 @@ BOOL CGame::bReadSettingsConfigFile(char * cFn)
 			if (memcmp(token, "super-attack-multiplier", 23) == 0) cReadMode = 25;
 			if (memcmp(token, "recall-damage-timer", 19) == 0) cReadMode = 26;
 			if (memcmp(token, "attack-speed-multiplier", 23) == 0) cReadMode = 27;
+			if (memcmp(token, "rep-drop-divisor", 16) == 0) cReadMode = 28;
+			if (memcmp(token, "min-speed-hammer", 16) == 0) cReadMode = 29;
+			if (memcmp(token, "min-speed-staff", 15) == 0) cReadMode = 30;
+			if (memcmp(token, "speed-mult-shortsword", 21) == 0) cReadMode = 31;
+			if (memcmp(token, "speed-mult-longsword", 20) == 0) cReadMode = 32;
+			if (memcmp(token, "speed-mult-fencing", 18) == 0) cReadMode = 33;
+			if (memcmp(token, "speed-mult-axe", 14) == 0) cReadMode = 34;
+			if (memcmp(token, "speed-mult-hammer", 17) == 0) cReadMode = 35;
+			if (memcmp(token, "speed-mult-staff", 16) == 0) cReadMode = 36;
+			if (memcmp(token, "speed-mult-archery", 18) == 0) cReadMode = 37;
+			if (memcmp(token, "walk-speed", 10) == 0) cReadMode = 38;
+			if (memcmp(token, "run-speed", 9) == 0) cReadMode = 39;
+			if (memcmp(token, "dash-speed", 10) == 0) cReadMode = 40;
 
-         } 
+         }
 
          token = pStrTok->pGet(); 
          //token = strtok( NULL, seps ); 
@@ -4914,7 +5032,7 @@ bool CGame::_bDecodePlayerDatafileContents(int iClientH, char * pData, DWORD dwS
 	ZeroMemory(m_pClientList[iClientH]->m_cProfile, sizeof(m_pClientList[iClientH]->m_cProfile));
 	SafeCopy(m_pClientList[iClientH]->m_cProfile, pData+343, 255);
 
-	for(BYTE b = 0; b < 10; b++)
+	for(BYTE b = 0; b < MAXSKILLTYPE; b++)
 	{
 		m_pClientList[iClientH]->m_cSkillMastery[b] = bGetOffsetValue(pData, (598+b));//+55
 		m_pClientList[iClientH]->m_iSkillSSN[b] = dwGetOffsetValue(pData, (653+(b*4)));//+100
@@ -5170,7 +5288,7 @@ bool CGame::_bDecodePlayerDatafileContents(int iClientH, char * pData, DWORD dwS
 
 			iCalcTotalWeight(iClientH);
 			TotalSkillPoints = 0;
-			for(int b = 0; b < 24; b++) TotalSkillPoints += m_pClientList[iClientH]->m_cSkillMastery[b];
+			for(int b = 0; b < MAXSKILLTYPE; b++) TotalSkillPoints += m_pClientList[iClientH]->m_cSkillMastery[b];
 
 			if (m_pClientList[iClientH]->m_sCharIDnum1 == 0) {
 				int _i, _iTemp1, _iTemp2;
@@ -5316,7 +5434,7 @@ int CGame::_iComposePlayerDataFileContents(int iClientH, char * pData)
 		//return (Index+2+strlen(m_pClientList[iClientH]->m_cProfile)+1);
 	}  
 
-	for (i = 0; i < 10; i++){
+	for (i = 0; i < MAXSKILLTYPE; i++){
 		PutOffsetValue(pData, 598+i, BYTESIZE, m_pClientList[iClientH]->m_cSkillMastery[i]);
 		PutOffsetValue(pData, 653+(i*4),DWORDSIZE, m_pClientList[iClientH]->m_iSkillSSN[i]);
 	}
@@ -6686,6 +6804,8 @@ void CGame::ChatMsgHandler(int iClientH, char * pData, DWORD dwMsgSize)
 				bSendMsgToLS(MSGID_GAMEMASTERLOG, iClientH, NULL,g_cTxt);
 				EventEnd();
 			}
+		} else if (memcmp(cp, "/createparty", 12) == 0) {
+			RequestCreatePartyHandler(iClientH);
 		} else if (memcmp(cp, "/joinparty ", 11) == 0) {
 			RequestJoinPartyHandler(iClientH, cp, dwMsgSize - 21);
 		} else if (memcmp(cp, "/dismissparty", 13) == 0) {
@@ -8904,7 +9024,27 @@ bool CGame::bEquipItemHandler(int iClientH, short sItemIndex, bool bNotify)
 		case SKILL_LONGSWORD:  if (sSpeed < m_sMinSpeedLongSword) sSpeed = m_sMinSpeedLongSword; break;
 		case SKILL_FENCING:    if (sSpeed < m_sMinSpeedFencing) sSpeed = m_sMinSpeedFencing; break;
 		case SKILL_AXE:        if (sSpeed < m_sMinSpeedAxe) sSpeed = m_sMinSpeedAxe; break;
+		case SKILL_HAMMER:     if (sSpeed < m_sMinSpeedHammer) sSpeed = m_sMinSpeedHammer; break;
+		case SKILL_STAFF:      if (sSpeed < m_sMinSpeedStaff) sSpeed = m_sMinSpeedStaff; break;
 		default:               if (sSpeed < 0) sSpeed = 0; break;
+		}
+
+		// Apply per-weapon speed multiplier (100=normal, 200=2x faster, 50=half speed)
+		{	short sMult = 100;
+			switch (m_pClientList[iClientH]->m_pItemList[sItemIndex]->m_sRelatedSkill) {
+			case SKILL_SHORTSWORD: sMult = m_sSpeedMultShortSword; break;
+			case SKILL_LONGSWORD:  sMult = m_sSpeedMultLongSword; break;
+			case SKILL_FENCING:    sMult = m_sSpeedMultFencing; break;
+			case SKILL_AXE:        sMult = m_sSpeedMultAxe; break;
+			case SKILL_HAMMER:     sMult = m_sSpeedMultHammer; break;
+			case SKILL_STAFF:      sMult = m_sSpeedMultStaff; break;
+			case SKILL_ARCHERY:    sMult = m_sSpeedMultArchery; break;
+			}
+			if (sMult != 100 && sMult > 0) {
+				sSpeed = (short)(sSpeed * 100 / sMult);
+				if (sSpeed < 0) sSpeed = 0;
+				if (sSpeed > 15) sSpeed = 15;
+			}
 		}
 #endif
 		sTemp = sTemp | sSpeed;
@@ -8966,7 +9106,27 @@ bool CGame::bEquipItemHandler(int iClientH, short sItemIndex, bool bNotify)
 		case SKILL_LONGSWORD:  if (sSpeed < m_sMinSpeedLongSword) sSpeed = m_sMinSpeedLongSword; break;
 		case SKILL_FENCING:    if (sSpeed < m_sMinSpeedFencing) sSpeed = m_sMinSpeedFencing; break;
 		case SKILL_AXE:        if (sSpeed < m_sMinSpeedAxe) sSpeed = m_sMinSpeedAxe; break;
+		case SKILL_HAMMER:     if (sSpeed < m_sMinSpeedHammer) sSpeed = m_sMinSpeedHammer; break;
+		case SKILL_STAFF:      if (sSpeed < m_sMinSpeedStaff) sSpeed = m_sMinSpeedStaff; break;
 		default:               if (sSpeed < 0) sSpeed = 0; break;
+		}
+
+		// Apply per-weapon speed multiplier (100=normal, 200=2x faster, 50=half speed)
+		{	short sMult = 100;
+			switch (m_pClientList[iClientH]->m_pItemList[sItemIndex]->m_sRelatedSkill) {
+			case SKILL_SHORTSWORD: sMult = m_sSpeedMultShortSword; break;
+			case SKILL_LONGSWORD:  sMult = m_sSpeedMultLongSword; break;
+			case SKILL_FENCING:    sMult = m_sSpeedMultFencing; break;
+			case SKILL_AXE:        sMult = m_sSpeedMultAxe; break;
+			case SKILL_HAMMER:     sMult = m_sSpeedMultHammer; break;
+			case SKILL_STAFF:      sMult = m_sSpeedMultStaff; break;
+			case SKILL_ARCHERY:    sMult = m_sSpeedMultArchery; break;
+			}
+			if (sMult != 100 && sMult > 0) {
+				sSpeed = (short)(sSpeed * 100 / sMult);
+				if (sSpeed < 0) sSpeed = 0;
+				if (sSpeed > 15) sSpeed = 15;
+			}
 		}
 #endif
 
@@ -10711,6 +10871,26 @@ void CGame::SendNotifyMsg(int iFromH, int iToH, WORD wMsgType, DWORD sV1, DWORD 
 		cp += 2;
 
 		iRet = m_pClientList[iToH]->m_pXSock->iSendMsg(cData, 12);
+		break;
+
+	case NOTIFY_SPEEDCONFIG:
+		sp = (short *)cp;
+		*sp = (short)sV1; // walkSpeed
+		cp += 2;
+
+		sp = (short *)cp;
+		*sp = (short)sV2; // runSpeed
+		cp += 2;
+
+		sp = (short *)cp;
+		*sp = (short)sV3; // dashSpeed
+		cp += 2;
+
+		sp = (short *)cp;
+		*sp = (short)sV4; // attackSpeedMultiplier
+		cp += 2;
+
+		iRet = m_pClientList[iToH]->m_pXSock->iSendMsg(cData, 14);
 		break;
 
 	case NOTIFY_DOWNSKILLINDEXSET:
@@ -27113,7 +27293,7 @@ static int ___iCAB10[] = {0,0, 1,2,3};
 int CGame::iGetComboAttackBonus(int iSkill, int iComboCount)
 {
 	if (iComboCount <= 1) return 0;
-	if (iComboCount > 6) return 0;
+	if (iComboCount > 4) return 0;
 	switch (iSkill) {
 	case 5: 		return ___iCAB5[iComboCount];
 		break;
@@ -31791,6 +31971,11 @@ void CGame::NpcDeadItemGenerator(int iNpcH, short sAttackerH, char cAttackerType
 
 	iItemprobability += m_cRepDropModifier;
 
+	// Reputation bonus: contribution / divisor (default divisor=2 → +0.5% per 100 rep on d10000 scale)
+	if (m_pClientList[sAttackerH] != NULL && m_pClientList[sAttackerH]->m_iContribution > 0) {
+		iItemprobability += m_pClientList[sAttackerH]->m_iContribution / m_iRepDropDivisor;
+	}
+
 	if ((m_pClientList[sAttackerH] != NULL) && (m_pClientList[sAttackerH]->m_iPartyStatus != PARTYSTATUS_PROCESSING))
 	{
 		iItemprobability += 1500;
@@ -31801,7 +31986,7 @@ void CGame::NpcDeadItemGenerator(int iNpcH, short sAttackerH, char cAttackerType
 		iItemprobability += 1500;
 	}
 
-	if (iItemprobability > dice(1,10000)) 
+	if (iItemprobability > dice(1,10000))
 	{
 
 		if (dice(1,10000) <= 3000) {
@@ -31853,7 +32038,7 @@ void CGame::NpcDeadItemGenerator(int iNpcH, short sAttackerH, char cAttackerType
 					delete pItem;
 					return;
 				}
-			}else { if (dice(1,10000) <= m_iSecondaryDropRate + m_cRepDropModifier) {
+			}else { if (dice(1,10000) <= m_iSecondaryDropRate + m_cRepDropModifier + (m_pClientList[sAttackerH] != NULL ? m_pClientList[sAttackerH]->m_iContribution / m_iRepDropDivisor : 0)) {
 				// pots/zem/stones/etc...
 				iResult = dice(1,10000);  
 				if ((iResult >= 1) && (iResult <= 3000))          dwValue = 1;   

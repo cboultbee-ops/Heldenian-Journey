@@ -178,6 +178,19 @@ void CMessageHandler::NotifyMsgHandler(char * Data)
 			m_pGame->AddEventList("Super Berserk activated! +20% magic damage.", 10);
 		break;
 
+	case NOTIFY_SPEEDCONFIG:
+		sp = (short *)(Data + INDEX2_MSGTYPE + 2);
+		sV1 = *sp; sp++; // walkSpeed
+		sV2 = *sp; sp++; // runSpeed
+		sV3 = *sp; sp++; // dashSpeed
+		sV4 = *sp; sp++; // attackSpeedMultiplier
+		m_pGame->m_iWalkSpeed = (int)sV1;
+		m_pGame->m_iRunSpeed = (int)sV2;
+		m_pGame->m_iDashSpeed = (int)sV3;
+		m_pGame->m_iAttackSpeedMultiplier = (int)sV4;
+		m_pGame->ApplySpeedSettings();
+		break;
+
 	case NOTIFY_0BEF:				// 0x0BEF: // Snoopy: Crash or closes the client? (Calls SE entry !)
 		// I'm noot sure at all of this function's result, so let's quit game...
 
@@ -2552,8 +2565,9 @@ void CMessageHandler::MotionEventHandler(char* Data) {
 		case OBJECTDAMAGE:
 			cDir = *cp;
 			cp++;
-			sV1 = (short)*cp; //Damage
-			cp++;
+			sp = (short *)cp;
+			sV1 = *sp; //Damage (short)
+			cp += 2;
 			sV2 = (short)*cp; //
 			cp++;
   			break;
@@ -2561,8 +2575,9 @@ void CMessageHandler::MotionEventHandler(char* Data) {
 		case OBJECTDYING:
 			cDir = *cp;
 			cp++;
-			sV1 = (short)*cp; //Damage
-			cp++;
+			sp = (short *)cp;
+			sV1 = *sp; //Damage (short)
+			cp += 2;
 			sV2 = (short)*cp; //
 			cp++;
 			sp  = (short *)cp;
@@ -3121,7 +3136,7 @@ void CMessageHandler::InitSkillList(char * Data)
 
 	cp = (char *)(Data + 6);
 
-	for (i = 0; i < 10; i++) {
+	for (i = 0; i < MAXSKILLTYPE; i++) {
 		ip = (int *)cp;
 		m_pGame->m_cSkillMastery[i] = *ip;
 		if (m_pGame->m_pSkillCfgList[i] != NULL)
@@ -5195,6 +5210,7 @@ void CMessageHandler::NotifyMsg_Skill(char *Data)
 	sValue = (short)*wp;
 	cp += 2;
 	m_pGame->_RemoveChatMsgListByObjectID(m_pGame->m_sPlayerObjectID);
+	if (sSkillIndex < 0 || sSkillIndex >= MAXSKILLTYPE) return;
 	if(!m_pGame->m_pSkillCfgList[sSkillIndex]) return;
 	if (m_pGame->m_pSkillCfgList[sSkillIndex]->m_iLevel < sValue)
 	{	wsprintf(cTxt, NOTIFYMSG_SKILL1, m_pGame->m_pSkillCfgList[sSkillIndex]->m_cName, sValue - m_pGame->m_pSkillCfgList[sSkillIndex]->m_iLevel);
@@ -5780,6 +5796,7 @@ void CMessageHandler::NotifyMsg_SkillTrainSuccess(char * Data)
 	cp++;
 	cSkillLevel = *cp;
 	cp++;
+	if ((unsigned char)cSkillNum >= MAXSKILLTYPE) return;
 	if(!m_pGame->m_pSkillCfgList[cSkillNum]) return;
 	ZeroMemory(cTemp, sizeof(cTemp));
 	wsprintf(cTemp, NOTIFYMSG_SKILL_TRAIN_SUCCESS1, m_pGame->m_pSkillCfgList[cSkillNum]->m_cName, cSkillLevel);

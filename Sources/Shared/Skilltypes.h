@@ -1,6 +1,5 @@
 enum skillIndexes
 {
-	// Standard Helbreath skill mapping (indices 0-9)
 	SKILL_MINING = 0,
 	SKILL_MANUFACTURING = 1,
 	SKILL_ALCHEMY = 2,
@@ -11,6 +10,13 @@ enum skillIndexes
 	SKILL_AXE = 7,
 	SKILL_SHIELD = 8,
 	SKILL_ARCHERY = 9,
+	SKILL_MAGICRES = 10,
+	SKILL_FARMING = 11,
+	SKILL_FISHING = 12,
+	SKILL_HAMMER = 13,
+	SKILL_STAFF = 14,
+	SKILL_PRETENDCORPSE = 15,
+	SKILL_POISONRES = 16,
 
 	// Convenience alias
 	SKILL_HANDATTACK = SKILL_SHORTSWORD,

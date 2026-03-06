@@ -1488,33 +1488,15 @@ void CLoginServer::CreateNewCharacter(char *Data, WORD ClientID, MYSQL myConn)
 			if(InsertResult == 0){
 				DWORD CharID = GetCharID(CharName, AccName, myConn);
 				for(BYTE s = 0; s < MAXSKILLS; s++){
-					if(s == 4 || s == 5 || s == 7){
-						ZeroMemory(QueryConsult, sizeof(QueryConsult));
-						sprintf(QueryConsult, "INSERT INTO `skill` ( `CharID` , `SkillID`, `SkillMastery` , `SkillSSN`)\
-											  VALUES (	'%lu' ,		'%u' ,		'%u'	 ,   '%lu'  );",
-											  CharID  ,  s	,  20  ,  0 );
-						if(ProcessQuery(&myConn, QueryConsult) == -1) return;
-						QueryResult = mysql_store_result(&myConn);
-						SAFEFREERESULT(QueryResult);
-					}
-					else if(s == 3){
-						ZeroMemory(QueryConsult, sizeof(QueryConsult));
-						sprintf(QueryConsult, "INSERT INTO `skill` ( `CharID` , `SkillID`, `SkillMastery` , `SkillSSN`)\
-											  VALUES (   '%lu'   ,   '%u'   ,      '%u'      ,   '%lu'  );",
-											  CharID  ,  s	,  20  ,  0 );
-						if(ProcessQuery(&myConn, QueryConsult) == -1) return;
-						QueryResult = mysql_store_result(&myConn);
-						SAFEFREERESULT(QueryResult);
-					}
-					else{
-						ZeroMemory(QueryConsult, sizeof(QueryConsult));
-						sprintf(QueryConsult, "INSERT INTO `skill` ( `CharID` , `SkillID`, `SkillMastery` , `SkillSSN`)\
-											  VALUES (   '%lu'   ,   '%u'   ,      '%u'      ,   '%lu'  );",
-											  CharID  ,  s	,  20  ,  0 );
-						if(ProcessQuery(&myConn, QueryConsult) == -1) return;
-						QueryResult = mysql_store_result(&myConn);
-						SAFEFREERESULT(QueryResult);
-					}
+					// Magic (3) and ShortSword/HandAttack (4) start at 20 - all others start at 0 (learn via manual)
+					int startMastery = (s == 3 || s == 4) ? 20 : 0;
+					ZeroMemory(QueryConsult, sizeof(QueryConsult));
+					sprintf(QueryConsult, "INSERT INTO `skill` ( `CharID` , `SkillID`, `SkillMastery` , `SkillSSN`)\
+										  VALUES (	'%lu' ,		'%u' ,		'%u'	 ,   '%lu'  );",
+										  CharID  ,  s	,  startMastery  ,  0 );
+					if(ProcessQuery(&myConn, QueryConsult) == -1) return;
+					QueryResult = mysql_store_result(&myConn);
+					SAFEFREERESULT(QueryResult);
 				}
 				Item = new cItem;
 
@@ -2962,7 +2944,7 @@ void CLoginServer::SaveCharacter(char* Data, MYSQL myConn)
 		if (nCharID3 > MEDIUMINT_MAX) nCharID3 = MEDIUMINT_MAX; else if (nCharID3 < MEDIUMINT_MIN) nCharID3 = MEDIUMINT_MIN;
 	}
 
-	for (w = 0; w < 10; w++)
+	for (w = 0; w < MAXSKILLS; w++)
 	{
 		SkillMastery = Retrive8ByteValue(cp, 598+w);
 		SkillSSN = Retrive32DWordValue(cp, 653+(w*4));

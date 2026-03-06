@@ -29,8 +29,7 @@ bool CheckResistingMagicSuccess(char cAttackerDir, short sTargetH, char cTargetT
 		if (g_clientList[sTargetH]->IsInvincible()) return TRUE;
 
 		cTargetDir = g_clientList[sTargetH]->m_cDir;
-		//iTarGetMagicResistRatio = g_clientList[sTargetH]->m_cSkillMastery[SKILL_MAGICRES] +g_clientList[sTargetH]->m_iAddMR; 
-iTarGetMagicResistRatio = g_clientList[sTargetH]->m_iAddMR; 
+		iTarGetMagicResistRatio = g_clientList[sTargetH]->m_cSkillMastery[SKILL_MAGICRES] + g_clientList[sTargetH]->m_iAddMR;
 
 		if (g_clientList[sTargetH]->GetMag() > 50) 
 			iTarGetMagicResistRatio += (g_clientList[sTargetH]->GetMag() - 50);

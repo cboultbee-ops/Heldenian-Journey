@@ -95,14 +95,18 @@ SERVER_SETTINGS = [
     ("slate-success-rate", "Slate Success Rate", 1, 100),
     ("enemy-kill-adjust", "Enemy Kill Adjust", 1, 100),
     ("rep-drop-modifier", "Rep Drop Modifier", 0, 100),
+    ("rep-drop-divisor", "Rep Drop Divisor (contribution/X)", 1, 1000),
 ]
 
 WEAPON_SPEED_SETTINGS = [
-    ("min-speed-axe", "Min Speed (Axe)", 0, 10, 3),
-    ("min-speed-longsword", "Min Speed (Long Sword)", 0, 10, 2),
-    ("min-speed-fencing", "Min Speed (Fencing)", 0, 10, 1),
-    ("min-speed-shortsword", "Min Speed (Short Sword)", 0, 10, 0),
-    ("min-speed-archery", "Min Speed (Archery)", 0, 10, 1),
+    # (min_key, mult_key, label, min_lo, min_hi, min_def, mult_lo, mult_hi, mult_def)
+    ("min-speed-shortsword", "speed-mult-shortsword", "Short Sword / Hand", 0, 10, 0, 10, 500, 100),
+    ("min-speed-longsword",  "speed-mult-longsword",  "Long Sword",         0, 10, 2, 10, 500, 100),
+    ("min-speed-fencing",    "speed-mult-fencing",    "Fencing",            0, 10, 1, 10, 500, 100),
+    ("min-speed-axe",        "speed-mult-axe",        "Axe",                0, 10, 3, 10, 500, 100),
+    ("min-speed-hammer",     "speed-mult-hammer",     "Hammer",             0, 10, 4, 10, 500, 100),
+    ("min-speed-staff",      "speed-mult-staff",      "Staff / Wand",       0, 10, 1, 10, 500, 100),
+    ("min-speed-archery",    "speed-mult-archery",    "Archery",            0, 10, 1, 10, 500, 100),
 ]
 
 MOVEMENT_SETTINGS = [
@@ -249,6 +253,7 @@ class ServerManager(tk.Tk):
         self.status_dots = {}
         self.setting_vars = {}
         self.weapon_vars = {}
+        self.weapon_mult_vars = {}
         self.movement_vars = {}
         self.frequency_vars = {}
         self.super_attack_vars = {}
@@ -1283,22 +1288,39 @@ class ServerManager(tk.Tk):
         self._update_recall_timer_label()
 
         # --- Combat Speed Section ---
-        combat_frame = ttk.LabelFrame(content, text="Combat Speed (per-weapon minimums)", padding=8)
+        combat_frame = ttk.LabelFrame(content, text="Combat Speed (per-weapon)", padding=8)
         combat_frame.pack(fill="x", padx=5, pady=4)
 
         ttk.Label(combat_frame,
-                  text="Higher = slower attack. 0 = fastest possible.",
+                  text="Min: floor speed (higher=slower). Mult: 100%=normal, 200%=2x faster, 50%=half speed.",
                   foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
 
-        for key, label, lo, hi, default in WEAPON_SPEED_SETTINGS:
+        # Header row
+        hdr = ttk.Frame(combat_frame)
+        hdr.pack(fill="x", pady=(0, 2))
+        ttk.Label(hdr, text="Weapon", width=18, anchor="w",
+                  font=("Segoe UI", 8, "bold")).pack(side="left")
+        ttk.Label(hdr, text="Min Speed", width=10, anchor="center",
+                  font=("Segoe UI", 8, "bold")).pack(side="left", padx=(4, 0))
+        ttk.Label(hdr, text="Speed Mult %", width=12, anchor="center",
+                  font=("Segoe UI", 8, "bold")).pack(side="left", padx=(8, 0))
+
+        for min_key, mult_key, label, min_lo, min_hi, min_def, mult_lo, mult_hi, mult_def in WEAPON_SPEED_SETTINGS:
             row = ttk.Frame(combat_frame)
             row.pack(fill="x", pady=1)
-            ttk.Label(row, text=label, width=24, anchor="w").pack(side="left")
-            var = tk.StringVar(value=ref.get(key, str(default)))
-            ttk.Entry(row, textvariable=var, width=6).pack(side="left", padx=5)
-            ttk.Label(row, text=f"({lo}-{hi})  def: {default}",
+            ttk.Label(row, text=label, width=18, anchor="w").pack(side="left")
+            # Min speed entry
+            min_var = tk.StringVar(value=ref.get(min_key, str(min_def)))
+            ttk.Entry(row, textvariable=min_var, width=4).pack(side="left", padx=4)
+            ttk.Label(row, text=f"(0-{min_hi})",
+                      foreground="gray", font=("Segoe UI", 7)).pack(side="left")
+            self.weapon_vars[min_key] = min_var
+            # Speed multiplier entry
+            mult_var = tk.StringVar(value=ref.get(mult_key, str(mult_def)))
+            ttk.Entry(row, textvariable=mult_var, width=5).pack(side="left", padx=(12, 2))
+            ttk.Label(row, text="%",
                       foreground="gray", font=("Segoe UI", 8)).pack(side="left")
-            self.weapon_vars[key] = var
+            self.weapon_mult_vars[mult_key] = mult_var
 
         # --- Super Attack Section ---
         sa_frame = ttk.LabelFrame(content, text="Super Attack", padding=8)
@@ -1339,11 +1361,11 @@ class ServerManager(tk.Tk):
             self.attack_speed_vars[key] = var
 
         # --- Movement Section ---
-        move_frame = ttk.LabelFrame(content, text="Movement & Dash Speed (client)", padding=8)
+        move_frame = ttk.LabelFrame(content, text="Movement & Dash Speed (server-authoritative)", padding=8)
         move_frame.pack(fill="x", padx=5, pady=4)
 
         ttk.Label(move_frame,
-                  text="Lower = faster. Saved to GM.cfg. Restart client to apply.",
+                  text="Lower = faster. Server sends to client on login (overrides GM.cfg).",
                   foreground="gray", font=("Segoe UI", 8)).pack(anchor="w", pady=(0, 4))
 
         for key, label, lo, hi, default in MOVEMENT_SETTINGS:
@@ -2020,20 +2042,34 @@ class ServerManager(tk.Tk):
         self._log("Server settings saved to all 4 configs")
 
     def _save_gameplay_settings(self):
-        # Weapon speeds -> Settings.cfg
+        # Weapon speeds + multipliers -> Settings.cfg
         weapon_settings = {}
-        for key, label, lo, hi, default in WEAPON_SPEED_SETTINGS:
-            val = self.weapon_vars[key].get().strip()
+        for min_key, mult_key, label, min_lo, min_hi, min_def, mult_lo, mult_hi, mult_def in WEAPON_SPEED_SETTINGS:
+            # Min speed
+            val = self.weapon_vars[min_key].get().strip()
             if val:
                 try:
                     num = int(val)
-                    if num < lo or num > hi:
+                    if num < min_lo or num > min_hi:
                         messagebox.showwarning("Invalid Value",
-                                               f"{label} must be between {lo} and {hi}")
+                                               f"{label} Min Speed must be between {min_lo} and {min_hi}")
                         return
-                    weapon_settings[key] = str(num)
+                    weapon_settings[min_key] = str(num)
                 except ValueError:
-                    messagebox.showwarning("Invalid Value", f"{label} must be a number")
+                    messagebox.showwarning("Invalid Value", f"{label} Min Speed must be a number")
+                    return
+            # Speed multiplier
+            mval = self.weapon_mult_vars[mult_key].get().strip()
+            if mval:
+                try:
+                    mnum = int(mval)
+                    if mnum < mult_lo or mnum > mult_hi:
+                        messagebox.showwarning("Invalid Value",
+                                               f"{label} Speed Mult must be between {mult_lo} and {mult_hi}")
+                        return
+                    weapon_settings[mult_key] = str(mnum)
+                except ValueError:
+                    messagebox.showwarning("Invalid Value", f"{label} Speed Mult must be a number")
                     return
 
         # Frequency checks -> Settings.cfg
@@ -2090,10 +2126,11 @@ class ServerManager(tk.Tk):
                     write_cfg(path, weapon_settings)
             self._log("Server gameplay settings saved to all 4 configs")
 
-        # Movement speeds -> GM.cfg
+        # Movement speeds -> Settings.cfg (server-authoritative) AND GM.cfg (fallback)
         client_settings = {}
         # Include attack speed in client settings too
         client_settings.update(attack_speed_for_client)
+        movement_for_server = {}
         for key, label, lo, hi, default in MOVEMENT_SETTINGS:
             val = self.movement_vars[key].get().strip()
             if val:
@@ -2104,9 +2141,17 @@ class ServerManager(tk.Tk):
                                                f"{label} must be between {lo} and {hi}")
                         return
                     client_settings[key] = str(num)
+                    movement_for_server[key] = str(num)
                 except ValueError:
                     messagebox.showwarning("Invalid Value", f"{label} must be a number")
                     return
+
+        # Write movement speeds to all 4 server configs (server sends to client on login)
+        if movement_for_server:
+            for name in ["Towns", "Neutrals", "Middleland", "Events"]:
+                path = SERVERS[name].get("settings")
+                if path:
+                    write_cfg(path, movement_for_server)
 
         # Logout timer -> GM.cfg
         timer_val = self.logout_timer_var.get().strip()

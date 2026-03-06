@@ -786,30 +786,8 @@ BOOL CGame::bInit(HWND hWnd, HINSTANCE hInst, char * pCmdLine)
 	m_stMCursor.sY = 0;
 	m_pMapData = new class CMapData(this);
 
-	// Apply configurable speed overrides for player types 1-6
-	for (int iType = 1; iType <= 6; iType++) {
-		m_pMapData->m_stFrame[iType][OBJECTMOVE].m_sFrameTime = (short)m_iWalkSpeed;
-		m_pMapData->m_stFrame[iType][OBJECTRUN].m_sFrameTime = (short)m_iRunSpeed;
-		m_pMapData->m_stFrame[iType][OBJECTATTACKMOVE].m_sFrameTime = (short)m_iDashSpeed;
-		// Apply attack speed multiplier: higher % = faster attacks (lower frame time)
-		if (m_iAttackSpeedMultiplier != 100) {
-			short sAtkTime = (short)(31 * 100 / m_iAttackSpeedMultiplier);
-			if (sAtkTime < 10) sAtkTime = 10;
-			m_pMapData->m_stFrame[iType][OBJECTATTACK].m_sFrameTime = sAtkTime;
-		}
-	}
-
-	// Diagnostic: show initial frame times after GM.cfg speed overrides
-	{
-		char cInitDbg[128];
-		wsprintf(cInitDbg, "[INIT] Walk=%d Run=%d Dash=%d AtkMul=%d (cfg walk=%d run=%d dash=%d)",
-			m_pMapData->m_stFrame[1][OBJECTMOVE].m_sFrameTime,
-			m_pMapData->m_stFrame[1][OBJECTRUN].m_sFrameTime,
-			m_pMapData->m_stFrame[1][OBJECTATTACKMOVE].m_sFrameTime,
-			m_iAttackSpeedMultiplier,
-			m_iWalkSpeed, m_iRunSpeed, m_iDashSpeed);
-		AddEventList(cInitDbg, 10);
-	}
+	// Apply configurable speed overrides (from GM.cfg defaults, server overrides later)
+	ApplySpeedSettings();
 
 	ZeroMemory(m_cPlayerName, sizeof(m_cPlayerName));
 	ZeroMemory(m_cAccountName, sizeof(m_cAccountName));
@@ -21657,6 +21635,21 @@ void CGame::UpdateSpecialAbilityTimers()
 	}
 }
 
+void CGame::ApplySpeedSettings()
+{
+	if (m_pMapData == NULL) return;
+	for (int iType = 1; iType <= 6; iType++) {
+		m_pMapData->m_stFrame[iType][OBJECTMOVE].m_sFrameTime = (short)m_iWalkSpeed;
+		m_pMapData->m_stFrame[iType][OBJECTRUN].m_sFrameTime = (short)m_iRunSpeed;
+		m_pMapData->m_stFrame[iType][OBJECTATTACKMOVE].m_sFrameTime = (short)m_iDashSpeed;
+		if (m_iAttackSpeedMultiplier != 100) {
+			short sAtkTime = (short)(31 * 100 / m_iAttackSpeedMultiplier);
+			if (sAtkTime < 10) sAtkTime = 10;
+			m_pMapData->m_stFrame[iType][OBJECTATTACK].m_sFrameTime = sAtkTime;
+		}
+	}
+}
+
 void CGame::ApplySpeedBuff(bool bActivate)
 {
 	if (bActivate) {
@@ -33748,7 +33741,8 @@ void CGame::DrawDialogBox_Skill(short msX, short msY, short msZ, char cLB)
 	switch (m_stDialogBoxInfo[15].cMode) {
 	case 0:
 		for (int line = 0, skillIndex = 0; line < 17 && (skillIndex + m_stDialogBoxInfo[15].sView) < MAXSKILLTYPE; skillIndex++)
-			if (m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView])
+			if (m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]
+				&& m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_iLevel > 0)
 			{
 				ZeroMemory(cTemp, sizeof(cTemp));
 				wsprintf(cTemp, "%s", m_pSkillCfgList[skillIndex + m_stDialogBoxInfo[15].sView]->m_cName);
@@ -33781,7 +33775,7 @@ void CGame::DrawDialogBox_Skill(short msX, short msY, short msZ, char cLB)
 
 		iTotalLines = 0;
 		for (int i = 0; i < MAXSKILLTYPE; i++)
-			if (m_pSkillCfgList[i] != NULL) iTotalLines++;
+			if (m_pSkillCfgList[i] != NULL && m_pSkillCfgList[i]->m_iLevel > 0) iTotalLines++;
 
 		if (iTotalLines > 17)
 		{
@@ -33822,7 +33816,8 @@ void CGame::DrawDialogBox_Skill(short msX, short msY, short msZ, char cLB)
 			m_DInput.m_sZ = 0;
 		}
 		if (m_stDialogBoxInfo[15].sView < 0) m_stDialogBoxInfo[15].sView = 0;
-		if (iTotalLines > 17 && m_stDialogBoxInfo[15].sView > iTotalLines - 17) m_stDialogBoxInfo[15].sView = iTotalLines - 17;
+		if (iTotalLines <= 17) m_stDialogBoxInfo[15].sView = 0;
+		else if (m_stDialogBoxInfo[15].sView > iTotalLines - 17) m_stDialogBoxInfo[15].sView = iTotalLines - 17;
 		break;
 	}
 }

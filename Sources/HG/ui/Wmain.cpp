@@ -2,6 +2,7 @@
 #include <windowsx.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <winbase.h>
 #include <mmsystem.h>
 #include <time.h>
@@ -14,6 +15,23 @@
 #include "..\res\Resource.h"
 
 // --------------------------------------------------------------
+// Crash logging helpers — write to Logs/crash.txt next to exe
+
+static void WriteCrashLog(const char* reason) {
+	char path[MAX_PATH];
+	GetModuleFileNameA(NULL, path, MAX_PATH);
+	char* slash = strrchr(path, '\\');
+	if (slash) *(slash + 1) = '\0';
+	strcat(path, "Logs\\crash.txt");
+	FILE* f = fopen(path, "a");
+	if (f) {
+		SYSTEMTIME st;
+		GetLocalTime(&st);
+		fprintf(f, "[%04d-%02d-%02d %02d:%02d:%02d.%03d] %s\n",
+			st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, reason);
+		fclose(f);
+	}
+}
 
 static LONG WINAPI CrashDumpHandler(EXCEPTION_POINTERS* pExInfo) {
 	// Write crash dump file next to the executable
@@ -36,23 +54,39 @@ static LONG WINAPI CrashDumpHandler(EXCEPTION_POINTERS* pExInfo) {
 	}
 
 	// Also write a text crash log with key addresses
-	if (dot) strcpy(dot, "_crash.txt");
-	else strcat(dumpPath, "_crash.txt");
-	FILE* f = fopen(dumpPath, "w");
-	if (f) {
-		fprintf(f, "CRASH at %p\n", pExInfo->ExceptionRecord->ExceptionAddress);
-		fprintf(f, "Code: 0x%08X\n", pExInfo->ExceptionRecord->ExceptionCode);
-		fprintf(f, "EAX=%08X EBX=%08X ECX=%08X EDX=%08X\n",
-			pExInfo->ContextRecord->Eax, pExInfo->ContextRecord->Ebx,
-			pExInfo->ContextRecord->Ecx, pExInfo->ContextRecord->Edx);
-		fprintf(f, "ESI=%08X EDI=%08X EBP=%08X ESP=%08X\n",
-			pExInfo->ContextRecord->Esi, pExInfo->ContextRecord->Edi,
-			pExInfo->ContextRecord->Ebp, pExInfo->ContextRecord->Esp);
-		fprintf(f, "EIP=%08X\n", pExInfo->ContextRecord->Eip);
-		fclose(f);
-	}
+	char msg[512];
+	sprintf(msg, "SEH EXCEPTION at %p Code=0x%08X EIP=%08X EAX=%08X EBX=%08X ECX=%08X EDX=%08X ESI=%08X EDI=%08X EBP=%08X ESP=%08X",
+		pExInfo->ExceptionRecord->ExceptionAddress,
+		pExInfo->ExceptionRecord->ExceptionCode,
+		pExInfo->ContextRecord->Eip,
+		pExInfo->ContextRecord->Eax, pExInfo->ContextRecord->Ebx,
+		pExInfo->ContextRecord->Ecx, pExInfo->ContextRecord->Edx,
+		pExInfo->ContextRecord->Esi, pExInfo->ContextRecord->Edi,
+		pExInfo->ContextRecord->Ebp, pExInfo->ContextRecord->Esp);
+	WriteCrashLog(msg);
 
 	return EXCEPTION_EXECUTE_HANDLER;
+}
+
+// Catch CRT abort() — Debug runtime calls this for heap corruption, buffer overruns, etc.
+static void AbortSignalHandler(int sig) {
+	WriteCrashLog("SIGABRT received (CRT abort — possible heap corruption or buffer overrun)");
+	_exit(3);
+}
+
+// Catch CRT invalid parameter errors (e.g., NULL passed to CRT functions)
+static void InvalidParameterHandler(const wchar_t* expr, const wchar_t* func,
+	const wchar_t* file, unsigned int line, uintptr_t reserved) {
+	char msg[512];
+	sprintf(msg, "CRT invalid parameter: func=%S file=%S line=%u", func ? func : L"?", file ? file : L"?", line);
+	WriteCrashLog(msg);
+	_exit(4);
+}
+
+// Catch unhandled C++ exceptions
+static void TerminateHandler() {
+	WriteCrashLog("std::terminate called (unhandled C++ exception)");
+	_exit(5);
 }
 
 #define WM_USER_TIMERSIGNAL		WM_USER + 500
@@ -208,7 +242,14 @@ LRESULT CALLBACK WndProc( HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam )
 int APIENTRY WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance,
                LPSTR lpCmdLine, int nCmdShow )
 {
+	// Install crash handlers — SEH, CRT abort, invalid parameter, C++ terminate
 	SetUnhandledExceptionFilter(CrashDumpHandler);
+	signal(SIGABRT, AbortSignalHandler);
+	_set_invalid_parameter_handler(InvalidParameterHandler);
+	set_terminate(TerminateHandler);
+	// Disable CRT abort message box (would hang background process)
+	_set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+
 	LogMsg.CurMsg = MAXLOGMSGS-1;
 	sprintf( szAppClass, "GameServer%d", hInstance);
 	if (!InitApplication( hInstance))		return (FALSE);

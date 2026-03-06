@@ -928,6 +928,7 @@ public:
 	short m_sCharStatLimit;
 	short m_sCharSkillLimit;
 	char m_cRepDropModifier;
+	int m_iRepDropDivisor;
 	short m_sExpModifier;
 
 	short m_sMinSpeedAxe;
@@ -935,12 +936,25 @@ public:
 	short m_sMinSpeedFencing;
 	short m_sMinSpeedShortSword;
 	short m_sMinSpeedArchery;
+	short m_sMinSpeedHammer;
+	short m_sMinSpeedStaff;
+
+	short m_sSpeedMultShortSword;
+	short m_sSpeedMultLongSword;
+	short m_sSpeedMultFencing;
+	short m_sSpeedMultAxe;
+	short m_sSpeedMultHammer;
+	short m_sSpeedMultStaff;
+	short m_sSpeedMultArchery;
 
 	int m_iAttackFreqMin;
 	int m_iMoveFreqMin;
 	int m_iMagicFreqMin;
 	int m_iSuperAttackMultiplier;
 	int m_iAttackSpeedMultiplier;
+	int m_iWalkSpeed;
+	int m_iRunSpeed;
+	int m_iDashSpeed;
 	int m_bRecallDamageTimer;
 
 	short m_sMaxPlayerLevel;
